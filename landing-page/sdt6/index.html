@@ -1,0 +1,107 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traders do Agro | Mentoria de Elite</title>
+    
+    <script>
+        (function() {
+            const ignorePattern = /cdn\.tailwindcss\.com|Tailwind CSS/i;
+            const originalLog = console.log;
+            const originalWarn = console.warn;
+            const originalInfo = console.info;
+            console.log = (...args) => { if (typeof args[0] === 'string' && ignorePattern.test(args[0])) return; originalLog(...args); };
+            console.warn = (...args) => { if (typeof args[0] === 'string' && ignorePattern.test(args[0])) return; originalWarn(...args); };
+            console.info = (...args) => { if (typeof args[0] === 'string' && ignorePattern.test(args[0])) return; originalInfo(...args); };
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;1,300&family=Bebas+Neue&family=Playfair+Display:ital,wght@0,900;1,900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050705;
+            color: #ffffff;
+            margin: 0;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+            -webkit-font-smoothing: antialiased;
+        }
+        #root { min-height: 100vh; position: relative; }
+
+        ::selection { background-color: #008000; color: #ffffff; }
+
+        @keyframes subtleSlideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes panImage {
+            from { transform: scale(1.1); }
+            to { transform: scale(1.0); }
+        }
+
+        .reveal {
+            opacity: 0;
+            transition: all 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .green-glow {
+            box-shadow: 0 10px 40px -10px rgba(0, 128, 0, 0.3);
+        }
+
+        .text-shadow-premium {
+            text-shadow: 0 4px 20px rgba(0,0,0,0.8);
+        }
+
+        .font-bebas {
+            font-family: 'Bebas Neue', cursive;
+        }
+    </style>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            green: '#008000',
+                            dark: '#173337',
+                            deep: '#050705',
+                            gray: '#d1d5db',
+                        }
+                    },
+                    animation: {
+                        'slow-pan': 'panImage 20s ease-out infinite alternate',
+                        'slide-up': 'subtleSlideUp 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+</body>
+</html>
