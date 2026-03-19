@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { api } from "../services/api";
 import {
   MENTORIA_LANDING_IMAGES,
   MENTORIA_LANDING_METRICS,
@@ -14,6 +15,8 @@ const NAV_ITEMS = [
   { label: "Mentor", href: "#mentor" },
 ];
 
+const LANDING_PAGE_TITLE = "Landing page - mentoria turma 02";
+
 const INITIAL_FORM = {
   nome: "",
   whatsapp: "",
@@ -22,6 +25,7 @@ const INITIAL_FORM = {
   funcao: "",
   empresa: "",
   objetivo_mentoria: "",
+  mensagem: "",
 };
 
 function MentoriaSection({ children, className = "", id }) {
@@ -32,8 +36,8 @@ function MentoriaSection({ children, className = "", id }) {
   );
 }
 
-function MentoriaEyebrow({ children }) {
-  return <span className="mentoria-landing-eyebrow">{children}</span>;
+function MentoriaEyebrow({ children, className = "" }) {
+  return <span className={`mentoria-landing-eyebrow ${className}`.trim()}>{children}</span>;
 }
 
 export function MentoriaLandingPage() {
@@ -51,11 +55,38 @@ export function MentoriaLandingPage() {
   }, []);
 
   useEffect(() => {
+    const elements = Array.from(document.querySelectorAll(".mentoria-reveal"));
+    if (!elements.length) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+    );
+
+    elements.forEach((element) => observer.observe(element));
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     if (!isModalOpen) {
       setFormState(INITIAL_FORM);
       setIsSubmitted(false);
     }
   }, [isModalOpen]);
+
+  useEffect(() => {
+    document.title = LANDING_PAGE_TITLE;
+  }, []);
 
   const currentYear = useMemo(() => new Date().getFullYear(), []);
 
@@ -68,15 +99,18 @@ export function MentoriaLandingPage() {
     event.preventDefault();
 
     try {
-      const response = await fetch("https://formspree.io/f/mnjjnbjk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formState),
+      await api.post("/leads/", {
+        nome: formState.nome,
+        whatsapp: formState.whatsapp,
+        email: formState.email,
+        perfil: formState.perfil,
+        trabalho_ocupacao_atual: formState.funcao,
+        empresa_atual: formState.empresa,
+        landing_page: LANDING_PAGE_TITLE,
+        objetivo: formState.objetivo_mentoria,
+        mensagem: formState.mensagem,
       });
-
-      if (response.ok) {
-        setIsSubmitted(true);
-      }
+      setIsSubmitted(true);
     } catch (error) {
       console.error("Erro ao enviar formulário da mentoria", error);
     }
@@ -171,6 +205,17 @@ export function MentoriaLandingPage() {
                     </select>
                   </label>
 
+                  <label>
+                    <span>Mensagem</span>
+                    <textarea
+                      name="mensagem"
+                      value={formState.mensagem}
+                      onChange={handleChange}
+                      rows="4"
+                      placeholder="Conte um pouco sobre seu momento e o que busca na mentoria."
+                    />
+                  </label>
+
                   <button type="submit" className="mentoria-landing-primary-btn">
                     Enviar aplicação
                   </button>
@@ -202,7 +247,7 @@ export function MentoriaLandingPage() {
           ))}
         </div>
         <button type="button" className="mentoria-landing-nav-cta" onClick={() => setIsModalOpen(true)}>
-          Aplicar
+          QUERO UMA VAGA
         </button>
       </nav>
 
@@ -212,48 +257,60 @@ export function MentoriaLandingPage() {
           <div className="mentoria-landing-hero-overlay" />
         </div>
         <div className="mentoria-landing-container mentoria-landing-hero-content">
-          <MentoriaEyebrow>A profissão do futuro do agronegócio</MentoriaEyebrow>
-          <h1 className="mentoria-landing-hero-title">
-            Landing Page
+          <MentoriaEyebrow className="mentoria-landing-eyebrow-large mentoria-reveal">PROGRAMA DE FORMAÇÃO PROFISSIONAL</MentoriaEyebrow>
+          <h1 className="mentoria-landing-hero-title mentoria-reveal mentoria-reveal-delay-1">
+            Traders do Agro
             <br />
-            <span>Mentoria</span>
+            <span>A maior Formação de Gestores de riscos e Mercado</span>
           </h1>
-          <p className="mentoria-landing-hero-text">
-            Formamos estrategistas Agro que dominam Trading, Derivativos, Políticas de Hedge e Margem Financeira.
-            Seja o profissional do Agro mais procurado dos próximos anos.
+          <p className="mentoria-landing-hero-text mentoria-reveal mentoria-reveal-delay-2">
+            Formamos estrategistas do Agro que dominam Derivativos, Trading, Mercado financeiro, Políticas de Hedge e
+            Margem Financeira.
+            <br />
+            <span className="mentoria-landing-hero-text-emphasis">Para Profissionais</span>{" "}
+            que desejam ocupar uma das cadeiras mais valiosas do Agro dos próximos anos.
+            <br />
+            <span className="mentoria-landing-hero-text-emphasis">Para Produtores</span> que necessitam decidir com
+            estratégia e não com achismos.
           </p>
-          <div className="mentoria-landing-hero-actions">
+          <div className="mentoria-landing-hero-actions mentoria-reveal mentoria-reveal-delay-3">
             <button type="button" className="mentoria-landing-primary-btn" onClick={() => setIsModalOpen(true)}>
               Quero uma vaga
             </button>
-            <span className="mentoria-landing-hero-tag">Apenas 50 vagas</span>
+            <span className="mentoria-landing-hero-tag">Apenas 20 vagas</span>
           </div>
         </div>
       </header>
 
       <MentoriaSection id="conceito" className="mentoria-landing-surface-gradient">
         <div className="mentoria-landing-copy-panel">
-          <MentoriaEyebrow>Filosofia do Trader do Agro</MentoriaEyebrow>
-          <h2 className="mentoria-landing-section-title">Produzir bem já não é mais um desafio para o produtor.</h2>
-          <p className="mentoria-landing-section-highlight">
-            Ele precisa de um estrategista confiável ao seu lado, alguém preparado para enfrentar os desafios do
-            mercado.
-          </p>
-          <p className="mentoria-landing-body">
-            O Trader do Agro nasce para ocupar esse lugar de confiança. Estrutura decisões, cria estratégias de venda,
-            protege caixa, domina derivativos e aumenta a margem financeira da fazenda com método.
-          </p>
+          <MentoriaEyebrow className="mentoria-landing-eyebrow-large mentoria-reveal">Filosofia do Trader do Agro</MentoriaEyebrow>
+          <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">Produzir bem já não é mais um desafio para o produtor.</h2>
+          <div className="mentoria-landing-conceito-copy mentoria-reveal mentoria-reveal-delay-2">
+            <p className="mentoria-landing-section-highlight mentoria-landing-conceito-text">
+              É comprovado que metade da margem financeira pode ser perdida por uma venda mal feita.
+            </p>
+            <p className="mentoria-landing-section-highlight mentoria-landing-conceito-text">
+              E é por isso que o Produtor precisa de um estrategista confiável ao seu lado, alguém preparado para
+              enfrentar os desafios do mercado com sabedoria e método.
+            </p>
+            <p className="mentoria-landing-section-highlight mentoria-landing-conceito-text">
+              <span className="mentoria-landing-conceito-emphasis">O Trader do Agro</span> nasce para ocupar esse
+              lugar de confiança. Estrutura decisões, cria estratégias de venda, protege caixa, domina derivativos e
+              aumenta a margem financeira da fazenda com método.
+            </p>
+          </div>
         </div>
       </MentoriaSection>
 
       <MentoriaSection id="metodo" className="mentoria-landing-surface-dark">
         <div className="mentoria-landing-section-head">
-          <MentoriaEyebrow>O que o trader aprende na mentoria</MentoriaEyebrow>
-          <h2 className="mentoria-landing-section-title">14 níveis de domínio</h2>
+          <MentoriaEyebrow className="mentoria-landing-eyebrow-large mentoria-reveal">O que o trader aprende na mentoria</MentoriaEyebrow>
+          <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">14 níveis de domínio</h2>
         </div>
         <div className="mentoria-landing-card-grid">
           {MENTORIA_LANDING_MODULES.map((module) => (
-            <article key={module.id} className="mentoria-landing-module-card">
+            <article key={module.id} className="mentoria-landing-module-card mentoria-reveal mentoria-reveal-delay-2">
               <div className="mentoria-landing-module-top">
                 <span>{module.id}</span>
                 <div />
@@ -268,17 +325,19 @@ export function MentoriaLandingPage() {
       <MentoriaSection id="software" className="mentoria-landing-surface-gradient">
         <div className="mentoria-landing-software-grid">
           <div className="mentoria-landing-copy-panel">
-            <MentoriaEyebrow>O trader do agro tem acesso ao melhor sistema do Brasil</MentoriaEyebrow>
-            <h2 className="mentoria-landing-section-title">
+            <MentoriaEyebrow className="mentoria-landing-eyebrow-large mentoria-reveal">
+              O trader do agro tem acesso ao melhor sistema do Brasil
+            </MentoriaEyebrow>
+            <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">
               SDT Position:
               <br />
               <span>o centro de comando</span> do estrategista.
             </h2>
-            <p className="mentoria-landing-body">
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
               Tenha em mãos um sistema de gerenciamento de hedge que traduz a complexidade de Chicago para o lucro real
               na fazenda.
             </p>
-            <div className="mentoria-landing-feature-list">
+            <div className="mentoria-landing-feature-list mentoria-reveal mentoria-reveal-delay-3">
               <article>
                 <strong>Política & Estratégia</strong>
                 <p>Construa e acompanhe sua política de hedge com metas e travas visuais.</p>
@@ -294,7 +353,7 @@ export function MentoriaLandingPage() {
             </div>
           </div>
 
-          <div className="mentoria-landing-carousel-shell">
+          <div className="mentoria-landing-carousel-shell mentoria-reveal mentoria-reveal-right">
             <div className="mentoria-landing-carousel-card">
               <div className="mentoria-landing-carousel-bar">
                 <span />
@@ -332,12 +391,12 @@ export function MentoriaLandingPage() {
 
       <MentoriaSection id="perfil" className="mentoria-landing-surface-dark">
         <div className="mentoria-landing-section-head">
-          <MentoriaEyebrow>Para quem é a mentoria</MentoriaEyebrow>
-          <h2 className="mentoria-landing-section-title">Perfis que aceleram resultado com inteligência financeira</h2>
+          <MentoriaEyebrow className="mentoria-landing-eyebrow-large mentoria-reveal">Para quem é a mentoria</MentoriaEyebrow>
+          
         </div>
         <div className="mentoria-landing-persona-grid">
           {MENTORIA_LANDING_PERSONAS.map((persona) => (
-            <article key={persona.role} className="mentoria-landing-persona-card">
+            <article key={persona.role} className="mentoria-landing-persona-card mentoria-reveal mentoria-reveal-delay-1">
               <h3>{persona.role}</h3>
               <p>{persona.context}</p>
             </article>
@@ -347,21 +406,38 @@ export function MentoriaLandingPage() {
 
       <MentoriaSection id="mentor" className="mentoria-landing-surface-gradient">
         <div className="mentoria-landing-mentor-grid">
-          <div className="mentoria-landing-mentor-photo">
+          <div className="mentoria-landing-mentor-photo mentoria-reveal mentoria-reveal-left">
             <img src={MENTORIA_LANDING_IMAGES.mentorPortrait} alt="Evandro Góes" />
           </div>
           <div className="mentoria-landing-copy-panel">
-            <MentoriaEyebrow>A liderança</MentoriaEyebrow>
-            <h2 className="mentoria-landing-section-title">Evandro Góes</h2>
-            <p className="mentoria-landing-body">
-              Uma das maiores autoridades em hedge agrícola no Brasil. Atuou no Itaú BBA e na Louis Dreyfus Company,
-              conectando a precisão dos mercados internacionais à realidade operacional da fazenda brasileira.
+            <MentoriaEyebrow className="mentoria-reveal">A liderança</MentoriaEyebrow>
+            <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">Evandro Góes</h2>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
+              Uma das maiores autoridades em hedge agrícola no Brasil.
             </p>
-            <p className="mentoria-landing-body">
-              Mais do que teoria, executa mercado ao lado de produtores, estruturando decisões que protegem caixa,
-              reduzem risco e aumentam resultado financeiro.
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
+              + de 12 anos de experiência em Hedge aplicado ao Produtor rural.
+              <br />
+              Atuou por 5 anos no Itaú BBA e por outros 5 anos na Louis Dreyfus Company como Trader de Commodities
+              Agrícolas.
             </p>
-            <div className="mentoria-landing-metric-grid">
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Construiu sua carreira unindo a precisão de mercados internacionais (como Chicago) à realidade
+              operacional da fazenda brasileira.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Mais do que teoria, atua na execução real de mercado, lado a lado com produtores, estruturando decisões
+              que protegem caixa, reduzem risco e aumentam resultado financeiro.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Criador de um método próprio e exclusivo, validado na prática, que gera em média 5% de ganho adicional
+              de margem financeira para as fazendas atendidas.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Evandro não forma analistas de mercado. Forma Trader estrategistas do produtor rural: profissionais
+              preparados para tomar decisões financeiras em um dos mercados mais complexos do mundo.
+            </p>
+            <div className="mentoria-landing-metric-grid mentoria-reveal mentoria-reveal-delay-3">
               {MENTORIA_LANDING_METRICS.map((metric) => (
                 <div key={metric.label} className="mentoria-landing-metric-card">
                   <strong>{metric.value}</strong>
@@ -374,12 +450,12 @@ export function MentoriaLandingPage() {
       </MentoriaSection>
 
       <MentoriaSection className="mentoria-landing-surface-cta">
-        <div className="mentoria-landing-cta-panel">
+        <div className="mentoria-landing-cta-panel mentoria-reveal">
           <MentoriaEyebrow>Compromisso estratégico</MentoriaEyebrow>
-          <h2 className="mentoria-landing-section-title">
+          <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">
             O agronegócio <span>não perdoa amadores.</span>
           </h2>
-          <p className="mentoria-landing-body">
+          <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
             O tempo de contar com a sorte acabou. No novo ciclo das commodities, sobrevivência e prosperidade
             pertencem a quem domina a proteção do capital.
           </p>

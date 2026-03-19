@@ -4410,6 +4410,40 @@ th {
   min-height: 100vh;
 }
 
+.mentoria-reveal {
+  opacity: 0;
+  transform: translate3d(0, 28px, 0);
+  transition:
+    opacity 700ms ease,
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+}
+
+.mentoria-reveal.mentoria-reveal-left {
+  transform: translate3d(-34px, 18px, 0);
+}
+
+.mentoria-reveal.mentoria-reveal-right {
+  transform: translate3d(34px, 18px, 0);
+}
+
+.mentoria-reveal.mentoria-reveal-delay-1 {
+  transition-delay: 90ms;
+}
+
+.mentoria-reveal.mentoria-reveal-delay-2 {
+  transition-delay: 170ms;
+}
+
+.mentoria-reveal.mentoria-reveal-delay-3 {
+  transition-delay: 250ms;
+}
+
+.mentoria-reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
 .mentoria-landing-container {
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
@@ -4427,7 +4461,7 @@ th {
 }
 
 .mentoria-landing-brand {
-  font-size: 0.9rem;
+  font-size: calc(0.9rem * 0.8);
   font-weight: 800;
   letter-spacing: 0.24em;
   text-transform: uppercase;
@@ -4447,11 +4481,15 @@ th {
 .mentoria-landing-nav-links a,
 .mentoria-landing-nav-cta {
   color: rgba(230, 235, 234, 0.8);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * 0.8);
   text-decoration: none;
   text-transform: uppercase;
   letter-spacing: 0.22em;
   font-weight: 700;
+}
+
+.mentoria-landing-nav-links a {
+  font-size: calc((0.72rem * 0.8) * 1.2);
 }
 
 .mentoria-landing-nav-cta,
@@ -4466,6 +4504,7 @@ th {
 
 .mentoria-landing-nav-cta {
   padding: 12px 24px;
+  font-size: calc((0.72rem * 0.8) * 1.15);
 }
 
 .mentoria-landing-nav-cta:hover,
@@ -4511,10 +4550,14 @@ th {
   display: inline-block;
   margin-bottom: 18px;
   color: #4fd86f;
-  font-size: 0.78rem;
+  font-size: calc((0.78rem + 2px) * 0.8);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.36em;
+}
+
+.mentoria-landing-eyebrow-large {
+  font-size: calc(((0.78rem + 5px) * 0.8) * 1.1);
 }
 
 .mentoria-landing-hero-title,
@@ -4527,7 +4570,7 @@ th {
 
 .mentoria-landing-hero-title {
   max-width: 780px;
-  font-size: clamp(3.4rem, 7vw, 6.6rem);
+  font-size: calc(((clamp(3.4rem, 7vw, 6.6rem) - 5px) * 0.64) * 1.1);
 }
 
 .mentoria-landing-hero-title span,
@@ -4535,6 +4578,13 @@ th {
   color: #7cf592;
   font-style: italic;
   font-weight: 300;
+}
+
+.mentoria-landing-hero-title span {
+  display: block;
+  font-size: calc(0.62em * 1.1);
+  line-height: 1.08;
+  margin-top: 8px;
 }
 
 .mentoria-landing-hero-text,
@@ -4547,7 +4597,15 @@ th {
 .mentoria-landing-hero-text {
   max-width: 720px;
   margin: 28px 0 0;
-  font-size: 1.2rem;
+  font-size: calc((1.2rem * 0.8) * 1.1);
+}
+
+.mentoria-landing-hero-text-emphasis {
+  color: #ffffff;
+  text-decoration: underline;
+  text-decoration-color: #7cf592;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
 .mentoria-landing-hero-actions {
@@ -4560,15 +4618,15 @@ th {
 
 .mentoria-landing-primary-btn {
   padding: 18px 34px;
-  font-size: 0.8rem;
+  font-size: calc((0.8rem * 0.8) * 1.15);
   font-weight: 800;
   letter-spacing: 0.28em;
   text-transform: uppercase;
 }
 
 .mentoria-landing-hero-tag {
-  color: rgba(230, 234, 235, 0.7);
-  font-size: 0.76rem;
+  color: #ffffff;
+  font-size: calc(0.76rem * 0.8);
   text-transform: uppercase;
   letter-spacing: 0.28em;
 }
@@ -4596,20 +4654,43 @@ th {
 }
 
 .mentoria-landing-section-title {
-  font-size: clamp(2.4rem, 5vw, 4.8rem);
+  font-size: calc((clamp(2.4rem, 5vw, 4.8rem) * 0.64) * 1.1);
   max-width: 920px;
 }
 
 .mentoria-landing-section-highlight {
   margin: 24px 0 20px;
-  font-size: clamp(1.35rem, 2.8vw, 2rem);
+  font-size: calc(((clamp(1.35rem, 2.8vw, 2rem) - 3px) * 0.8) * 1.1);
   color: #7cf592;
   font-style: italic;
   line-height: 1.35;
 }
 
+.mentoria-landing-conceito-copy {
+  display: grid;
+  gap: 0;
+}
+
+.mentoria-landing-conceito-text {
+  font-size: calc((((((clamp(1.35rem, 2.8vw, 2rem) - 3px) * 0.8) * 0.9) * 1.1)) * 0.85);
+  color: rgba(220, 227, 225, 0.82);
+  font-style: normal;
+}
+
+.mentoria-landing-conceito-text + .mentoria-landing-conceito-text {
+  margin-top: 14px;
+}
+
+.mentoria-landing-conceito-emphasis {
+  color: #ffffff;
+  text-decoration: underline;
+  text-decoration-color: #7cf592;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
 .mentoria-landing-body {
-  font-size: 1.05rem;
+  font-size: calc((1.05rem * 0.8) * 1.1);
   max-width: 880px;
 }
 
@@ -4653,7 +4734,7 @@ th {
 
 .mentoria-landing-module-top span {
   color: #7cf592;
-  font-size: 0.78rem;
+  font-size: calc((0.78rem * 0.8) * 1.1);
   font-weight: 800;
   letter-spacing: 0.24em;
 }
@@ -4667,7 +4748,7 @@ th {
 .mentoria-landing-module-card h3,
 .mentoria-landing-persona-card h3 {
   margin: 0 0 12px;
-  font-size: 1.35rem;
+  font-size: calc((1.35rem * 0.8) * 1.1);
 }
 
 .mentoria-landing-module-card p,
@@ -4675,6 +4756,7 @@ th {
   margin: 0;
   color: rgba(220, 227, 225, 0.72);
   line-height: 1.65;
+  font-size: calc((1rem * 0.8) * 1.1);
 }
 
 .mentoria-landing-software-grid,
@@ -4701,7 +4783,7 @@ th {
 .mentoria-landing-feature-list strong {
   display: block;
   margin-bottom: 8px;
-  font-size: 0.94rem;
+  font-size: calc((0.94rem * 0.8) * 1.1);
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
@@ -4710,6 +4792,7 @@ th {
   margin: 0;
   color: rgba(220, 227, 225, 0.72);
   line-height: 1.55;
+  font-size: calc((1rem * 0.8) * 1.1);
 }
 
 .mentoria-landing-carousel-shell {
@@ -4743,7 +4826,7 @@ th {
 
 .mentoria-landing-carousel-bar p {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: calc(0.68rem * 0.8);
   letter-spacing: 0.28em;
   text-transform: uppercase;
   color: rgba(220, 227, 225, 0.62);
@@ -4803,7 +4886,7 @@ th {
 
 .mentoria-landing-floating-stat span {
   display: block;
-  font-size: 0.72rem;
+  font-size: calc((0.72rem * 0.8) * 1.1);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   opacity: 0.86;
@@ -4812,7 +4895,7 @@ th {
 .mentoria-landing-floating-stat strong {
   display: block;
   margin-top: 6px;
-  font-size: 1.18rem;
+  font-size: calc((1.18rem * 0.8) * 1.1);
 }
 
 .mentoria-landing-persona-grid {
@@ -4844,14 +4927,14 @@ th {
 
 .mentoria-landing-metric-card strong {
   display: block;
-  font-size: 1.4rem;
+  font-size: calc((1.4rem * 0.8) * 1.1);
 }
 
 .mentoria-landing-metric-card span {
   display: block;
   margin-top: 8px;
   color: #7cf592;
-  font-size: 0.75rem;
+  font-size: calc((0.75rem * 0.8) * 1.1);
   text-transform: uppercase;
   letter-spacing: 0.18em;
   font-weight: 700;
@@ -4881,7 +4964,7 @@ th {
 }
 
 .mentoria-landing-footer-brand {
-  font-size: 0.92rem;
+  font-size: calc((0.92rem * 0.8) * 1.1);
   font-weight: 800;
   letter-spacing: 0.24em;
   text-transform: uppercase;
@@ -4890,7 +4973,7 @@ th {
 .mentoria-landing-footer p {
   margin: 10px 0 0;
   color: rgba(220, 227, 225, 0.62);
-  font-size: 0.72rem;
+  font-size: calc((0.72rem * 0.8) * 1.1);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -4915,11 +4998,11 @@ th {
 .mentoria-landing-modal-card {
   position: relative;
   z-index: 1;
-  width: min(760px, 100%);
-  max-height: calc(100vh - 48px);
+  width: min(608px, 100%);
+  max-height: calc((100vh - 48px) * 0.8);
   overflow: auto;
   border-radius: 32px;
-  padding: 32px;
+  padding: 26px;
   background: linear-gradient(180deg, #112021 0%, #091010 100%);
 }
 
@@ -4935,11 +5018,12 @@ th {
 }
 
 .mentoria-landing-modal-title {
-  font-size: clamp(2.2rem, 4vw, 3.4rem);
+  font-size: calc(clamp(2.2rem, 4vw, 3.4rem) * 0.8);
 }
 
 .mentoria-landing-modal-copy {
   margin: 14px 0 24px;
+  font-size: calc(1rem * 0.8);
 }
 
 .mentoria-landing-form {
@@ -4957,14 +5041,15 @@ th {
   display: block;
   margin-bottom: 8px;
   color: rgba(220, 227, 225, 0.72);
-  font-size: 0.72rem;
+  font-size: calc(0.72rem * 0.8);
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .mentoria-landing-form input,
-.mentoria-landing-form select {
+.mentoria-landing-form select,
+.mentoria-landing-form textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 18px;
@@ -4972,6 +5057,7 @@ th {
   color: #fff;
   padding: 16px;
   font: inherit;
+  resize: vertical;
 }
 
 .mentoria-landing-modal-success {
@@ -4995,7 +5081,7 @@ th {
 
 .mentoria-landing-modal-success h2 {
   margin: 0;
-  font-size: 2rem;
+  font-size: calc(2rem * 0.8);
 }
 
 .mentoria-landing-modal-success p {
@@ -5003,6 +5089,7 @@ th {
   max-width: 320px;
   color: rgba(220, 227, 225, 0.72);
   line-height: 1.7;
+  font-size: calc(1rem * 0.8);
 }
 
 .mentoria-landing-modal-success .mentoria-landing-primary-btn {

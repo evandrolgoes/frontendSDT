@@ -498,7 +498,7 @@ export function DataTable({
                           setActivePopover(null);
                         }}
                       >
-                        Aplicar
+                        QUERO UMA VAGA
                       </button>
                     </div>
                   </div>
