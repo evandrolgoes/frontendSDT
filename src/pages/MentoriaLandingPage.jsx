@@ -43,6 +43,7 @@ function MentoriaEyebrow({ children, className = "" }) {
 export function MentoriaLandingPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
   const [formState, setFormState] = useState(INITIAL_FORM);
 
@@ -81,6 +82,7 @@ export function MentoriaLandingPage() {
     if (!isModalOpen) {
       setFormState(INITIAL_FORM);
       setIsSubmitted(false);
+      setIsSubmitting(false);
     }
   }, [isModalOpen]);
 
@@ -97,6 +99,7 @@ export function MentoriaLandingPage() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+    setIsSubmitting(true);
 
     try {
       await api.post("/leads/", {
@@ -113,6 +116,8 @@ export function MentoriaLandingPage() {
       setIsSubmitted(true);
     } catch (error) {
       console.error("Erro ao enviar formulário da mentoria", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -128,8 +133,8 @@ export function MentoriaLandingPage() {
 
             {!isSubmitted ? (
               <>
-                <MentoriaEyebrow>Processo Seletivo</MentoriaEyebrow>
-                <h2 className="mentoria-landing-modal-title">Solicite acesso à mesa.</h2>
+                <MentoriaEyebrow>PROGRAMA DE FORMACAO TRADERS DO AGRO</MentoriaEyebrow>
+                <h2 className="mentoria-landing-modal-title">Solicitar mais Informações</h2>
                 <p className="mentoria-landing-modal-copy">Seus dados serão submetidos à análise estratégica.</p>
 
                 <form className="mentoria-landing-form" onSubmit={handleSubmit}>
@@ -216,15 +221,18 @@ export function MentoriaLandingPage() {
                     />
                   </label>
 
-                  <button type="submit" className="mentoria-landing-primary-btn">
-                    Enviar aplicação
+                  <button type="submit" className="mentoria-landing-primary-btn mentoria-landing-submit-btn" disabled={isSubmitting}>
+                    {isSubmitting ? (
+                      <span className="mentoria-landing-submit-loader" aria-label="Enviando" />
+                    ) : null}
+                    {isSubmitting ? "Enviando..." : "Enviar Solicitação"}
                   </button>
                 </form>
               </>
             ) : (
               <div className="mentoria-landing-modal-success">
                 <div className="mentoria-landing-modal-success-icon">✓</div>
-                <h2>Aplicação em análise.</h2>
+                <h2>Enviado!</h2>
                 <p>Em breve, nossa equipe entrará em contato via WhatsApp.</p>
                 <button type="button" className="mentoria-landing-primary-btn" onClick={() => setIsModalOpen(false)}>
                   Voltar
