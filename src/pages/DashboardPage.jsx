@@ -14,6 +14,7 @@ import {
   Tooltip,
 } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
+import ReactECharts from "echarts-for-react";
 
 import { DatePickerField } from "../components/DatePickerField";
 import { PageHeader } from "../components/PageHeader";
@@ -37,6 +38,7 @@ Chart.register(
 );
 
 const formatNumber = (value, suffix = "") => `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}${suffix}`;
+const COMMERCIAL_RISK_DERIVATIVE_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c3aed", "#dc2626", "#0891b2", "#65a30d", "#d97706"];
 
 function MiniLegend({ items }) {
   return (
@@ -52,20 +54,52 @@ function MiniLegend({ items }) {
 }
 
 function AreaTrendChart({ data, color = "#ea580c" }) {
-  const width = 640;
-  const height = 220;
-  const padding = 20;
-  const maxValue = Math.max(...data.map((item) => item.value), 1);
-  const stepX = (width - padding * 2) / Math.max(data.length - 1, 1);
-
-  const points = data.map((item, index) => {
-    const x = padding + stepX * index;
-    const y = height - padding - ((item.value / maxValue) * (height - padding * 2));
-    return { ...item, x, y };
-  });
-
-  const linePath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
-  const areaPath = `${linePath} L ${points.at(-1)?.x ?? width - padding} ${height - padding} L ${points[0]?.x ?? padding} ${height - padding} Z`;
+  const option = useMemo(() => ({
+    animationDuration: 250,
+    grid: { top: 20, right: 18, bottom: 28, left: 18, containLabel: true },
+    tooltip: { trigger: "axis", axisPointer: { type: "line" } },
+    xAxis: {
+      type: "category",
+      boundaryGap: false,
+      data: data.map((item) => item.label),
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: "rgba(148, 163, 184, 0.35)" } },
+      axisLabel: { color: "#475569", fontWeight: 700, fontSize: 11 },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      splitNumber: 4,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { show: false },
+      splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+    },
+    series: [
+      {
+        type: "line",
+        smooth: true,
+        data: data.map((item) => item.value),
+        symbol: "circle",
+        symbolSize: 8,
+        lineStyle: { color, width: 4 },
+        itemStyle: { color },
+        areaStyle: {
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: `${color}66` },
+              { offset: 1, color: `${color}08` },
+            ],
+          },
+        },
+      },
+    ],
+  }), [color, data]);
 
   return (
     <div className="chart-card chart-card-large">
@@ -75,39 +109,43 @@ function AreaTrendChart({ data, color = "#ea580c" }) {
           <p className="muted">Leitura rapida da curva mais importante do painel.</p>
         </div>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="dashboard-chart" role="img" aria-label="Grafico de tendencia">
-        <defs>
-          <linearGradient id="trendFill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.02" />
-          </linearGradient>
-        </defs>
-        {[0, 1, 2, 3].map((row) => {
-          const y = padding + ((height - padding * 2) / 3) * row;
-          return <line key={row} x1={padding} x2={width - padding} y1={y} y2={y} className="chart-grid-line" />;
-        })}
-        <path d={areaPath} fill="url(#trendFill)" />
-        <path d={linePath} fill="none" stroke={color} strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" />
-        {points.map((point) => (
-          <g key={point.label}>
-            <circle cx={point.x} cy={point.y} r="5" fill={color} />
-            <text x={point.x} y={height - 4} textAnchor="middle" className="chart-axis-label">
-              {point.label}
-            </text>
-          </g>
-        ))}
-      </svg>
+      <ReactECharts option={option} style={{ height: 220 }} opts={{ renderer: "svg" }} />
     </div>
   );
 }
 
 function StackedBarsChart({ data }) {
-  const width = 640;
-  const height = 220;
-  const padding = 20;
-  const maxValue = Math.max(...data.map((item) => item.parts.reduce((sum, part) => sum + part.value, 0)), 1);
-  const slotWidth = (width - padding * 2) / data.length;
-  const barWidth = Math.min(72, slotWidth * 0.54);
+  const legendItems = data[0]?.parts?.map((part) => ({ label: part.label, color: part.color })) || [];
+  const option = useMemo(() => ({
+    animationDuration: 250,
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    legend: { show: false },
+    grid: { top: 12, right: 18, bottom: 30, left: 18, containLabel: true },
+    xAxis: {
+      type: "category",
+      data: data.map((item) => item.label),
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: "rgba(148, 163, 184, 0.35)" } },
+      axisLabel: { color: "#475569", fontWeight: 700, fontSize: 11 },
+    },
+    yAxis: {
+      type: "value",
+      splitNumber: 4,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { show: false },
+      splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+    },
+    series: legendItems.map((item) => ({
+      name: item.label,
+      type: "bar",
+      stack: "total",
+      barMaxWidth: 56,
+      itemStyle: { color: item.color, borderRadius: [10, 10, 0, 0] },
+      emphasis: { focus: "series" },
+      data: data.map((entry) => entry.parts.find((part) => part.label === item.label)?.value || 0),
+    })),
+  }), [data, legendItems]);
 
   return (
     <div className="chart-card chart-card-large">
@@ -116,45 +154,33 @@ function StackedBarsChart({ data }) {
           <h3>Composicao por bloco</h3>
           <p className="muted">Comparacao visual entre componentes relevantes.</p>
         </div>
-        <MiniLegend
-          items={[
-            { label: data[0].parts[0].label, color: data[0].parts[0].color },
-            { label: data[0].parts[1].label, color: data[0].parts[1].color },
-            { label: data[0].parts[2].label, color: data[0].parts[2].color },
-          ]}
-        />
+        <MiniLegend items={legendItems} />
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="dashboard-chart" role="img" aria-label="Grafico de barras empilhadas">
-        {[0, 1, 2, 3].map((row) => {
-          const y = padding + ((height - padding * 2) / 3) * row;
-          return <line key={row} x1={padding} x2={width - padding} y1={y} y2={y} className="chart-grid-line" />;
-        })}
-        {data.map((item, index) => {
-          const x = padding + slotWidth * index + (slotWidth - barWidth) / 2;
-          let currentTop = height - padding;
-          return (
-            <g key={item.label}>
-              {item.parts.map((part) => {
-                const partHeight = (part.value / maxValue) * (height - padding * 2);
-                currentTop -= partHeight;
-                return <rect key={part.label} x={x} y={currentTop} width={barWidth} height={partHeight} rx="10" fill={part.color} />;
-              })}
-              <text x={x + barWidth / 2} y={height - 4} textAnchor="middle" className="chart-axis-label">
-                {item.label}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+      <ReactECharts option={option} style={{ height: 220 }} opts={{ renderer: "svg" }} />
     </div>
   );
 }
 
 function DonutChart({ slices, centerLabel, centerValue }) {
-  const total = slices.reduce((sum, slice) => sum + slice.value, 0) || 1;
-  let cumulative = -90;
-  const radius = 74;
-  const circumference = 2 * Math.PI * radius;
+  const option = useMemo(() => ({
+    animationDuration: 250,
+    tooltip: { trigger: "item" },
+    legend: { show: false },
+    series: [
+      {
+        type: "pie",
+        radius: ["58%", "78%"],
+        avoidLabelOverlap: true,
+        label: { show: false },
+        itemStyle: { borderColor: "#fff", borderWidth: 4 },
+        data: slices.map((slice) => ({ name: slice.label, value: slice.value, itemStyle: { color: slice.color } })),
+      },
+    ],
+    graphic: [
+      { type: "text", left: "center", top: "42%", style: { text: centerLabel, fill: "#64748b", fontSize: 12, fontWeight: 700 } },
+      { type: "text", left: "center", top: "51%", style: { text: centerValue, fill: "#0f172a", fontSize: 18, fontWeight: 800 } },
+    ],
+  }), [centerLabel, centerValue, slices]);
 
   return (
     <div className="chart-card">
@@ -165,34 +191,7 @@ function DonutChart({ slices, centerLabel, centerValue }) {
         </div>
       </div>
       <div className="donut-wrap">
-        <svg viewBox="0 0 220 220" className="donut-chart" role="img" aria-label="Grafico de rosca">
-          <circle cx="110" cy="110" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="24" />
-          {slices.map((slice) => {
-            const arc = (slice.value / total) * circumference;
-            const node = (
-              <circle
-                key={slice.label}
-                cx="110"
-                cy="110"
-                r={radius}
-                fill="none"
-                stroke={slice.color}
-                strokeWidth="24"
-                strokeLinecap="round"
-                strokeDasharray={`${arc} ${circumference}`}
-                transform={`rotate(${cumulative} 110 110)`}
-              />
-            );
-            cumulative += (slice.value / total) * 360;
-            return node;
-          })}
-          <text x="110" y="102" textAnchor="middle" className="donut-center-label">
-            {centerLabel}
-          </text>
-          <text x="110" y="126" textAnchor="middle" className="donut-center-value">
-            {centerValue}
-          </text>
-        </svg>
+        <ReactECharts option={option} style={{ height: 220, width: 220 }} opts={{ renderer: "svg" }} />
         <MiniLegend items={slices} />
       </div>
     </div>
@@ -200,8 +199,6 @@ function DonutChart({ slices, centerLabel, centerValue }) {
 }
 
 function ScenarioBars({ data }) {
-  const maxValue = Math.max(...data.map((item) => item.value), 1);
-
   return (
     <div className="chart-card">
       <div className="chart-card-header">
@@ -218,12 +215,186 @@ function ScenarioBars({ data }) {
               <strong>{item.formatted}</strong>
             </div>
             <div className="scenario-track">
-              <div className="scenario-bar" style={{ width: `${(item.value / maxValue) * 100}%`, background: item.color }} />
+              <ReactECharts
+                option={{
+                  animationDuration: 180,
+                  grid: { top: 0, right: 0, bottom: 0, left: 0 },
+                  xAxis: { type: "value", show: false, max: Math.max(...data.map((entry) => entry.value), 1) },
+                  yAxis: { type: "category", data: [item.label], show: false },
+                  tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+                  series: [
+                    {
+                      type: "bar",
+                      data: [{ value: item.value, itemStyle: { color: item.color } }],
+                      barMaxWidth: 18,
+                      showBackground: true,
+                      backgroundStyle: { color: "rgba(148, 163, 184, 0.12)", borderRadius: 999 },
+                      itemStyle: { borderRadius: 999 },
+                    },
+                  ],
+                }}
+                style={{ height: 20, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
             </div>
           </div>
         ))}
       </div>
     </div>
+  );
+}
+
+function CommercialRiskGaugePanel({
+  totalPercent,
+  totalScPerHa,
+  derivativePercent,
+  derivativeScPerHa,
+  physicalPercent,
+  physicalScPerHa,
+  policyMinPercent = null,
+  policyMaxPercent = null,
+}) {
+  const safeValue = (value) => Math.max(0, Math.min(Number(value || 0), 100));
+  const totalValue = safeValue(totalPercent);
+  const derivativeValue = safeValue(derivativePercent);
+  const physicalValue = safeValue(physicalPercent);
+  const hasPolicyBand = Number.isFinite(policyMinPercent) && Number.isFinite(policyMaxPercent);
+  const minBand = hasPolicyBand ? safeValue(Math.min(policyMinPercent, policyMaxPercent)) : null;
+  const maxBand = hasPolicyBand ? safeValue(Math.max(policyMinPercent, policyMaxPercent)) : null;
+  const totalAxisColors = hasPolicyBand
+    ? [
+        [Math.max(minBand / 100, 0), "#ff1a1a"],
+        [Math.max((minBand + maxBand) / 200, Math.max(minBand / 100, 0)), "#f5b82e"],
+        [Math.max(maxBand / 100, Math.max((minBand + maxBand) / 200, 0)), "#0b7a0a"],
+        [1, "#ff1a1a"],
+      ]
+    : [
+        [1, "#9ca3af"],
+      ];
+  const buildMiniOption = (value, color) => ({
+    series: [
+      {
+        type: "gauge",
+        startAngle: 180,
+        endAngle: 0,
+        min: 0,
+        max: 100,
+        center: ["50%", "66%"],
+        radius: "100%",
+        axisLine: {
+          lineStyle: {
+            width: 10,
+            color: [
+              [value / 100, color],
+              [1, "#8b8b8b"],
+            ],
+          },
+        },
+        splitLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { show: false },
+        pointer: {
+          show: true,
+          icon: "path://M2 -34 L-2 -34 L-5 0 L5 0 Z",
+          length: "72%",
+          width: 10,
+          itemStyle: { color: "#111827" },
+        },
+        anchor: {
+          show: true,
+          showAbove: true,
+          size: 10,
+          itemStyle: { color: "#fff", borderColor: "#111827", borderWidth: 2 },
+        },
+        detail: { show: false },
+        title: { show: false },
+        progress: { show: false },
+      },
+    ],
+  });
+  const mainOption = {
+    series: [
+      {
+        type: "gauge",
+        startAngle: 225,
+        endAngle: -45,
+        min: 0,
+        max: 100,
+        center: ["50%", "64%"],
+        radius: "100%",
+        axisLine: {
+          lineStyle: {
+            width: 24,
+            color: totalAxisColors,
+          },
+        },
+        splitLine: {
+          distance: -28,
+          length: 18,
+          lineStyle: { color: "#111827", width: 2 },
+        },
+        axisTick: {
+          distance: -28,
+          splitNumber: 2,
+          length: 8,
+          lineStyle: { color: "#a3a3a3", width: 1.5 },
+        },
+        axisLabel: {
+          distance: -46,
+          color: "#7c7c7c",
+          fontSize: 11,
+          formatter: (value) => (value % 10 === 0 ? `${value}` : ""),
+        },
+        pointer: {
+          icon: "path://M2 -80 L-2 -80 L-6 0 L6 0 Z",
+          length: "72%",
+          width: 12,
+          itemStyle: { color: "#111827" },
+        },
+        anchor: {
+          show: true,
+          showAbove: true,
+          size: 16,
+          itemStyle: { color: "#fff", borderColor: "#111827", borderWidth: 3 },
+        },
+        title: { show: false },
+        detail: { show: false },
+        data: [{ value: totalValue }],
+      },
+    ],
+  };
+
+  return (
+    <section className="chart-card risk-kpi-gauge-card">
+      <div className="risk-kpi-gauge-layout">
+        <div className="risk-kpi-gauge-main">
+          <div className="risk-kpi-gauge-main-title">Vendas Realizadas</div>
+          <div className="risk-kpi-gauge-main-subtitle">{formatNumber2(totalScPerHa)} scs/ha</div>
+          <ReactECharts option={mainOption} style={{ height: 280 }} opts={{ renderer: "svg" }} />
+          <div className="risk-kpi-gauge-main-value">
+            {Number(totalValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+          </div>
+        </div>
+        <div className="risk-kpi-gauge-side">
+          <div className="risk-kpi-mini-gauge-card">
+            <div className="risk-kpi-mini-gauge-title">Via Derivativos</div>
+            <div className="risk-kpi-mini-gauge-subtitle">{formatNumber2(derivativeScPerHa)} scs/ha</div>
+            <ReactECharts option={buildMiniOption(derivativeValue, "#1fb6f0")} style={{ height: 120 }} opts={{ renderer: "svg" }} />
+            <div className="risk-kpi-mini-gauge-value">
+              {Number(derivativeValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+            </div>
+          </div>
+          <div className="risk-kpi-mini-gauge-card">
+            <div className="risk-kpi-mini-gauge-title">Via Físico</div>
+            <div className="risk-kpi-mini-gauge-subtitle">{formatNumber2(physicalScPerHa)} scs/ha</div>
+            <ReactECharts option={buildMiniOption(physicalValue, "#1fb6f0")} style={{ height: 120 }} opts={{ renderer: "svg" }} />
+            <div className="risk-kpi-mini-gauge-value">
+              {Number(physicalValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -299,6 +470,8 @@ const COMPONENT_STACK_LABEL = "Venda + Bolsa";
 
 const formatCurrency2 = (value) =>
   Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const roundCurrencyDisplayValue = (value) => Number(Number(value || 0).toFixed(2));
 
 const parseLocalizedInputNumber = (value) => {
   if (value === "" || value === undefined || value === null) return undefined;
@@ -962,8 +1135,6 @@ const stackTotalsPlugin = {
 Chart.register(stackTotalsPlugin);
 
 function ComponentSalesDashboard({ dashboardFilter }) {
-  const chartRef = useRef(null);
-  const chartInstanceRef = useRef(null);
   const today = useMemo(() => new Date(), []);
   const defaultDateFrom = useMemo(() => {
     const start = new Date(today);
@@ -988,96 +1159,72 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     () => buildComponentSalesChartState(rows, interval, datasetVisibility),
     [datasetVisibility, interval, rows],
   );
-
-  useEffect(() => {
-    const canvas = chartRef.current;
-    if (!canvas) return undefined;
-
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
-
-    const nextChart = new Chart(canvas.getContext("2d"), {
+  const chartOption = useMemo(() => ({
+    animationDuration: 250,
+    grid: { top: 28, right: 18, bottom: 10, left: 18, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params) => {
+        const rowsHtml = params
+          .map((item) => {
+            const meta = chartState.metaMap.get(`${item.axisValue}||${item.seriesName}`);
+            const strike = meta?.wAvgStrike
+              ? `<br/>Strike medio: ${Number(meta.wAvgStrike).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${meta.moeda_unidade ? ` ${meta.moeda_unidade}` : ""}`
+              : "";
+            return `${item.marker}${item.seriesName} — U$ ${Number(item.value || 0).toLocaleString("pt-BR")}${strike}`;
+          })
+          .join("<br/>");
+        return `<strong>${params[0]?.axisValue || ""}</strong><br/>${rowsHtml}`;
+      },
+    },
+    legend: { show: false },
+    xAxis: {
+      type: "category",
+      data: chartState.labels,
+      axisTick: { show: false },
+      axisLabel: { color: "#475569", fontWeight: 700, fontSize: 12 },
+      axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      name: "U$",
+      nameTextStyle: { color: "#475569", fontSize: 10, fontWeight: 700 },
+      axisLabel: { color: "#475569", fontSize: 11, formatter: (value) => Number(value).toLocaleString("pt-BR") },
+      splitLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
+    },
+    series: chartState.datasets.map((dataset) => ({
+      name: dataset.label,
       type: "bar",
-      data: {
-        labels: chartState.labels,
-        datasets: chartState.datasets,
+      stack: "component-sales",
+      barMaxWidth: 52,
+      itemStyle: { color: dataset.backgroundColor, borderRadius: [10, 10, 0, 0] },
+      label: {
+        show: true,
+        position: "inside",
+        color: "#ffffff",
+        fontSize: 11,
+        fontWeight: 700,
+        formatter: ({ value }) => (Number(value) > 0 ? Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : ""),
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { intersect: true, mode: "nearest", axis: "x" },
-        onClick: (_, elements) => {
-          const hit = elements?.[0];
-          if (!hit) return;
-          const dataset = chartState.datasets[hit.datasetIndex];
-          const period = chartState.labels[hit.index];
-          const key = `${period}||${dataset.label}`;
-          setSelectedBar({
-            category: dataset.label,
-            period,
-            ops: chartState.opsIndex.get(key) || [],
-            meta: chartState.metaMap.get(key) || null,
-            color: dataset.backgroundColor,
-          });
-        },
-        plugins: {
-          legend: { display: false },
-          datalabels: {
-            display: (context) => Number(context.raw) > 0,
-            formatter: (value) =>
-              Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }),
-            color: "#ffffff",
-            textStrokeColor: "#000000",
-            textStrokeWidth: 1,
-            font: { size: 11, weight: "700" },
-            anchor: "center",
-            align: "center",
-            clamp: true,
-          },
-          tooltip: {
-            callbacks: {
-              title: (items) => items[0]?.label || "",
-              label: (context) => `${context.dataset.label} — U$ ${Number(context.parsed.y || 0).toLocaleString("pt-BR")}`,
-              afterLabel: (context) => {
-                const meta = chartState.metaMap.get(`${context.label}||${context.dataset.label}`);
-                if (!meta?.wAvgStrike) return "";
-                return `Strike medio: ${Number(meta.wAvgStrike).toLocaleString("pt-BR", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}${meta.moeda_unidade ? ` ${meta.moeda_unidade}` : ""}`;
-              },
-            },
-          },
-        },
-        layout: { padding: { top: 30, bottom: 6 } },
-        scales: {
-          x: {
-            stacked: true,
-            ticks: { font: { size: 12 } },
-            grid: { color: "rgba(15,23,42,0.12)" },
-          },
-          y: {
-            stacked: true,
-            beginAtZero: true,
-            ticks: {
-              font: { size: 11 },
-              callback: (value) => Number(value).toLocaleString("pt-BR"),
-            },
-            title: {
-              display: true,
-              text: "U$",
-              font: { size: 10, weight: "700" },
-            },
-            grid: { color: "rgba(15,23,42,0.12)" },
-          },
-        },
-      },
-    });
-
-    chartInstanceRef.current = nextChart;
-    return () => nextChart.destroy();
-  }, [chartState]);
+      data: dataset.data,
+    })),
+  }), [chartState]);
+  const chartEvents = useMemo(() => ({
+    click: (params) => {
+      if (params.componentType !== "series") return;
+      const period = chartState.labels[params.dataIndex];
+      const key = `${period}||${params.seriesName}`;
+      setSelectedBar({
+        category: params.seriesName,
+        period,
+        ops: chartState.opsIndex.get(key) || [],
+        meta: chartState.metaMap.get(key) || null,
+        color: params.color,
+      });
+    },
+  }), [chartState]);
 
   return (
     <section className="component-sales-shell">
@@ -1138,7 +1285,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
         </div>
 
         <div className="component-chartjs-wrap">
-          <canvas ref={chartRef} />
+          <ReactECharts option={chartOption} onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "svg" }} />
         </div>
       </div>
 
@@ -1597,97 +1744,86 @@ function CashflowCurrencyChart({
   isExpanded = false,
   onToggleExpand,
 }) {
-  const chartRef = useRef(null);
-  const chartInstanceRef = useRef(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [hoveredPeriod, setHoveredPeriod] = useState(null);
   const chartState = useMemo(() => buildCashflowChartState(rows, interval), [interval, rows]);
   const activeSummary = hoveredPeriod ? chartState.periodSummaries.get(hoveredPeriod) : null;
   const summaryCards = activeSummary?.totals || chartState.totals;
   const saldoSummary = activeSummary?.saldo ?? chartState.saldoTotal;
-
-  useEffect(() => {
-    const canvas = chartRef.current;
-    if (!canvas) return undefined;
-
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
-
-    const nextChart = new Chart(canvas.getContext("2d"), {
-      type: "bar",
-      data: {
-        labels: chartState.labels,
-        datasets: chartState.datasets,
+  const chartOption = useMemo(() => ({
+    animationDuration: 250,
+    grid: { top: 18, right: 18, bottom: 24, left: 18, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params) =>
+        `<strong>${params[0]?.axisValue || ""}</strong><br/>${params
+          .map((item) => `${item.marker}${item.seriesName}: ${formatMoneyByCurrency(item.value, currencyConfig.label)}`)
+          .join("<br/>")}`,
+    },
+    legend: { show: false },
+    xAxis: {
+      type: "category",
+      data: chartState.labels,
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
+      axisLabel: { color: "#475569", fontWeight: 700, fontSize: 11 },
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#475569", formatter: (value) => formatMoneyByCurrency(value, currencyConfig.label) },
+      splitLine: { lineStyle: { color: "rgba(15,23,42,0.1)" } },
+    },
+    series: chartState.datasets.map((dataset) => ({
+      name: dataset.label,
+      type: dataset.type === "line" ? "line" : "bar",
+      stack: dataset.type === "line" ? undefined : "cashflow",
+      smooth: false,
+      symbol: dataset.type === "line" ? "circle" : "none",
+      symbolSize: dataset.type === "line" ? 8 : 0,
+      lineStyle: { color: dataset.borderColor || dataset.backgroundColor, width: dataset.type === "line" ? 3 : 2 },
+      itemStyle: {
+        color: dataset.borderColor || dataset.backgroundColor,
+        borderRadius: dataset.type === "line" ? 0 : [10, 10, 0, 0],
       },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { intersect: true, mode: "nearest", axis: "x" },
-        onHover: (_, elements, chart) => {
-          const hit = elements?.[0];
-          if (!hit) {
-            setHoveredPeriod(null);
-            return;
-          }
-          const period = chart.data.labels?.[hit.index] || null;
-          setHoveredPeriod(period);
-        },
-        onClick: (_, elements, chart) => {
-          const hit = elements?.[0];
-          if (!hit) return;
-          const dataset = chart.data.datasets[hit.datasetIndex];
-          const period = chart.data.labels?.[hit.index];
-          const category = String(dataset.label || "");
-          const categoryKey = CASHFLOW_SERIES_DEFS.find((item) => item.label === category)?.key;
-          const ops =
-            category === "Saldo"
-              ? CASHFLOW_SERIES_DEFS.flatMap((item) => chartState.opsIndex.get(`${period}||${item.key}`) || [])
-              : chartState.opsIndex.get(`${period}||${categoryKey}`) || [];
-          setSelectedItem({
-            category,
-            period,
-            ops,
-            color: dataset.borderColor || dataset.backgroundColor,
-          });
-        },
-        plugins: {
-          legend: { display: false },
-          datalabels: {
-            display: (context) => context.dataset.type !== "line" && Math.abs(Number(context.raw || 0)) > 0,
-            formatter: (value) => formatMoneyByCurrency(value, currencyConfig.label),
+      areaStyle: dataset.type === "line" ? undefined : undefined,
+      label: dataset.type === "line"
+        ? { show: false }
+        : {
+            show: true,
+            position: "top",
             color: "#111827",
-            font: { size: 10, weight: "700" },
-            anchor: "end",
-            align: "top",
-            clamp: true,
+            fontSize: 10,
+            fontWeight: 700,
+            formatter: ({ value }) => (Math.abs(Number(value || 0)) > 0 ? formatMoneyByCurrency(value, currencyConfig.label) : ""),
           },
-          tooltip: {
-            callbacks: {
-              title: (items) => items[0]?.label || "",
-              label: (context) => `${context.dataset.label}: ${formatMoneyByCurrency(context.parsed.y, currencyConfig.label)}`,
-            },
-          },
-        },
-        scales: {
-          x: {
-            stacked: true,
-            grid: { color: "rgba(15,23,42,0.08)" },
-          },
-          y: {
-            stacked: true,
-            ticks: {
-              callback: (value) => formatMoneyByCurrency(value, currencyConfig.label),
-            },
-            grid: { color: "rgba(15,23,42,0.1)" },
-          },
-        },
-      },
-    });
-
-    chartInstanceRef.current = nextChart;
-    return () => nextChart.destroy();
-  }, [chartState, currencyConfig.label]);
+      data: dataset.data,
+      barMaxWidth: 44,
+    })),
+  }), [chartState, currencyConfig.label]);
+  const chartEvents = useMemo(() => ({
+    mouseover: (params) => {
+      if (params.componentType !== "series") return;
+      setHoveredPeriod(chartState.labels[params.dataIndex] || null);
+    },
+    globalout: () => setHoveredPeriod(null),
+    click: (params) => {
+      if (params.componentType !== "series") return;
+      const period = chartState.labels[params.dataIndex];
+      const category = String(params.seriesName || "");
+      const categoryKey = CASHFLOW_SERIES_DEFS.find((item) => item.label === category)?.key;
+      const ops =
+        category === "Saldo"
+          ? CASHFLOW_SERIES_DEFS.flatMap((item) => chartState.opsIndex.get(`${period}||${item.key}`) || [])
+          : chartState.opsIndex.get(`${period}||${categoryKey}`) || [];
+      setSelectedItem({
+        category,
+        period,
+        ops,
+        color: params.color,
+      });
+    },
+  }), [chartState]);
 
   return (
       <div className={`chart-card component-chartjs-card cashflow-chart-card${compact ? " cashflow-chart-card--compact" : ""}${isExpanded ? " cashflow-chart-card--expanded" : ""}`}>
@@ -1728,7 +1864,7 @@ function CashflowCurrencyChart({
         </article>
       </section>
       <div className={`component-chartjs-wrap cashflow-chartjs-wrap${compact ? " cashflow-chartjs-wrap--compact" : ""}${isExpanded ? " cashflow-chartjs-wrap--expanded" : ""}`}>
-        <canvas ref={chartRef} />
+        <ReactECharts option={chartOption} onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "svg" }} />
       </div>
       <CashflowOperationsPopup selectedItem={selectedItem} currencyLabel={currencyConfig.label} onClose={() => setSelectedItem(null)} />
     </div>
@@ -1880,6 +2016,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [physicalQuotes, setPhysicalQuotes] = useState([]);
   const [hedgePolicies, setHedgePolicies] = useState([]);
   const [budgetCosts, setBudgetCosts] = useState([]);
+  const [physicalPayments, setPhysicalPayments] = useState([]);
+  const [cashPayments, setCashPayments] = useState([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1890,7 +2028,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       resourceService.listAll("physical-quotes"),
       resourceService.listAll("hedge-policies"),
       resourceService.listAll("budget-costs"),
-    ]).then(([salesResponse, derivativeResponse, cropBoardResponse, quotesResponse, policiesResponse, budgetResponse]) => {
+      resourceService.listAll("physical-payments"),
+      resourceService.listAll("cash-payments"),
+    ]).then(([salesResponse, derivativeResponse, cropBoardResponse, quotesResponse, policiesResponse, budgetResponse, physicalPaymentsResponse, cashPaymentsResponse]) => {
       if (!isMounted) return;
       setPhysicalSales(salesResponse || []);
       setDerivatives(derivativeResponse || []);
@@ -1898,6 +2038,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       setPhysicalQuotes(quotesResponse || []);
       setHedgePolicies(policiesResponse || []);
       setBudgetCosts(budgetResponse || []);
+      setPhysicalPayments(physicalPaymentsResponse || []);
+      setCashPayments(cashPaymentsResponse || []);
     });
     return () => {
       isMounted = false;
@@ -1929,6 +2071,25 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const filteredBudgetCosts = useMemo(
     () => budgetCosts.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
     [budgetCosts, dashboardFilter],
+  );
+  const filteredPhysicalPayments = useMemo(
+    () =>
+      physicalPayments.filter((item) =>
+        rowMatchesDashboardFilter(item, dashboardFilter, {
+          cultureKeys: ["fazer_frente_com"],
+        }),
+      ),
+    [dashboardFilter, physicalPayments],
+  );
+  const filteredCashPayments = useMemo(
+    () =>
+      cashPayments.filter((item) =>
+        rowMatchesDashboardFilter(item, dashboardFilter, {
+          cultureKeys: ["fazer_frente_com"],
+          seasonKeys: ["safra"],
+        }),
+      ),
+    [cashPayments, dashboardFilter],
   );
   const filteredDerivatives = useMemo(
     () =>
@@ -2010,6 +2171,110 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     ],
     [basisAverage, commercializationCoverage, derivativeMtm, physicalAveragePrice],
   );
+  const derivativeOperationsByExchange = useMemo(() => {
+    const exchangeMap = new Map();
+    filteredDerivatives.forEach((item) => {
+      const exchangeLabel =
+        item.bolsa_ref ||
+        item.ctrbolsa ||
+        item.instituicao ||
+        item.bolsa?.nome ||
+        item.bolsa ||
+        "Sem bolsa";
+      const status = normalizeText(item.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto";
+      const current = exchangeMap.get(exchangeLabel) || { label: exchangeLabel, total: 0, open: 0, closed: 0 };
+      current.total += 1;
+      if (status === "Encerrado") {
+        current.closed += 1;
+      } else {
+        current.open += 1;
+      }
+      exchangeMap.set(exchangeLabel, current);
+    });
+    return Array.from(exchangeMap.values())
+      .sort((left, right) => right.total - left.total)
+      .map((item, index) => ({
+        ...item,
+        color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+      }));
+  }, [filteredDerivatives]);
+  const derivativeExchangeSlices = useMemo(() => {
+    const slices = derivativeOperationsByExchange
+      .filter((item) => item.total > 0)
+      .map((item) => ({ label: item.label, value: item.total, color: item.color }));
+    return slices.length ? slices : [{ label: "Sem operações", value: 1, color: "#cbd5e1" }];
+  }, [derivativeOperationsByExchange]);
+  const derivativeExchangeOpenSlices = useMemo(() => {
+    const slices = derivativeOperationsByExchange
+      .filter((item) => item.open > 0)
+      .map((item) => ({ label: item.label, value: item.open, color: item.color }));
+    return slices.length ? slices : [{ label: "Sem operações", value: 1, color: "#cbd5e1" }];
+  }, [derivativeOperationsByExchange]);
+  const derivativeExchangeClosedSlices = useMemo(() => {
+    const slices = derivativeOperationsByExchange
+      .filter((item) => item.closed > 0)
+      .map((item) => ({ label: item.label, value: item.closed, color: item.color }));
+    return slices.length ? slices : [{ label: "Sem operações", value: 1, color: "#cbd5e1" }];
+  }, [derivativeOperationsByExchange]);
+  const currentMonthPolicy = useMemo(() => {
+    const currentMonth = startOfDashboardMonth(new Date());
+    return (
+      filteredPolicies
+        .map((item) => ({
+          ...item,
+          monthDate: startOfDashboardMonth(item.mes_ano),
+          minRatio: normalizePolicyRatio(item.vendas_x_prod_total_minimo),
+          maxRatio: normalizePolicyRatio(item.vendas_x_prod_total_maximo),
+        }))
+        .filter((item) => item.monthDate && currentMonth && item.monthDate.getTime() === currentMonth.getTime())
+        .sort((left, right) => new Date(right.mes_ano) - new Date(left.mes_ano))[0] || null
+    );
+  }, [filteredPolicies]);
+  const totalArea = useMemo(
+    () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.area || 0)), 0),
+    [filteredCropBoards],
+  );
+  const totalCommercializedVolume = physicalSoldVolume + derivativeCommodityVolume;
+  const totalSalesPercent = productionTotal > 0 ? (totalCommercializedVolume / productionTotal) * 100 : 0;
+  const derivativeSalesPercent = productionTotal > 0 ? (derivativeCommodityVolume / productionTotal) * 100 : 0;
+  const physicalSalesPercent = productionTotal > 0 ? (physicalSoldVolume / productionTotal) * 100 : 0;
+  const totalScPerHa = totalArea > 0 ? totalCommercializedVolume / totalArea : 0;
+  const derivativeScPerHa = totalArea > 0 ? derivativeCommodityVolume / totalArea : 0;
+  const physicalScPerHa = totalArea > 0 ? physicalSoldVolume / totalArea : 0;
+  const currentPolicyMinPercent = currentMonthPolicy?.minRatio != null ? currentMonthPolicy.minRatio * 100 : null;
+  const currentPolicyMaxPercent = currentMonthPolicy?.maxRatio != null ? currentMonthPolicy.maxRatio * 100 : null;
+  const formCompletionRows = useMemo(
+    () => [
+      { label: "Quadro Safra", count: filteredCropBoards.length, hint: "Base de produção e cobertura" },
+      { label: "Vendas Físico", count: filteredSales.length, hint: "Contratos físicos negociados" },
+      { label: "Derivativos", count: filteredDerivatives.length, hint: "Operações em bolsa e câmbio" },
+      { label: "Cotações Físico", count: filteredQuotes.length, hint: "Referência de mercado / MTM" },
+      { label: "Política de Hedge", count: filteredPolicies.length, hint: "Faixas e disciplina de risco" },
+      { label: "Custo Orçamento", count: filteredBudgetCosts.length, hint: "Base de margem e cobertura" },
+      { label: "Pgtos Físico", count: filteredPhysicalPayments.length, hint: "Fluxo operacional do físico" },
+      { label: "Pgtos Caixa", count: filteredCashPayments.length, hint: "Fluxo financeiro consolidado" },
+    ].map((item) => ({
+      ...item,
+      status: item.count > 0 ? "Preenchido" : "Pendente",
+    })),
+    [
+      filteredBudgetCosts.length,
+      filteredCashPayments.length,
+      filteredCropBoards.length,
+      filteredDerivatives.length,
+      filteredPhysicalPayments.length,
+      filteredPolicies.length,
+      filteredQuotes.length,
+      filteredSales.length,
+    ],
+  );
+  const formCompletionSummary = useMemo(() => {
+    const totalForms = formCompletionRows.length;
+    const filledForms = formCompletionRows.filter((item) => item.count > 0).length;
+    const pendingForms = totalForms - filledForms;
+    const totalRecords = formCompletionRows.reduce((sum, item) => sum + item.count, 0);
+    return { totalForms, filledForms, pendingForms, totalRecords };
+  }, [formCompletionRows]);
 
   const cultureRows = useMemo(() => {
     const map = new Map();
@@ -2073,6 +2338,17 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         </article>
       </section>
 
+      <CommercialRiskGaugePanel
+        totalPercent={totalSalesPercent}
+        totalScPerHa={totalScPerHa}
+        derivativePercent={derivativeSalesPercent}
+        derivativeScPerHa={derivativeScPerHa}
+        physicalPercent={physicalSalesPercent}
+        physicalScPerHa={physicalScPerHa}
+        policyMinPercent={currentPolicyMinPercent}
+        policyMaxPercent={currentPolicyMaxPercent}
+      />
+
       <section className="content-grid risk-kpi-content">
         <div className="chart-card chart-card-large">
           <div className="chart-card-header">
@@ -2134,6 +2410,76 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         />
 
         <ScenarioBars data={leverageBars} />
+      </section>
+
+      <section className="risk-kpi-derivative-donuts">
+        <DonutChart
+          centerLabel="Derivativos"
+          centerValue={`${filteredDerivatives.length} ops`}
+          slices={derivativeExchangeSlices}
+        />
+        <DonutChart
+          centerLabel="Em aberto"
+          centerValue={`${filteredDerivatives.filter((item) => !normalizeText(item.status_operacao).includes("encerr")).length} ops`}
+          slices={derivativeExchangeOpenSlices}
+        />
+        <DonutChart
+          centerLabel="Encerrado"
+          centerValue={`${filteredDerivatives.filter((item) => normalizeText(item.status_operacao).includes("encerr")).length} ops`}
+          slices={derivativeExchangeClosedSlices}
+        />
+      </section>
+
+      <section className="risk-kpi-forms-grid">
+        <article className="chart-card risk-kpi-forms-card">
+          <div className="chart-card-header">
+            <div>
+              <h3>Formulários preenchidos</h3>
+              <p className="muted">Visão orientativa para mostrar o que já foi alimentado e o que ainda falta no sistema.</p>
+            </div>
+          </div>
+          <div className="risk-kpi-forms-list">
+            {formCompletionRows.map((item) => (
+              <div key={item.label} className="risk-kpi-form-row">
+                <div>
+                  <strong>{item.label}</strong>
+                  <span>{item.hint}</span>
+                </div>
+                <div className="risk-kpi-form-meta">
+                  <b>{item.count}</b>
+                  <small className={item.count > 0 ? "is-filled" : "is-pending"}>{item.status}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="chart-card risk-kpi-forms-summary-card">
+          <div className="chart-card-header">
+            <div>
+              <h3>Resumo de preenchimento</h3>
+              <p className="muted">Leitura rápida para orientar o usuário sobre a cobertura cadastral do sistema.</p>
+            </div>
+          </div>
+          <div className="risk-kpi-forms-summary">
+            <div className="risk-kpi-summary-item">
+              <span>Formulários monitorados</span>
+              <strong>{formCompletionSummary.totalForms}</strong>
+            </div>
+            <div className="risk-kpi-summary-item">
+              <span>Já preenchidos</span>
+              <strong>{formCompletionSummary.filledForms}</strong>
+            </div>
+            <div className="risk-kpi-summary-item">
+              <span>Ainda pendentes</span>
+              <strong>{formCompletionSummary.pendingForms}</strong>
+            </div>
+            <div className="risk-kpi-summary-item">
+              <span>Total de registros</span>
+              <strong>{formatNumber0(formCompletionSummary.totalRecords)}</strong>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section className="chart-card risk-kpi-culture-card">
@@ -4114,6 +4460,1042 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
   );
 }
 
+const PRICE_COMPOSITION_COLORS = {
+  physical: "#006400",
+  mtm: "#ba8e23",
+  openPositive: "#006400",
+  openNegative: "#ff0000",
+  closedPositive: "#90ee90",
+  closedNegative: "#ff8da1",
+  bolsa: "#f59e0b",
+  cambio: "#2563eb",
+};
+
+const PRICE_COMPOSITION_STACK_PALETTES = {
+  Bolsa: {
+    open: ["#166534", "#15803d", "#0f766e", "#0b7a0a"],
+    closed: ["#86efac", "#bbf7d0", "#99f6e4", "#d9f99d"],
+  },
+  Cambio: {
+    open: ["#1d4ed8", "#2563eb", "#3730a3", "#0f766e"],
+    closed: ["#93c5fd", "#bfdbfe", "#c7d2fe", "#fecdd3"],
+  },
+};
+
+const sumPriceCompositionSegments = (segments = []) =>
+  segments.reduce((sum, segment) => sum + Number(segment.value || 0), 0);
+
+const pickPriceCompositionColor = (classification, index, status) => {
+  const paletteGroup = PRICE_COMPOSITION_STACK_PALETTES[classification] || PRICE_COMPOSITION_STACK_PALETTES.Bolsa;
+  const palette = status === "Encerrado" ? paletteGroup.closed : paletteGroup.open;
+  return palette[index % palette.length];
+};
+
+const PRICE_COMPOSITION_WATERFALL_COLORS = {
+  positive: "#0b7a0a",
+  positiveSoft: "#7ddf8a",
+  negative: "#dc2626",
+  negativeSoft: "#f59e9e",
+};
+
+const getSignedPriceCompositionColor = (value, tone = "solid") => {
+  const numericValue = roundCurrencyDisplayValue(value);
+  if (numericValue < 0) {
+    return tone === "soft" ? PRICE_COMPOSITION_WATERFALL_COLORS.negativeSoft : PRICE_COMPOSITION_WATERFALL_COLORS.negative;
+  }
+  return tone === "soft" ? PRICE_COMPOSITION_WATERFALL_COLORS.positiveSoft : PRICE_COMPOSITION_WATERFALL_COLORS.positive;
+};
+
+function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar }) {
+  const plotHeight = 278;
+  const plotAreaHeight = plotHeight - 1;
+  const labelSpace = 30;
+  const containerHeight = plotHeight + labelSpace;
+  const chartRef = useRef(null);
+  const [tooltipState, setTooltipState] = useState(null);
+  const normalizedBars = bars.map((bar) => {
+    const segments = (bar.segments?.length ? bar.segments : [{ label: bar.label, value: bar.value, color: bar.color }]).map((segment) => ({
+      ...segment,
+      value: roundCurrencyDisplayValue(segment.value),
+    }))
+      .filter((segment) => segment.value !== 0);
+    const positiveTotal = segments.filter((segment) => segment.value > 0).reduce((sum, segment) => sum + segment.value, 0);
+    const negativeTotal = segments.filter((segment) => segment.value < 0).reduce((sum, segment) => sum + segment.value, 0);
+    const totalValue = roundCurrencyDisplayValue(segments.reduce((sum, segment) => sum + segment.value, 0));
+    return {
+      ...bar,
+      segments,
+      positiveTotal,
+      negativeTotal,
+      totalValue,
+    };
+  });
+  const maxPositive = Math.max(...normalizedBars.map((bar) => bar.positiveTotal), 0);
+  const maxNegativeAbs = Math.max(...normalizedBars.map((bar) => Math.abs(bar.negativeTotal)), 0);
+  const minValue = -maxNegativeAbs;
+  const maxValue = Math.max(maxPositive, 0);
+  const range = Math.max(maxValue - minValue, 1);
+  const zeroY = ((maxValue - 0) / range) * plotAreaHeight;
+  const tickValues = useMemo(() => {
+    const rawStep = (maxValue - minValue) / 4 || 1;
+    const magnitude = 10 ** Math.floor(Math.log10(Math.abs(rawStep) || 1));
+    const normalized = rawStep / magnitude;
+    const niceFactor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    const niceStep = niceFactor * magnitude;
+    const start = Math.floor(minValue / niceStep) * niceStep;
+    const end = Math.ceil(maxValue / niceStep) * niceStep;
+    const ticks = [];
+    for (let current = start; current <= end + niceStep / 2; current += niceStep) {
+      ticks.push(Number(current.toFixed(10)));
+    }
+    if (!ticks.includes(0)) {
+      ticks.push(0);
+      ticks.sort((left, right) => right - left);
+    } else {
+      ticks.sort((left, right) => right - left);
+    }
+    return ticks;
+  }, [maxValue, minValue]);
+  const getVerticalPosition = (value) => Math.min(Math.max(((maxValue - value) / range) * plotAreaHeight, 0), plotAreaHeight);
+  const formatTooltipValue = (value) => `${value >= 0 ? "" : "-"}${unitLabel} ${formatCurrency2(Math.abs(value))}`;
+  const updateTooltip = (event, bar) => {
+    const chartRect = chartRef.current?.getBoundingClientRect();
+    if (!chartRect) return;
+    const targetRect = event.currentTarget.getBoundingClientRect();
+    const rawX = (event.clientX || (targetRect.left + targetRect.right) / 2) - chartRect.left;
+    const x = Math.min(Math.max(rawX, 72), chartRect.width - 72);
+    setTooltipState({
+      x,
+      label: bar.label,
+      total: formatTooltipValue(bar.totalValue),
+      segments: bar.segments.map((segment) => ({
+        label: segment.label,
+        value: formatTooltipValue(segment.value),
+        color: segment.color,
+      })),
+    });
+  };
+  const clearTooltip = () => setTooltipState(null);
+
+  return (
+    <article className="price-comp-pane">
+      <div className="price-comp-vertical-chart" ref={chartRef}>
+        {tooltipState ? (
+          <div className="price-comp-tooltip" style={{ left: `${tooltipState.x}px` }} role="status" aria-live="polite">
+            <div className="price-comp-tooltip-title">{tooltipState.label}</div>
+            <div className="price-comp-tooltip-total">{tooltipState.total}</div>
+            {tooltipState.segments.map((segment) => (
+              <div key={`${tooltipState.label}-${segment.label}`} className="price-comp-tooltip-row">
+                <span className="price-comp-tooltip-dot" style={{ background: segment.color }} />
+                <span className="price-comp-tooltip-text">{segment.label}</span>
+                <span className="price-comp-tooltip-value">{segment.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="price-comp-vertical-body">
+          <div className="price-comp-top-spacer" />
+          <div className="price-comp-column-totals" style={{ gridTemplateColumns: `repeat(${bars.length}, minmax(0, 1fr))` }}>
+            {normalizedBars.map((bar) => (
+              <div
+                key={bar.label}
+                className="price-comp-column-total"
+                onMouseEnter={(event) => updateTooltip(event, bar)}
+                onMouseMove={(event) => updateTooltip(event, bar)}
+                onMouseLeave={clearTooltip}
+              >
+                {bar.totalValue >= 0 ? "" : "-"}
+                {unitLabel} {formatCurrency2(Math.abs(bar.totalValue))}
+              </div>
+            ))}
+          </div>
+          <div className="price-comp-y-axis" style={{ height: `${plotAreaHeight}px` }}>
+            {tickValues.map((value) => (
+              <div key={value} className="price-comp-y-tick" style={{ top: `${getVerticalPosition(value)}px` }}>
+                {value < 0 ? "-" : ""}
+                {unitLabel} {formatCurrency2(Math.abs(value))}
+              </div>
+            ))}
+          </div>
+          <div className="price-comp-vertical-plot" style={{ height: `${containerHeight}px`, ["--price-comp-plot-height"]: `${plotAreaHeight}px` }}>
+            <div className="price-comp-vertical-grid">
+              {tickValues.map((value) => (
+                <div key={value} className={`price-comp-grid-line${value === 0 ? " is-zero" : ""}`} style={{ top: `${getVerticalPosition(value)}px` }} />
+              ))}
+            </div>
+            <div className="price-comp-vertical-columns" style={{ gridTemplateColumns: `repeat(${bars.length}, minmax(0, 1fr))` }}>
+              {normalizedBars.map((bar) => {
+                let positiveOffset = 0;
+                let negativeOffset = 0;
+                return (
+                  <div
+                    key={bar.label}
+                    className="price-comp-column"
+                    onMouseEnter={(event) => updateTooltip(event, bar)}
+                    onMouseMove={(event) => updateTooltip(event, bar)}
+                    onMouseLeave={clearTooltip}
+                  >
+                    <button
+                      type="button"
+                      className={`price-comp-column-track${onSelectBar ? " is-clickable" : ""}`}
+                      style={{ height: `${plotAreaHeight}px` }}
+                      onClick={() => onSelectBar?.(bar)}
+                    >
+                      {bar.segments.map((segment, index) => {
+                        const isPositive = segment.value >= 0;
+                        const barHeight = (Math.abs(segment.value) / range) * plotAreaHeight;
+                        const heightPx = Math.max(barHeight, 6);
+                        const style = {
+                          height: `${heightPx}px`,
+                          background: segment.color,
+                        };
+                        if (isPositive) {
+                          style.bottom = `${plotAreaHeight - zeroY + positiveOffset}px`;
+                          positiveOffset += heightPx;
+                        } else {
+                          style.top = `${zeroY + negativeOffset}px`;
+                          negativeOffset += heightPx;
+                        }
+                        return (
+                          <div
+                            key={`${bar.label}-${segment.label}-${index}`}
+                            className={`price-comp-column-segment ${isPositive ? "positive" : "negative"}`}
+                            style={style}
+                            title={`${segment.label}: ${formatCurrency2(segment.value)}`}
+                          />
+                        );
+                      })}
+                    </button>
+                    <div className="price-comp-column-label">{bar.label}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
+  const normalizedBars = useMemo(
+    () =>
+      bars.map((bar) => {
+        const segments = (bar.segments?.length ? bar.segments : [{ label: bar.label, value: bar.value, color: bar.color }])
+          .map((segment) => ({
+            ...segment,
+            value: roundCurrencyDisplayValue(segment.value),
+          }))
+          .filter((segment) => segment.value !== 0);
+        const totalValue = roundCurrencyDisplayValue(segments.reduce((sum, segment) => sum + segment.value, 0));
+        return { ...bar, segments, totalValue };
+      }),
+    [bars],
+  );
+  const categories = normalizedBars.map((bar) => bar.label);
+  const seriesDefs = normalizedBars.flatMap((bar) => bar.segments.map((segment) => segment.label));
+  const uniqueSeries = [...new Set(seriesDefs)];
+  const option = useMemo(
+    () => ({
+      animationDuration: 250,
+      grid: { top: 18, right: 12, bottom: 38, left: 56, containLabel: false },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (params) => {
+          const index = params[0]?.dataIndex ?? 0;
+          const bar = normalizedBars[index];
+          const lines = bar.segments
+            .map(
+              (segment) =>
+                `<span style="display:inline-block;margin-right:6px;border-radius:999px;width:8px;height:8px;background:${segment.color}"></span>${segment.label}: ${segment.value >= 0 ? "" : "-"}${unitLabel} ${formatCurrency2(Math.abs(segment.value))}`,
+            )
+            .join("<br/>");
+          return `<strong>${bar.label}</strong><br/>Total: ${bar.totalValue >= 0 ? "" : "-"}${unitLabel} ${formatCurrency2(Math.abs(bar.totalValue))}${lines ? `<br/>${lines}` : ""}`;
+        },
+      },
+      xAxis: {
+        type: "category",
+        data: categories,
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: "rgba(100, 116, 139, 0.75)" } },
+        axisLabel: { color: "#475569", fontWeight: 700, fontSize: 18, margin: 18 },
+      },
+      yAxis: {
+        type: "value",
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: "#475569",
+          fontSize: 12,
+          fontWeight: 700,
+          formatter: (value) => `${value < 0 ? "-" : ""}${unitLabel} ${formatCurrency2(Math.abs(value))}`,
+        },
+        splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.16)" } },
+      },
+      series: uniqueSeries.map((seriesLabel) => ({
+        name: seriesLabel,
+        type: "bar",
+        stack: "price-comp",
+        barWidth: "58%",
+        emphasis: { focus: "series" },
+        itemStyle: {
+          borderRadius: [18, 18, 0, 0],
+        },
+        data: normalizedBars.map((bar) => {
+          const segment = bar.segments.find((item) => item.label === seriesLabel);
+          return segment
+            ? {
+                value: segment.value,
+                itemStyle: {
+                  color: segment.color,
+                  borderRadius: segment.value >= 0 ? [18, 18, 0, 0] : [0, 0, 18, 18],
+                },
+              }
+            : 0;
+        }),
+      })),
+    }),
+    [categories, normalizedBars, uniqueSeries, unitLabel],
+  );
+  const chartEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        onSelectBar?.(normalizedBars[params.dataIndex]);
+      },
+    }),
+    [normalizedBars, onSelectBar],
+  );
+
+  return (
+    <article className="price-comp-pane">
+      <div className="price-comp-vertical-chart">
+        <div className="price-comp-column-totals" style={{ gridTemplateColumns: `repeat(${normalizedBars.length}, minmax(0, 1fr))`, marginBottom: 12, marginLeft: 56 }}>
+          {normalizedBars.map((bar) => (
+            <div key={bar.label} className="price-comp-column-total">
+              {bar.totalValue >= 0 ? "" : "-"}
+              {unitLabel} {formatCurrency2(Math.abs(bar.totalValue))}
+            </div>
+          ))}
+        </div>
+        <ReactECharts option={option} onEvents={chartEvents} style={{ height: 320 }} opts={{ renderer: "svg" }} />
+      </div>
+    </article>
+  );
+}
+
+function PriceCompositionHorizontalChart({ title, rows, unitLabel, onSelectRow, onSelectSegment }) {
+  const positiveMax = Math.max(
+    1,
+    ...rows.map((row) => row.segments.filter((segment) => segment.value > 0).reduce((sum, segment) => sum + segment.value, 0)),
+  );
+  const negativeMax = Math.max(
+    1,
+    ...rows.map((row) => Math.abs(row.segments.filter((segment) => segment.value < 0).reduce((sum, segment) => sum + segment.value, 0))),
+  );
+
+  return (
+    <article className="price-comp-pane">
+      <div className="price-comp-pane-title">
+        <span>{title}</span>
+        <small>{unitLabel}</small>
+      </div>
+      <div className="price-comp-horizontal-chart">
+        {rows.map((row) => {
+          let rightCursor = 50;
+          let leftCursor = 50;
+          return (
+            <div key={row.label} className="price-comp-h-row">
+              <div className="price-comp-h-label">{row.label}</div>
+              <button
+                type="button"
+                className={`price-comp-h-track${onSelectRow ? " is-clickable" : ""}`}
+                onClick={() => onSelectRow?.(row)}
+              >
+                <div className="price-comp-h-zero" />
+                {row.segments.map((segment) => {
+                  const width = `${(Math.abs(segment.value) / (segment.value >= 0 ? positiveMax : negativeMax)) * 46}%`;
+                  if (segment.value >= 0) {
+                    const style = { left: `${rightCursor}%`, width, background: segment.color };
+                    rightCursor += Number.parseFloat(width);
+                    return (
+                      <div
+                        key={`${row.label}-${segment.label}`}
+                        className="price-comp-h-segment"
+                        style={style}
+                        title={`${segment.label}: ${formatCurrency2(segment.value)}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectSegment?.(row, segment);
+                        }}
+                      />
+                    );
+                  }
+                  const widthValue = (Math.abs(segment.value) / negativeMax) * 46;
+                  leftCursor -= widthValue;
+                  const style = { left: `${leftCursor}%`, width: `${widthValue}%`, background: segment.color };
+                  return (
+                    <div
+                      key={`${row.label}-${segment.label}`}
+                      className="price-comp-h-segment"
+                      style={style}
+                      title={`${segment.label}: ${formatCurrency2(segment.value)}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelectSegment?.(row, segment);
+                      }}
+                    />
+                  );
+                })}
+              </button>
+              <div className="price-comp-h-total">
+                {row.total >= 0 ? "" : "-"}
+                {unitLabel} {formatCurrency2(Math.abs(row.total))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "custom" }) {
+  const { matchesDashboardFilter } = useDashboardFilter();
+  const [physicalSales, setPhysicalSales] = useState([]);
+  const [derivatives, setDerivatives] = useState([]);
+  const [cropBoards, setCropBoards] = useState([]);
+  const [physicalQuotes, setPhysicalQuotes] = useState([]);
+  const [currencyMode, setCurrencyMode] = useState("AMBOS_R$");
+  const [adjustmentMode, setAdjustmentMode] = useState("ALL");
+  const [soldVolumeInput, setSoldVolumeInput] = useState("");
+  const [hasManualVolume, setHasManualVolume] = useState(false);
+  const [detailModal, setDetailModal] = useState(null);
+  const [includeClosedDerivatives, setIncludeClosedDerivatives] = useState(true);
+  const [includeOpenDerivatives, setIncludeOpenDerivatives] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([
+      resourceService.listAll("physical-sales"),
+      resourceService.listAll("derivative-operations"),
+      resourceService.listAll("crop-boards"),
+      resourceService.listAll("physical-quotes"),
+    ]).then(([physicalSalesResponse, derivativesResponse, cropBoardsResponse, quotesResponse]) => {
+      if (!isMounted) return;
+      setPhysicalSales(physicalSalesResponse || []);
+      setDerivatives(derivativesResponse || []);
+      setCropBoards(cropBoardsResponse || []);
+      setPhysicalQuotes(quotesResponse || []);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const filteredSales = useMemo(
+    () => physicalSales.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [dashboardFilter, matchesDashboardFilter, physicalSales],
+  );
+
+  const filteredDerivatives = useMemo(
+    () => derivatives.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [dashboardFilter, derivatives, matchesDashboardFilter],
+  );
+
+  const filteredCropBoards = useMemo(
+    () => cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [cropBoards, dashboardFilter, matchesDashboardFilter],
+  );
+
+  const filteredQuotes = useMemo(
+    () => physicalQuotes.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [dashboardFilter, matchesDashboardFilter, physicalQuotes],
+  );
+
+  const usdRate = useMemo(() => {
+    const candidates = filteredSales
+      .map((item) => Number(item.dolar_de_venda || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (candidates.length) {
+      return candidates.reduce((sum, value) => sum + value, 0) / candidates.length;
+    }
+    return 5.5;
+  }, [filteredSales]);
+
+  const quoteAvgBrl = useMemo(() => {
+    const values = filteredQuotes
+      .filter((item) => normalizeText(item.moeda_unidade).includes("r$/sc"))
+      .map((item) => Number(item.cotacao || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  }, [filteredQuotes]);
+
+  const quoteAvgUsd = useMemo(() => {
+    const values = filteredQuotes
+      .filter((item) => normalizeText(item.moeda_unidade).includes("u$/sc"))
+      .map((item) => Number(item.cotacao || 0))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  }, [filteredQuotes]);
+
+  const productionTotal = useMemo(
+    () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.producao_total || 0)), 0),
+    [filteredCropBoards],
+  );
+
+  const salesSummary = useMemo(() => {
+    const summary = {
+      totalVolume: 0,
+      totalRevenueBrl: 0,
+      totalRevenueUsd: 0,
+      basisWeighted: 0,
+      dollarWeighted: 0,
+      brlVolume: 0,
+      usdVolume: 0,
+      brlRevenue: 0,
+      usdRevenue: 0,
+      brlPriceWeighted: 0,
+      usdPriceWeighted: 0,
+    };
+
+    filteredSales.forEach((item) => {
+      const volume = Math.abs(Number(item.volume_fisico || 0));
+      const price = Number(item.preco || 0);
+      const dollar = Number(item.dolar_de_venda || usdRate || 0);
+      const isUsd = isUsdCurrency(item.moeda_contrato);
+      const revenueBrl = isUsd ? volume * price * dollar : volume * price;
+      const revenueUsd = isUsd ? volume * price : dollar > 0 ? (volume * price) / dollar : 0;
+      const basis = Number(item.basis_valor || 0);
+
+      summary.totalVolume += volume;
+      summary.totalRevenueBrl += revenueBrl;
+      summary.totalRevenueUsd += revenueUsd;
+      summary.basisWeighted += basis * volume;
+      summary.dollarWeighted += dollar * volume;
+
+      if (isUsd) {
+        summary.usdVolume += volume;
+        summary.usdRevenue += revenueUsd;
+        summary.usdPriceWeighted += price * volume;
+      } else {
+        summary.brlVolume += volume;
+        summary.brlRevenue += revenueBrl;
+        summary.brlPriceWeighted += price * volume;
+      }
+    });
+
+    return summary;
+  }, [filteredSales, usdRate]);
+
+  const defaultSoldVolume = useMemo(() => {
+    if (currencyMode === "R$") return salesSummary.brlVolume;
+    if (currencyMode === "U$") return salesSummary.usdVolume;
+    return salesSummary.totalVolume;
+  }, [currencyMode, salesSummary.brlVolume, salesSummary.totalVolume, salesSummary.usdVolume]);
+
+  useEffect(() => {
+    if (!hasManualVolume) {
+      setSoldVolumeInput(formatInputInt(defaultSoldVolume));
+    }
+  }, [defaultSoldVolume, hasManualVolume]);
+
+  const selectedDivisor = useMemo(
+    () => Math.max(parseLocalizedInputNumber(soldVolumeInput) || defaultSoldVolume || 1, 1),
+    [defaultSoldVolume, soldVolumeInput],
+  );
+
+  const normalizedDerivatives = useMemo(() => {
+    return filteredDerivatives
+      .map((item) => {
+        const originalValue = Number(item.ajustes_totais_brl || 0);
+        const fallbackUsd = usdRate > 0 ? originalValue / usdRate : 0;
+        const originalUsd =
+          Number(item.ajustes_totais_moeda_original || item.ajustes_totais_usd || item.volume_financeiro_valor_moeda_original || 0) ||
+          fallbackUsd;
+        const derivativeCurrency = isUsdCurrency(item.volume_financeiro_moeda || item.moeda_unidade || item.moeda_contrato) ? "U$" : "R$";
+        const amount =
+          currencyMode === "U$"
+            ? originalUsd
+            : currencyMode === "R$"
+              ? originalValue
+              : originalValue;
+        const classification = normalizeText(item.moeda_ou_cmdtye) === "moeda" ? "Cambio" : "Bolsa";
+        const status = normalizeText(item.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto";
+        return {
+          id: item.id,
+          classificacao: classification,
+          status,
+          currency: derivativeCurrency,
+          sourceKey: item.bolsa_ref || item.ctrbolsa || item.instituicao || item.operation,
+          amount,
+          strike: Number(item.strike_montagem || item.strike_liquidacao || 0),
+          volume: Math.abs(Number(item.volume || item.volume_fisico || item.quantidade_derivativos || 0)),
+          institution: item.instituicao || item.bolsa_ref || "—",
+          operation: item.nome_da_operacao || item.tipo_derivativo || "Derivativo",
+        };
+      })
+      .filter((item) => adjustmentMode === "ALL" || currencyMode === "AMBOS_R$" || item.currency === currencyMode);
+  }, [adjustmentMode, currencyMode, filteredDerivatives, usdRate]);
+
+  const derivativeSummary = useMemo(() => {
+    const summary = {
+      open: 0,
+      closed: 0,
+      byClass: {
+        Bolsa: { open: 0, closed: 0, openRows: [], closedRows: [] },
+        Cambio: { open: 0, closed: 0, openRows: [], closedRows: [] },
+      },
+    };
+
+    normalizedDerivatives.forEach((item) => {
+      const bucket = summary.byClass[item.classificacao] || summary.byClass.Bolsa;
+      if (item.status === "Encerrado") {
+        summary.closed += item.amount;
+        bucket.closed += item.amount;
+        bucket.closedRows.push(item);
+      } else {
+        summary.open += item.amount;
+        bucket.open += item.amount;
+        bucket.openRows.push(item);
+      }
+    });
+
+    return summary;
+  }, [normalizedDerivatives]);
+
+  const buildDerivativeSegmentsForClass = (classification, includeOpen, includeClosed, divisor = 1) => {
+    const relevantRows = normalizedDerivatives.filter((item) => {
+      if (item.classificacao !== classification) return false;
+      if (item.status === "Encerrado") return includeClosed;
+      return includeOpen;
+    });
+
+    const grouped = new Map();
+    relevantRows.forEach((item) => {
+      const key = `${item.sourceKey || "Sem bolsa"}||${item.status}`;
+      const current = grouped.get(key) || {
+        sourceKey: item.sourceKey || "Sem bolsa",
+        status: item.status,
+        value: 0,
+      };
+      current.value += divisor > 0 ? Number(item.amount || 0) / divisor : Number(item.amount || 0);
+      grouped.set(key, current);
+    });
+
+    const orderedSources = [...new Set(relevantRows.map((item) => item.sourceKey || "Sem bolsa"))];
+    return [...grouped.values()]
+      .sort((left, right) => {
+        const sourceDiff = orderedSources.indexOf(left.sourceKey) - orderedSources.indexOf(right.sourceKey);
+        if (sourceDiff !== 0) return sourceDiff;
+        if (left.status === right.status) return 0;
+        return left.status === "Em aberto" ? -1 : 1;
+      })
+      .map((item, index) => ({
+        label: `${item.sourceKey} · ${item.status === "Encerrado" ? "Liquidado" : "Aberto"}`,
+        value: item.value,
+        color: pickPriceCompositionColor(classification, index, item.status),
+      }));
+  };
+
+  const getDerivativeRowsForDetail = (classification, includeOpen, includeClosed) =>
+    derivativeOperationRows.filter((item) => {
+      const classMatches = !classification || item.classificacao === classification;
+      const statusMatches =
+        (includeOpen && item.status !== "Encerrado") ||
+        (includeClosed && item.status === "Encerrado");
+      return classMatches && statusMatches;
+    });
+
+  const salesOperationRows = useMemo(
+    () =>
+      filteredSales.map((item) => ({
+        id: `physical-${item.id}`,
+        subgrupo:
+          item.subgrupo?.subgrupo ||
+          item.subgrupos?.map?.((entry) => entry?.subgrupo || entry).filter(Boolean).join(", ") ||
+          "—",
+        tipo: "Fisico",
+        classificacao: "—",
+        data: formatBrazilianDate(item.data_pagamento || item.data_entrega || item.data_negociacao, "—"),
+        valor: currencyMode === "U$" ? Math.abs(Number(item.volume_fisico || 0)) * Number(item.preco || 0) : isUsdCurrency(item.moeda_contrato) ? Math.abs(Number(item.volume_fisico || 0)) * Number(item.preco || 0) * Number(item.dolar_de_venda || usdRate || 0) : Math.abs(Number(item.volume_fisico || 0)) * Number(item.preco || 0),
+        volume: Math.abs(Number(item.volume_fisico || 0)),
+        unidade: item.unidade_contrato || "sc",
+        precoStrike: Number(item.preco || 0),
+        instituicao: item.contraparte?.obs || item.contraparte?.nome || "—",
+        status: "—",
+      })),
+    [currencyMode, filteredSales, usdRate],
+  );
+
+  const derivativeOperationRows = useMemo(
+    () =>
+      normalizedDerivatives.map((item) => ({
+        id: `derivative-${item.id}`,
+        subgrupo: "—",
+        tipo: "Derivativo",
+        classificacao: item.classificacao,
+        data: "—",
+        valor: Number(item.amount || 0),
+        volume: Number(item.volume || 0),
+        unidade: "sc",
+        precoStrike: Number(item.strike || 0),
+        instituicao: item.institution,
+        status: item.status,
+        sourceKey: item.sourceKey || "Sem bolsa",
+      })),
+    [normalizedDerivatives],
+  );
+
+  const buildDetailModal = (title, rows) => {
+    const totalValue = rows.reduce((sum, item) => sum + Number(item.valor || 0), 0);
+    const totalVolume = rows.reduce((sum, item) => sum + Number(item.volume || 0), 0);
+    const weightedStrike =
+      totalVolume > 0 ? rows.reduce((sum, item) => sum + Number(item.precoStrike || 0) * Number(item.volume || 0), 0) / totalVolume : 0;
+    setDetailModal({
+      title,
+      rows,
+      totals: { totalValue, totalVolume, weightedStrike },
+    });
+  };
+
+  const openVerticalDetail = (groupKey, row) => {
+    if (groupKey === "G1") {
+      if (row.label === "Fisico") {
+        buildDetailModal(`Fisico (a termo) (${selectedCurrencyLabel})`, salesOperationRows);
+        return;
+      }
+      if (row.label === "Bolsa") {
+        buildDetailModal(`Derivativos Bolsa (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Bolsa", includeOpenDerivatives, includeClosedDerivatives));
+        return;
+      }
+      if (row.label === "Cambio") {
+        buildDetailModal(`Derivativos Cambio (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Cambio", includeOpenDerivatives, includeClosedDerivatives));
+        return;
+      }
+      buildDetailModal(`TOTAL (${selectedCurrencyLabel})`, [...salesOperationRows, ...getDerivativeRowsForDetail(null, includeOpenDerivatives, includeClosedDerivatives)]);
+      return;
+    }
+
+    if (row.label === "Fisico") {
+      buildDetailModal(`Fisico vendido (${selectedCurrencyLabel})`, salesOperationRows);
+      return;
+    }
+    if (row.label === "Bolsa") {
+      buildDetailModal(`Derivativos Bolsa (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Bolsa", includeOpenDerivatives, includeClosedDerivatives));
+      return;
+    }
+    if (row.label === "Cambio") {
+      buildDetailModal(`Derivativos Cambio (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Cambio", includeOpenDerivatives, includeClosedDerivatives));
+      return;
+    }
+    buildDetailModal(`TOTAL (${selectedCurrencyLabel})`, [...salesOperationRows, ...getDerivativeRowsForDetail(null, includeOpenDerivatives, includeClosedDerivatives)]);
+  };
+
+  const selectedCurrencyLabel = currencyMode === "U$" ? "U$" : "R$";
+  const soldAveragePrice =
+    currencyMode === "U$"
+      ? salesSummary.usdVolume > 0
+        ? salesSummary.usdPriceWeighted / salesSummary.usdVolume
+        : 0
+      : salesSummary.totalVolume > 0
+        ? salesSummary.totalRevenueBrl / salesSummary.totalVolume
+        : 0;
+  const basisAverage = salesSummary.totalVolume > 0 ? salesSummary.basisWeighted / salesSummary.totalVolume : 0;
+  const dollarAverage = salesSummary.totalVolume > 0 ? salesSummary.dollarWeighted / salesSummary.totalVolume : usdRate;
+  const premiumAverage = selectedDivisor > 0 ? derivativeSummary.closed / selectedDivisor : 0;
+
+  const mtmUnitValue = currencyMode === "U$" ? quoteAvgUsd : quoteAvgBrl;
+  const soldRevenueValue = currencyMode === "U$" ? salesSummary.totalRevenueUsd : salesSummary.totalRevenueBrl;
+  const unsoldVolume = Math.max(productionTotal - salesSummary.totalVolume, 0);
+  const mtmRevenueValue = mtmUnitValue * unsoldVolume;
+  const g1BolsaOpenValue = includeOpenDerivatives ? Number(derivativeSummary.byClass.Bolsa.open || 0) / selectedDivisor : 0;
+  const g1BolsaClosedValue = includeClosedDerivatives ? Number(derivativeSummary.byClass.Bolsa.closed || 0) / selectedDivisor : 0;
+  const g1CambioOpenValue = includeOpenDerivatives ? Number(derivativeSummary.byClass.Cambio.open || 0) / selectedDivisor : 0;
+  const g1CambioClosedValue = includeClosedDerivatives ? Number(derivativeSummary.byClass.Cambio.closed || 0) / selectedDivisor : 0;
+  const g5BolsaOpenValue = includeOpenDerivatives ? Number(derivativeSummary.byClass.Bolsa.open || 0) : 0;
+  const g5BolsaClosedValue = includeClosedDerivatives ? Number(derivativeSummary.byClass.Bolsa.closed || 0) : 0;
+  const g5CambioOpenValue = includeOpenDerivatives ? Number(derivativeSummary.byClass.Cambio.open || 0) : 0;
+  const g5CambioClosedValue = includeClosedDerivatives ? Number(derivativeSummary.byClass.Cambio.closed || 0) : 0;
+  const g1BolsaValue = g1BolsaOpenValue + g1BolsaClosedValue;
+  const g1CambioValue = g1CambioOpenValue + g1CambioClosedValue;
+  const g5BolsaValue = g5BolsaOpenValue + g5BolsaClosedValue;
+  const g5CambioValue = g5CambioOpenValue + g5CambioClosedValue;
+  const physicalTotalRevenueValue = soldRevenueValue + mtmRevenueValue;
+  const totalRevenueValue = physicalTotalRevenueValue + g5BolsaValue + g5CambioValue;
+
+  const verticalRowsG1 = [
+    { label: "Fisico", value: soldAveragePrice, color: getSignedPriceCompositionColor(soldAveragePrice) },
+    {
+      label: "Bolsa",
+      segments: [
+        { label: "Bolsa aberto", value: g1BolsaOpenValue, color: getSignedPriceCompositionColor(g1BolsaOpenValue) },
+        { label: "Bolsa liquidado", value: g1BolsaClosedValue, color: getSignedPriceCompositionColor(g1BolsaClosedValue, "soft") },
+      ],
+    },
+    {
+      label: "Cambio",
+      segments: [
+        { label: "Cambio aberto", value: g1CambioOpenValue, color: getSignedPriceCompositionColor(g1CambioOpenValue) },
+        { label: "Cambio liquidado", value: g1CambioClosedValue, color: getSignedPriceCompositionColor(g1CambioClosedValue, "soft") },
+      ],
+    },
+    { label: "Total", value: soldAveragePrice + g1BolsaValue + g1CambioValue, color: getSignedPriceCompositionColor(soldAveragePrice + g1BolsaValue + g1CambioValue) },
+  ];
+
+  const verticalRowsG5 = [
+    { label: "Fisico", value: physicalTotalRevenueValue, color: getSignedPriceCompositionColor(physicalTotalRevenueValue) },
+    {
+      label: "Bolsa",
+      segments: [
+        { label: "Bolsa aberto", value: g5BolsaOpenValue, color: getSignedPriceCompositionColor(g5BolsaOpenValue) },
+        { label: "Bolsa liquidado", value: g5BolsaClosedValue, color: getSignedPriceCompositionColor(g5BolsaClosedValue, "soft") },
+      ],
+    },
+    {
+      label: "Cambio",
+      segments: [
+        { label: "Cambio aberto", value: g5CambioOpenValue, color: getSignedPriceCompositionColor(g5CambioOpenValue) },
+        { label: "Cambio liquidado", value: g5CambioClosedValue, color: getSignedPriceCompositionColor(g5CambioClosedValue, "soft") },
+      ],
+    },
+    { label: "Total", value: totalRevenueValue, color: getSignedPriceCompositionColor(totalRevenueValue) },
+  ];
+
+  const derivativeTableRows = ["Bolsa", "Cambio"].map((label) => {
+    const bucket = derivativeSummary.byClass[label];
+    const allRows = [...(bucket?.openRows || []), ...(bucket?.closedRows || [])];
+    const volume = allRows.reduce((sum, item) => sum + Number(item.volume || 0), 0);
+    const weightedStrike =
+      volume > 0 ? allRows.reduce((sum, item) => sum + Number(item.strike || 0) * Number(item.volume || 0), 0) / volume : 0;
+    return {
+      label,
+      open: bucket?.open || 0,
+      closed: bucket?.closed || 0,
+      strike: weightedStrike,
+      volume,
+    };
+  });
+  const VerticalChartComponent = chartEngine === "echarts" ? PriceCompositionVerticalEChart : PriceCompositionVerticalChart;
+
+  return (
+    <section className="price-comp-shell">
+      <section className="stats-grid">
+        <article className="card stat-card">
+          <span>Preco final sem derivativos</span>
+          <strong>{selectedCurrencyLabel} {formatCurrency2(soldAveragePrice)}</strong>
+        </article>
+        <article className="card stat-card">
+          <span>Preco fisico final + Derivativos</span>
+          <strong>{selectedCurrencyLabel} {formatCurrency2(soldAveragePrice + g1BolsaValue + g1CambioValue)}</strong>
+        </article>
+        <article className="card stat-card">
+          <span>Basis medio</span>
+          <strong>{basisAverage.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        </article>
+        <article className="card stat-card">
+          <span>Cambio medio</span>
+          <strong>{dollarAverage.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        </article>
+      </section>
+
+      <section className="price-comp-toolbar card">
+        <div className="price-comp-controls">
+          <label className="price-comp-field">
+            <span>Moeda</span>
+            <select value={currencyMode} onChange={(event) => setCurrencyMode(event.target.value)}>
+              <option value="AMBOS_R$">Ambos (convertido em R$)</option>
+              <option value="R$">R$</option>
+              <option value="U$">U$</option>
+            </select>
+          </label>
+          <label className="price-comp-field">
+            <span>Fisico vendido (scs)</span>
+            <input
+              value={soldVolumeInput}
+              onChange={(event) => {
+                setHasManualVolume(true);
+                setSoldVolumeInput(event.target.value);
+              }}
+            />
+          </label>
+          <label className="price-comp-field">
+            <span>Ajustes considerados</span>
+            <select value={adjustmentMode} onChange={(event) => setAdjustmentMode(event.target.value)}>
+              <option value="ALL">Considere todos os ajustes</option>
+              <option value="MATCH">Considerar ajustes dessa moeda</option>
+            </select>
+          </label>
+          <button type="button" className="btn btn-secondary" onClick={() => {
+            setHasManualVolume(false);
+            setSoldVolumeInput(formatInputInt(defaultSoldVolume));
+          }}>
+            Resetar volume
+          </button>
+        </div>
+        <div className="price-comp-toggle-row price-comp-toggle-row--shared">
+          <label className="price-comp-toggle">
+            <input type="checkbox" checked={includeClosedDerivatives} onChange={(event) => setIncludeClosedDerivatives(event.target.checked)} />
+            <span>Considerar derivativos liquidados</span>
+          </label>
+          <label className="price-comp-toggle">
+            <input type="checkbox" checked={includeOpenDerivatives} onChange={(event) => setIncludeOpenDerivatives(event.target.checked)} />
+            <span>Considerar derivativos em aberto</span>
+          </label>
+        </div>
+      </section>
+
+      <div className="price-comp-main-grid">
+        <section className="price-comp-pair-card card">
+          <div className="price-comp-pair-row">
+            <VerticalChartComponent bars={verticalRowsG1} unitLabel={selectedCurrencyLabel} onSelectBar={(row) => openVerticalDetail("G1", row)} />
+          </div>
+        </section>
+
+        <section className="price-comp-pair-card card">
+          <div className="price-comp-pair-row">
+            <VerticalChartComponent bars={verticalRowsG5} unitLabel={selectedCurrencyLabel} onSelectBar={(row) => openVerticalDetail("G5", row)} />
+          </div>
+        </section>
+      </div>
+
+      <section className="price-comp-bottom-grid">
+        <article className="price-comp-summary-card card">
+          <div className="price-comp-summary-header">
+            <div>1. Fisico</div>
+            <span>{formatNumber0(salesSummary.totalVolume)} sc</span>
+          </div>
+          <table className="price-comp-table">
+            <thead>
+              <tr>
+                <th>Indicador</th>
+                <th>R$/sc</th>
+                <th>U$/sc</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Volume vendido</td>
+                <td>{formatNumber0(salesSummary.brlVolume)} sc</td>
+                <td>{formatNumber0(salesSummary.usdVolume)} sc</td>
+              </tr>
+              <tr>
+                <td>Nivel medio</td>
+                <td>R$ {formatCurrency2(salesSummary.brlVolume > 0 ? salesSummary.brlPriceWeighted / salesSummary.brlVolume : 0)}</td>
+                <td>U$ {formatCurrency2(salesSummary.usdVolume > 0 ? salesSummary.usdPriceWeighted / salesSummary.usdVolume : 0)}</td>
+              </tr>
+              <tr>
+                <td>Faturamento</td>
+                <td>R$ {formatCurrency2(salesSummary.brlRevenue)}</td>
+                <td>U$ {formatCurrency2(salesSummary.usdRevenue)}</td>
+              </tr>
+              <tr>
+                <td>MTM medio</td>
+                <td>R$ {formatCurrency2(quoteAvgBrl)}</td>
+                <td>U$ {formatCurrency2(quoteAvgUsd)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <article className="price-comp-summary-card card">
+          <div className="price-comp-summary-header">
+            <div>2. Derivativos</div>
+            <span>{normalizedDerivatives.length} ops</span>
+          </div>
+          <table className="price-comp-table">
+            <thead>
+              <tr>
+                <th>Classe</th>
+                <th>Aberto</th>
+                <th>Encerrado</th>
+                <th>Strike medio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {derivativeTableRows.map((row) => (
+                <tr key={row.label}>
+                  <td>{row.label}</td>
+                  <td>{selectedCurrencyLabel} {formatCurrency2(row.open)}</td>
+                  <td>{selectedCurrencyLabel} {formatCurrency2(row.closed)}</td>
+                  <td>{formatCurrency2(row.strike)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </article>
+      </section>
+
+      {detailModal ? (
+        <div className="component-popup-backdrop" onClick={() => setDetailModal(null)}>
+          <div className="component-popup price-comp-modal" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="component-popup-close" onClick={() => setDetailModal(null)}>
+              ×
+            </button>
+            <div className="component-popup-header">
+              <strong>{detailModal.title}</strong>
+            </div>
+            <div className="price-comp-modal-body">
+              <h3>Operacoes</h3>
+              <table className="component-popup-table">
+                <thead>
+                  <tr>
+                    <th>Subgrupo</th>
+                    <th>Tipo</th>
+                    <th>Classificacao</th>
+                    <th>Data vencimento</th>
+                    <th>Valor ({selectedCurrencyLabel})</th>
+                    <th>Volume</th>
+                    <th>Preco/Strike</th>
+                    <th>Instituicao</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detailModal.rows.length ? (
+                    <>
+                      {detailModal.rows.map((row) => (
+                        <tr key={row.id}>
+                          <td>{row.subgrupo || "—"}</td>
+                          <td>{row.tipo}</td>
+                          <td>{row.classificacao || "—"}</td>
+                          <td>{row.data || "—"}</td>
+                          <td>{selectedCurrencyLabel} {formatCurrency2(row.valor)}</td>
+                          <td>{formatNumber0(row.volume)} {row.unidade || ""}</td>
+                          <td>{formatCurrency2(row.precoStrike)}</td>
+                          <td>{row.instituicao || "—"}</td>
+                          <td>{row.status || "—"}</td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td><strong>Total</strong></td>
+                        <td />
+                        <td />
+                        <td />
+                        <td><strong>{selectedCurrencyLabel} {formatCurrency2(detailModal.totals.totalValue)}</strong></td>
+                        <td><strong>{formatNumber0(detailModal.totals.totalVolume)}</strong></td>
+                        <td><strong>{formatCurrency2(detailModal.totals.weightedStrike)}</strong></td>
+                        <td />
+                        <td />
+                      </tr>
+                    </>
+                  ) : (
+                    <tr>
+                      <td colSpan="9">Nenhuma operacao encontrada para esta coluna.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 const dashboardContent = {
   cashflow: {
     title: "Fluxo de Caixa",
@@ -4399,6 +5781,15 @@ export function DashboardPage({ kind = "cashflow" }) {
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <CurrencyExposureDashboard dashboardFilter={filter} filterOptions={options} />
+      </div>
+    );
+  }
+
+  if (kind === "priceComposition") {
+    return (
+      <div className="resource-page dashboard-page">
+        <PageHeader title={content.title} description={content.description} />
+        <PriceCompositionDashboard dashboardFilter={filter} />
       </div>
     );
   }

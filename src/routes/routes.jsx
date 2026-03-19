@@ -1,5 +1,6 @@
 import { DashboardPage } from "../pages/DashboardPage";
 import { DerivativeOperationsPage } from "../pages/DerivativeOperationsPage";
+import { PriceCompositionNovoPage } from "../pages/PriceCompositionNovoPage";
 import { ResourcePage } from "../pages/ResourcePage";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 
@@ -67,7 +68,7 @@ export const appRoutes = [
   { path: "/dashboard/fluxo-caixa", element: <DashboardPage kind="cashflow" /> },
   { path: "/dashboard/kpis-risco-comercial", element: <DashboardPage kind="commercialRisk" /> },
   { path: "/dashboard/politica-hedge", element: <DashboardPage kind="hedgePolicy" /> },
-  { path: "/dashboard/composicao-precos", element: <DashboardPage kind="priceComposition" /> },
+  { path: "/dashboard/composicao-precos", element: <PriceCompositionNovoPage /> },
   { path: "/dashboard/venda-componentes", element: <DashboardPage kind="componentSales" /> },
   { path: "/dashboard/exposicao-hedge-cambial", element: <DashboardPage kind="currencyExposure" /> },
   { path: "/dashboard/simulacoes", element: <DashboardPage kind="simulations" /> },
