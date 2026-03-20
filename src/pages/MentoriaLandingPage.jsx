@@ -15,7 +15,7 @@ const NAV_ITEMS = [
   { label: "Mentor", href: "#mentor" },
 ];
 
-const LANDING_PAGE_TITLE = "Landing page - mentoria turma 02";
+const LANDING_PAGE_TITLE = "Traders do Agro - turma 02";
 
 const INITIAL_FORM = {
   nome: "",
