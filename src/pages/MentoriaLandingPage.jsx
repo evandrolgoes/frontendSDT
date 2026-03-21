@@ -11,7 +11,7 @@ import {
 const NAV_ITEMS = [
   { label: "Conceito", href: "#conceito" },
   { label: "Método", href: "#metodo" },
-  { label: "SDT Position", href: "#software" },
+  { label: "Hedge Position", href: "#software" },
   { label: "Mentor", href: "#mentor" },
 ];
 
@@ -337,7 +337,7 @@ export function MentoriaLandingPage() {
               O trader do agro tem acesso ao melhor sistema do Brasil
             </MentoriaEyebrow>
             <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">
-              SDT Position:
+              Hedge Position:
               <br />
               <span>o centro de comando</span> do estrategista.
             </h2>
@@ -383,7 +383,7 @@ export function MentoriaLandingPage() {
                   <img
                     key={image}
                     src={image}
-                    alt={`SDT Position ${index + 1}`}
+                    alt={`Hedge Position ${index + 1}`}
                     className={index === slideIndex ? "is-visible" : ""}
                   />
                 ))}

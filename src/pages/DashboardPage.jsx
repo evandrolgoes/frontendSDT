@@ -15,6 +15,7 @@ import {
 } from "chart.js";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import ReactECharts from "echarts-for-react";
+import { useNavigate } from "react-router-dom";
 
 import { DatePickerField } from "../components/DatePickerField";
 import { PageHeader } from "../components/PageHeader";
@@ -244,6 +245,238 @@ function ScenarioBars({ data }) {
   );
 }
 
+function FilterChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedItems = items.filter((item) => selectedValues.includes(String(item.id)));
+  const summaryLabel = selectedItems.length
+    ? selectedItems.length === 1
+      ? selectedItems[0][labelKey]
+      : `${selectedItems[0][labelKey]} +${selectedItems.length - 1}`
+    : "Todos";
+
+  return (
+    <section className="dashboard-chip-group">
+      <button
+        type="button"
+        className="dashboard-chip-group-toggle"
+        onClick={() => setIsOpen((current) => !current)}
+        aria-expanded={isOpen}
+      >
+        <div className="dashboard-chip-group-header">
+          <strong>{title}</strong>
+          <span className={`dashboard-chip-group-arrow${isOpen ? " open" : ""}`}>▾</span>
+        </div>
+        <span className={`dashboard-chip dashboard-chip-summary${selectedItems.length ? " active" : ""}`}>{summaryLabel}</span>
+      </button>
+      {isOpen ? (
+        <>
+          <div className="dashboard-chip-list">
+            {items.map((item) => {
+              const itemId = String(item.id);
+              const isActive = selectedValues.includes(itemId);
+              return (
+                <button
+                  key={`${title}-${itemId}`}
+                  type="button"
+                  className={`dashboard-chip${isActive ? " active" : ""}`}
+                  onClick={() => onToggle(itemId)}
+                >
+                  {item[labelKey]}
+                </button>
+              );
+            })}
+          </div>
+          {selectedValues.length ? (
+            <button
+              type="button"
+              className="dashboard-chip-clear"
+              onClick={onClear}
+            >
+              Limpar
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+function DashboardQuickFilters() {
+  const { filter, options, updateFilter, toggleFilterValue } = useDashboardFilter();
+
+  return (
+    <section className="dashboard-quick-filters">
+      <FilterChipGroup
+        title="Grupos"
+        items={options.groups}
+        selectedValues={filter.grupo}
+        labelKey="grupo"
+        onToggle={(value) => toggleFilterValue("grupo", value)}
+        onClear={() => updateFilter("grupo", [])}
+      />
+      <FilterChipGroup
+        title="Subgrupos"
+        items={options.subgroups}
+        selectedValues={filter.subgrupo}
+        labelKey="subgrupo"
+        onToggle={(value) => toggleFilterValue("subgrupo", value)}
+        onClear={() => updateFilter("subgrupo", [])}
+      />
+      <FilterChipGroup
+        title="Culturas"
+        items={options.cropBoardCrops || []}
+        selectedValues={filter.cultura}
+        labelKey="cultura"
+        onToggle={(value) => toggleFilterValue("cultura", value)}
+        onClear={() => updateFilter("cultura", [])}
+      />
+      <FilterChipGroup
+        title="Safras"
+        items={options.cropBoardSeasons || []}
+        selectedValues={filter.safra}
+        labelKey="safra"
+        onToggle={(value) => toggleFilterValue("safra", value)}
+        onClear={() => updateFilter("safra", [])}
+      />
+      <FilterChipGroup
+        title="Localidade de Referência"
+        items={options.localities || []}
+        selectedValues={filter.localidade}
+        labelKey="label"
+        onToggle={(value) => toggleFilterValue("localidade", value)}
+        onClear={() => updateFilter("localidade", [])}
+      />
+    </section>
+  );
+}
+
+function CommercialRiskLongShortChart({ rows, cultureButtons = [], selectedCultureIds = [], onToggleCulture, onClearCultures }) {
+  if (!rows.length) {
+    return (
+      <article className="chart-card chart-card-large risk-kpi-long-short-card">
+        <div className="chart-card-header">
+          <div>
+            <h3>Long &amp; Short por cultura</h3>
+            <p className="muted">Leitura direta do volume coberto e do volume ainda livre por cultura.</p>
+          </div>
+        </div>
+        <p className="muted">Sem dados suficientes para montar o Long &amp; Short com o filtro atual.</p>
+      </article>
+    );
+  }
+
+  const orderedSeries = [
+    { key: "nadaFeito", label: "Nada feito", color: "#ff6a2a" },
+    { key: "derivatives", label: "Vendas via Derivativos", color: "#b8efb7" },
+    { key: "physical", label: "Vendas via Físico (a termo)", color: "#48bf3b" },
+    { key: "barter", label: "Barter", color: "#567552" },
+    { key: "paymentTerras", label: "Pagamento Terras", color: "#1d221d" },
+    { key: "arrendamento", label: "Arrendamento", color: "#355c35" },
+  ];
+
+  const option = {
+    animationDuration: 250,
+    grid: { top: 18, right: 18, bottom: 28, left: 18, containLabel: true },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params) => {
+        const parts = params
+          .filter((item) => Number(item.value || 0) > 0)
+          .map((item) => `${item.marker}${item.seriesName}: ${formatNumber0(item.value)}`);
+        return parts.join("<br/>");
+      },
+    },
+    legend: { show: false },
+    xAxis: {
+      type: "value",
+      min: 0,
+      axisLine: { lineStyle: { color: "rgba(148, 163, 184, 0.35)" } },
+      axisTick: { show: false },
+      splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+      axisLabel: {
+        color: "#475569",
+        fontWeight: 700,
+        formatter: (value) => {
+          if (!value) return "0";
+          if (value >= 1000) return `${Math.round(value / 1000)} mil`;
+          return formatNumber0(value);
+        },
+      },
+    },
+    yAxis: {
+      type: "category",
+      data: rows.map((item) => item.label),
+      axisTick: { show: false },
+      axisLine: { show: false },
+      axisLabel: {
+        color: "#334155",
+        fontWeight: 800,
+        fontSize: 13,
+      },
+    },
+    series: orderedSeries.map((series) => ({
+      name: series.label,
+      type: "bar",
+      stack: "long-short",
+      barMaxWidth: 56,
+      itemStyle: { color: series.color },
+      label: {
+        show: true,
+        position: "inside",
+        color: "#0f172a",
+        fontWeight: 900,
+        fontSize: 11,
+        formatter: ({ value, dataIndex }) => {
+          const numericValue = Number(value || 0);
+          if (!numericValue) return "";
+          const production = rows[dataIndex]?.production || 0;
+          const percent = production > 0 ? Math.round((numericValue / production) * 100) : 0;
+          if (percent < 6 && numericValue < 5000) return "";
+          return `${formatNumber0(numericValue)} (${percent}%)`;
+        },
+      },
+      emphasis: { focus: "series" },
+      data: rows.map((item) => {
+        const value = Number(item[series.key] || 0);
+        return value > 0 ? value : null;
+      }),
+    })),
+  };
+
+  return (
+    <article className="chart-card chart-card-large risk-kpi-long-short-card">
+      <div className="chart-card-header">
+        <div>
+          <h3>Long &amp; Short por cultura</h3>
+          <p className="muted">Leitura direta do volume coberto e do volume ainda livre por cultura.</p>
+        </div>
+      </div>
+      <div className="risk-kpi-chart-filter-row">
+        {cultureButtons.map((item) => {
+          const isActive = selectedCultureIds.includes(String(item.id));
+          return (
+            <button
+              key={`culture-filter-${item.id}`}
+              type="button"
+              className={`dashboard-chip${isActive ? " active" : ""}`}
+              onClick={() => onToggleCulture?.(String(item.id))}
+            >
+              {item.cultura}
+            </button>
+          );
+        })}
+        {selectedCultureIds.length ? (
+          <button type="button" className="dashboard-chip dashboard-chip-clear-inline" onClick={onClearCultures}>
+            Mostrar tudo
+          </button>
+        ) : null}
+      </div>
+      <ReactECharts option={option} style={{ height: Math.max(280, rows.length * 62 + 84) }} opts={{ renderer: "svg" }} />
+    </article>
+  );
+}
+
 function CommercialRiskGaugePanel({
   totalPercent,
   totalScPerHa,
@@ -253,6 +486,11 @@ function CommercialRiskGaugePanel({
   physicalScPerHa,
   policyMinPercent = null,
   policyMaxPercent = null,
+  productionBase = 0,
+  physicalRows = [],
+  derivativeRows = [],
+  policies = [],
+  onOpenHedgePolicy,
 }) {
   const safeValue = (value) => Math.max(0, Math.min(Number(value || 0), 100));
   const totalValue = safeValue(totalPercent);
@@ -261,6 +499,21 @@ function CommercialRiskGaugePanel({
   const hasPolicyBand = Number.isFinite(policyMinPercent) && Number.isFinite(policyMaxPercent);
   const minBand = hasPolicyBand ? safeValue(Math.min(policyMinPercent, policyMaxPercent)) : null;
   const maxBand = hasPolicyBand ? safeValue(Math.max(policyMinPercent, policyMaxPercent)) : null;
+  const policyDelta = hasPolicyBand
+    ? totalValue < minBand
+      ? totalValue - minBand
+      : totalValue > maxBand
+        ? totalValue - maxBand
+        : 0
+    : 0;
+  const policyStepDelta = Math.abs(policyDelta) / 5;
+  const policyStatusText = hasPolicyBand
+    ? policyDelta < 0
+      ? `Abaixo da politica em ${policyStepDelta.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} x 5 p.p.`
+      : policyDelta > 0
+        ? `Acima da politica em ${policyStepDelta.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} x 5 p.p.`
+        : "Dentro da politica"
+    : "Politica nao definida";
   const totalAxisColors = hasPolicyBand
     ? [
         [Math.max(minBand / 100, 0), "#ff1a1a"],
@@ -271,47 +524,166 @@ function CommercialRiskGaugePanel({
     : [
         [1, "#9ca3af"],
       ];
-  const buildMiniOption = (value, color) => ({
+  const distributionSlices = [
+    { label: "Derivativos", value: Number(derivativeValue || 0), scPerHa: derivativeScPerHa, color: "#f59e0b" },
+    { label: "Físico", value: Number(physicalValue || 0), scPerHa: physicalScPerHa, color: "#16a34a" },
+  ].filter((item) => item.value > 0);
+  const distributionOption = {
+    animationDuration: 250,
+    tooltip: {
+      trigger: "item",
+      formatter: ({ name, value }) => `${name}: ${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
+    },
+    legend: { show: false },
     series: [
       {
-        type: "gauge",
-        startAngle: 180,
-        endAngle: 0,
-        min: 0,
-        max: 100,
-        center: ["50%", "66%"],
-        radius: "100%",
-        axisLine: {
-          lineStyle: {
-            width: 10,
-            color: [
-              [value / 100, color],
-              [1, "#8b8b8b"],
-            ],
-          },
-        },
-        splitLine: { show: false },
-        axisTick: { show: false },
-        axisLabel: { show: false },
-        pointer: {
+        type: "pie",
+        radius: ["54%", "76%"],
+        center: ["50%", "46%"],
+        avoidLabelOverlap: true,
+        itemStyle: { borderColor: "#fff", borderWidth: 4 },
+        label: {
           show: true,
-          icon: "path://M2 -34 L-2 -34 L-5 0 L5 0 Z",
-          length: "72%",
-          width: 10,
-          itemStyle: { color: "#111827" },
+          position: "outside",
+          alignTo: "none",
+          edgeDistance: 0,
+          bleedMargin: 2,
+          color: "#0f172a",
+          fontWeight: 800,
+          fontSize: 10,
+          lineHeight: 15,
+          formatter: ({ value, data }) =>
+            `${data?.name || ""}\n${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%\n${formatNumber2(data?.scPerHa || 0)} scs/ha`,
         },
-        anchor: {
+        labelLine: {
           show: true,
-          showAbove: true,
-          size: 10,
-          itemStyle: { color: "#fff", borderColor: "#111827", borderWidth: 2 },
+          length: 12,
+          length2: 8,
+          lineStyle: { color: "#94a3b8", width: 1.5 },
         },
-        detail: { show: false },
-        title: { show: false },
-        progress: { show: false },
+        data: (distributionSlices.length ? distributionSlices : [{ label: "Sem dados", value: 100, color: "#cbd5e1", scPerHa: 0 }]).map((slice) => ({
+          name: slice.label,
+          value: slice.value,
+          scPerHa: slice.scPerHa,
+          itemStyle: { color: slice.color },
+        })),
       },
     ],
-  });
+    graphic: distributionSlices.length
+      ? [
+          { type: "text", left: "center", top: "39%", style: { text: "Mix", fill: "#64748b", fontSize: 12, fontWeight: 700 } },
+          {
+            type: "text",
+            left: "center",
+            top: "47%",
+            style: {
+              text: `${Number(totalValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
+              fill: "#0f172a",
+              fontSize: 20,
+              fontWeight: 900,
+            },
+          },
+        ]
+      : [],
+  };
+  const policyOption = {
+    animationDuration: 220,
+    tooltip: { show: false },
+    grid: { top: 16, right: 12, bottom: 10, left: 12, containLabel: false },
+    xAxis: {
+      type: "value",
+      min: 0,
+      max: 100,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { show: false },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "category",
+      data: ["Politica"],
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { show: false },
+    },
+    series: [
+      {
+        type: "bar",
+        data: [100],
+        barWidth: 18,
+        itemStyle: {
+          color: "rgba(226, 232, 240, 0.9)",
+          borderRadius: 999,
+        },
+        silent: true,
+        z: 1,
+      },
+      {
+        type: "bar",
+        data: [maxBand || 0],
+        barWidth: 18,
+        itemStyle: {
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 0,
+            colorStops: [
+              { offset: 0, color: minBand != null ? "rgba(226, 232, 240, 0)" : "rgba(226, 232, 240, 0)" },
+              { offset: minBand != null ? minBand / 100 : 0, color: "rgba(226, 232, 240, 0)" },
+              { offset: minBand != null ? minBand / 100 : 0, color: "#16a34a" },
+              { offset: maxBand != null ? maxBand / 100 : 1, color: "#16a34a" },
+              { offset: maxBand != null ? maxBand / 100 : 1, color: "rgba(226, 232, 240, 0)" },
+              { offset: 1, color: "rgba(226, 232, 240, 0)" },
+            ],
+          },
+          borderRadius: 999,
+        },
+        silent: true,
+        z: 2,
+      },
+      {
+        type: "scatter",
+        symbol: "circle",
+        symbolSize: 16,
+        data: [[totalValue, 0]],
+        itemStyle: {
+          color: "#ea580c",
+          borderColor: "#fff",
+          borderWidth: 3,
+        },
+        z: 3,
+        silent: true,
+      },
+    ],
+    graphic: hasPolicyBand
+      ? [
+          {
+            type: "text",
+            left: 12,
+            top: 0,
+            style: {
+              text: `${minBand.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% - ${maxBand.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`,
+              fill: "#64748b",
+              fontSize: 11,
+              fontWeight: 700,
+            },
+          },
+          {
+            type: "text",
+            right: 12,
+            top: 0,
+            style: {
+              text: `${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
+              fill: "#0f172a",
+              fontSize: 11,
+              fontWeight: 800,
+            },
+          },
+        ]
+      : [],
+  };
   const mainOption = {
     series: [
       {
@@ -320,42 +692,42 @@ function CommercialRiskGaugePanel({
         endAngle: -45,
         min: 0,
         max: 100,
-        center: ["50%", "64%"],
-        radius: "100%",
+        center: ["50%", "66%"],
+        radius: "88%",
         axisLine: {
           lineStyle: {
-            width: 24,
+            width: 16,
             color: totalAxisColors,
           },
         },
         splitLine: {
-          distance: -28,
-          length: 18,
-          lineStyle: { color: "#111827", width: 2 },
+          distance: -20,
+          length: 12,
+          lineStyle: { color: "#111827", width: 1.5 },
         },
         axisTick: {
-          distance: -28,
+          distance: -20,
           splitNumber: 2,
-          length: 8,
-          lineStyle: { color: "#a3a3a3", width: 1.5 },
+          length: 5,
+          lineStyle: { color: "#a3a3a3", width: 1.1 },
         },
         axisLabel: {
-          distance: -46,
+          distance: 0,
           color: "#7c7c7c",
-          fontSize: 11,
+          fontSize: 10,
           formatter: (value) => (value % 10 === 0 ? `${value}` : ""),
         },
         pointer: {
           icon: "path://M2 -80 L-2 -80 L-6 0 L6 0 Z",
-          length: "72%",
-          width: 12,
+          length: "68%",
+          width: 9,
           itemStyle: { color: "#111827" },
         },
         anchor: {
           show: true,
           showAbove: true,
-          size: 16,
-          itemStyle: { color: "#fff", borderColor: "#111827", borderWidth: 3 },
+          size: 12,
+          itemStyle: { color: "#fff", borderColor: "#111827", borderWidth: 2.5 },
         },
         title: { show: false },
         detail: { show: false },
@@ -365,35 +737,37 @@ function CommercialRiskGaugePanel({
   };
 
   return (
-    <section className="chart-card risk-kpi-gauge-card">
-      <div className="risk-kpi-gauge-layout">
+    <section className="risk-kpi-gauge-grid">
+      <div className="risk-kpi-policy-slot">
+        <HedgePolicyChart
+          title="Hedge produção liquida (sc)"
+          unit="SC"
+          frequency="monthly"
+          baseValue={productionBase}
+          physicalRows={physicalRows}
+          derivativeRows={derivativeRows}
+          policies={policies}
+          physicalValueGetter={getPhysicalVolumeValue}
+          derivativeValueGetter={getDerivativeVolumeValue}
+          onFocusToggle={onOpenHedgePolicy || (() => {})}
+        />
+      </div>
+
+      <article className="chart-card risk-kpi-gauge-card">
         <div className="risk-kpi-gauge-main">
           <div className="risk-kpi-gauge-main-title">Vendas Realizadas</div>
           <div className="risk-kpi-gauge-main-subtitle">{formatNumber2(totalScPerHa)} scs/ha</div>
-          <ReactECharts option={mainOption} style={{ height: 280 }} opts={{ renderer: "svg" }} />
+          <ReactECharts option={mainOption} style={{ height: 156, width: "100%" }} opts={{ renderer: "svg" }} />
           <div className="risk-kpi-gauge-main-value">
             {Number(totalValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
           </div>
         </div>
-        <div className="risk-kpi-gauge-side">
-          <div className="risk-kpi-mini-gauge-card">
-            <div className="risk-kpi-mini-gauge-title">Via Derivativos</div>
-            <div className="risk-kpi-mini-gauge-subtitle">{formatNumber2(derivativeScPerHa)} scs/ha</div>
-            <ReactECharts option={buildMiniOption(derivativeValue, "#1fb6f0")} style={{ height: 120 }} opts={{ renderer: "svg" }} />
-            <div className="risk-kpi-mini-gauge-value">
-              {Number(derivativeValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-            </div>
-          </div>
-          <div className="risk-kpi-mini-gauge-card">
-            <div className="risk-kpi-mini-gauge-title">Via Físico</div>
-            <div className="risk-kpi-mini-gauge-subtitle">{formatNumber2(physicalScPerHa)} scs/ha</div>
-            <ReactECharts option={buildMiniOption(physicalValue, "#1fb6f0")} style={{ height: 120 }} opts={{ renderer: "svg" }} />
-            <div className="risk-kpi-mini-gauge-value">
-              {Number(physicalValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-            </div>
-          </div>
-        </div>
-      </div>
+      </article>
+
+      <article className="chart-card risk-kpi-mini-gauge-card risk-kpi-distribution-card">
+        <div className="risk-kpi-mini-gauge-title">Distribuição</div>
+        <ReactECharts option={distributionOption} style={{ height: 156, width: "100%" }} opts={{ renderer: "svg" }} />
+      </article>
     </section>
   );
 }
@@ -576,15 +950,14 @@ const formatHedgeTooltipValue = (value, unit) => {
 const formatHedgeShortDate = (value, frequency) => {
   const date = parseDashboardDate(value);
   if (!date) return "—";
-  if (frequency === "monthly") {
-    return formatBrazilianDate(date);
-  }
-  if (frequency === "weekly") {
-    const start = startOfDashboardWeek(date);
-    const end = endOfDashboardWeek(date);
-    return `${formatBrazilianDate(start)} a ${formatBrazilianDate(end)}`;
-  }
-  return formatBrazilianDate(date);
+  const label = new Intl.DateTimeFormat("pt-BR", {
+    month: "short",
+    year: "2-digit",
+  })
+    .format(date)
+    .replace(".", "")
+    .toLowerCase();
+  return label;
 };
 
 const formatHedgeTitleDate = (value) => formatBrazilianDate(parseDashboardDate(value), "—");
@@ -2006,10 +2379,12 @@ const readCultureLabel = (value) => {
   if (!value) return "Sem cultura";
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return readCultureLabel(value[0]);
-  return value.cultura || value.nome || value.label || value.descricao || `#${value.id ?? ""}`;
+  return value.cultura || value.nome || value.label || value.descricao || "Sem cultura";
 };
 
 function CommercialRiskDashboard({ dashboardFilter }) {
+  const navigate = useNavigate();
+  const { filter, options, toggleFilterValue, updateFilter } = useDashboardFilter();
   const [physicalSales, setPhysicalSales] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
   const [cropBoards, setCropBoards] = useState([]);
@@ -2101,6 +2476,24 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       }),
     [dashboardFilter, derivatives],
   );
+  const cultureLabelById = useMemo(() => {
+    const map = new Map();
+    [...(options.crops || []), ...(options.cropBoardCrops || [])].forEach((item) => {
+      if (item?.id != null) {
+        map.set(String(item.id), item.cultura || item.nome || item.label || item.descricao || String(item.id));
+      }
+    });
+    return map;
+  }, [options.crops, options.cropBoardCrops]);
+  const resolveCultureLabel = (value) => {
+    if (!value) return "Sem cultura";
+    if (Array.isArray(value)) return resolveCultureLabel(value[0]);
+    if (typeof value === "string" || typeof value === "number") {
+      return cultureLabelById.get(String(value)) || String(value);
+    }
+    const nestedId = value.id != null ? cultureLabelById.get(String(value.id)) : null;
+    return nestedId || value.cultura || value.nome || value.label || value.descricao || "Sem cultura";
+  };
 
   const productionTotal = useMemo(
     () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.producao_total || 0)), 0),
@@ -2126,10 +2519,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => currencyDerivatives.reduce((sum, item) => sum + getDerivativeVolumeValue(item), 0),
     [currencyDerivatives],
   );
-  const derivativeMtm = useMemo(
-    () => filteredDerivatives.reduce((sum, item) => sum + Number(item.ajustes_totais_brl || 0), 0),
-    [filteredDerivatives],
-  );
   const basisContracts = useMemo(
     () => filteredSales.filter((item) => Math.abs(Number(item.basis_valor || 0)) > 0).length,
     [filteredSales],
@@ -2138,14 +2527,48 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => averageOf(filteredSales.map((item) => item.basis_valor)) ?? 0,
     [filteredSales],
   );
-  const physicalAveragePrice = useMemo(
-    () => {
-      const totalVolume = filteredSales.reduce((sum, item) => sum + Math.abs(Number(item.volume_fisico || 0)), 0);
-      if (!totalVolume) return 0;
-      return filteredSales.reduce((sum, item) => sum + Math.abs(Number(item.volume_fisico || 0)) * Number(item.preco || 0), 0) / totalVolume;
-    },
-    [filteredSales],
-  );
+  const physicalPriceLines = useMemo(() => {
+    const groups = new Map();
+    filteredSales.forEach((item) => {
+      const volume = Math.abs(Number(item.volume_fisico || 0));
+      const price = Number(item.preco || 0);
+      if (!volume || !price) return;
+      const unitLabel =
+        item.moeda_unidade ||
+        (item.moeda_contrato && item.unidade_contrato ? `${item.moeda_contrato}/${item.unidade_contrato}` : item.moeda_contrato || item.unidade_contrato || "");
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedPrice: 0 };
+      current.volume += volume;
+      current.weightedPrice += volume * price;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({
+        ...item,
+        averagePrice: item.volume > 0 ? item.weightedPrice / item.volume : 0,
+      }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [filteredSales]);
+  const derivativePriceLines = useMemo(() => {
+    const groups = new Map();
+    bolsaDerivatives.forEach((item) => {
+      const volume = getDerivativeVolumeValue(item);
+      const strike = Number(item.strike_montagem || item.strike_liquidacao || 0);
+      if (!volume || !strike) return;
+      const unitLabel = item.moeda_unidade || item.volume_financeiro_moeda || "";
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedStrike: 0 };
+      current.volume += volume;
+      current.weightedStrike += volume * strike;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({
+        ...item,
+        averageStrike: item.volume > 0 ? item.weightedStrike / item.volume : 0,
+      }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [bolsaDerivatives]);
   const quoteAverage = useMemo(
     () => averageOf(filteredQuotes.map((item) => item.cotacao)) ?? 0,
     [filteredQuotes],
@@ -2153,24 +2576,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const policyCount = filteredPolicies.length;
   const commercializationCoverage = productionTotal > 0 ? (physicalSoldVolume + derivativeCommodityVolume) / productionTotal : 0;
 
-  const mixSlices = useMemo(() => {
-    const items = [
-      { label: "Venda Fisica", value: physicalSoldVolume, color: "#16a34a" },
-      { label: "Bolsa / CBOT", value: derivativeCommodityVolume, color: "#f59e0b" },
-      { label: "Dólar", value: derivativeCurrencyVolume, color: "#2563eb" },
-    ].filter((item) => item.value > 0);
-    return items.length ? items : [{ label: "Sem dados", value: 1, color: "#cbd5e1" }];
-  }, [derivativeCommodityVolume, derivativeCurrencyVolume, physicalSoldVolume]);
-
-  const leverageBars = useMemo(
-    () => [
-      { label: "Cobertura comercial", value: commercializationCoverage * 100, formatted: formatPercent1(commercializationCoverage), color: "#0f766e" },
-      { label: "MTM derivativos", value: Math.abs(derivativeMtm), formatted: `R$ ${formatCurrency2(derivativeMtm)}`, color: "#0369a1" },
-      { label: "Preço médio físico", value: Math.abs(physicalAveragePrice), formatted: formatCurrency2(physicalAveragePrice), color: "#ea580c" },
-      { label: "Basis médio", value: Math.abs(basisAverage), formatted: formatCurrency2(basisAverage), color: "#7c3aed" },
-    ],
-    [basisAverage, commercializationCoverage, derivativeMtm, physicalAveragePrice],
-  );
   const derivativeOperationsByExchange = useMemo(() => {
     const exchangeMap = new Map();
     filteredDerivatives.forEach((item) => {
@@ -2235,6 +2640,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     [filteredCropBoards],
   );
   const totalCommercializedVolume = physicalSoldVolume + derivativeCommodityVolume;
+  const netProductionVolume = Math.max(productionTotal - totalCommercializedVolume, 0);
   const totalSalesPercent = productionTotal > 0 ? (totalCommercializedVolume / productionTotal) * 100 : 0;
   const derivativeSalesPercent = productionTotal > 0 ? (derivativeCommodityVolume / productionTotal) * 100 : 0;
   const physicalSalesPercent = productionTotal > 0 ? (physicalSoldVolume / productionTotal) * 100 : 0;
@@ -2276,25 +2682,108 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     return { totalForms, filledForms, pendingForms, totalRecords };
   }, [formCompletionRows]);
 
+  const longShortRows = useMemo(() => {
+    const classifyPaymentBucket = (description) => {
+      const normalized = normalizeText(description);
+      if (normalized.includes("arrendamento")) return "arrendamento";
+      if (normalized.includes("barter")) return "barter";
+      if (normalized.includes("terra")) return "paymentTerras";
+      return null;
+    };
+
+    const map = new Map();
+    const ensureNode = (rawLabel) => {
+      const label = resolveCultureLabel(rawLabel);
+      if (!label || normalizeText(label) === "sem cultura") return null;
+      const current =
+        map.get(label) || {
+          label,
+          production: 0,
+          physical: 0,
+          derivatives: 0,
+          barter: 0,
+          paymentTerras: 0,
+          arrendamento: 0,
+        };
+      map.set(label, current);
+      return current;
+    };
+
+    filteredCropBoards.forEach((item) => {
+      const node = ensureNode(item.cultura || item.cultura_texto);
+      if (!node) return;
+      node.production += Math.abs(Number(item.producao_total || 0));
+    });
+
+    filteredSales.forEach((item) => {
+      const node = ensureNode(item.cultura || item.cultura_produto || item.cultura_texto);
+      if (!node) return;
+      node.physical += Math.abs(Number(item.volume_fisico || 0));
+    });
+
+    bolsaDerivatives.forEach((item) => {
+      const node = ensureNode(item.cultura || item.culturas || item.destino_cultura);
+      if (!node) return;
+      node.derivatives += getDerivativeVolumeValue(item);
+    });
+
+    filteredPhysicalPayments.forEach((item) => {
+      const bucket = classifyPaymentBucket(item.descricao);
+      if (!bucket) return;
+      const node = ensureNode(item.fazer_frente_com || item.cultura || item.cultura_texto);
+      if (!node) return;
+      node[bucket] += Math.abs(Number(item.volume || 0));
+    });
+
+    filteredCashPayments.forEach((item) => {
+      const bucket = classifyPaymentBucket(item.descricao);
+      if (!bucket) return;
+      const node = ensureNode(item.fazer_frente_com || item.cultura || item.cultura_texto);
+      if (!node) return;
+      node[bucket] += Math.abs(Number(item.volume || 0));
+    });
+
+    return Array.from(map.values())
+      .map((item) => {
+        const covered = item.physical + item.derivatives + item.barter + item.paymentTerras + item.arrendamento;
+        const nothingDone = Math.max(item.production - covered, 0);
+        const totalForShare = item.production > 0 ? item.production : covered;
+        return {
+          ...item,
+          nadaFeito: nothingDone,
+          gap: nothingDone,
+          covered,
+          coverage: totalForShare > 0 ? covered / totalForShare : 0,
+          totalForShare,
+        };
+      })
+      .filter((item) => item.production > 0 || item.covered > 0)
+      .sort((left, right) => {
+        const rightBase = Math.max(right.production, right.covered);
+        const leftBase = Math.max(left.production, left.covered);
+        return rightBase - leftBase;
+      });
+  }, [bolsaDerivatives, filteredCashPayments, filteredCropBoards, filteredPhysicalPayments, filteredSales, cultureLabelById]);
+
   const cultureRows = useMemo(() => {
     const map = new Map();
 
     filteredCropBoards.forEach((item) => {
-      const label = readCultureLabel(item.cultura || item.cultura_texto);
+      const label = resolveCultureLabel(item.cultura || item.cultura_texto);
       const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
       node.production += Math.abs(Number(item.producao_total || 0));
       map.set(label, node);
     });
 
     filteredSales.forEach((item) => {
-      const label = readCultureLabel(item.cultura || item.cultura_produto || item.cultura_texto);
+      const label = resolveCultureLabel(item.cultura || item.cultura_produto || item.cultura_texto);
       const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
       node.physical += Math.abs(Number(item.volume_fisico || 0));
       map.set(label, node);
     });
 
     bolsaDerivatives.forEach((item) => {
-      const label = readCultureLabel(item.cultura || item.culturas || item.destino_cultura);
+      const label = resolveCultureLabel(item.cultura || item.culturas || item.destino_cultura);
       const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
       node.derivatives += getDerivativeVolumeValue(item);
       map.set(label, node);
@@ -2307,34 +2796,47 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       }))
       .sort((left, right) => right.coverage - left.coverage)
       .slice(0, 6);
-  }, [bolsaDerivatives, filteredCropBoards, filteredSales]);
+  }, [bolsaDerivatives, filteredCropBoards, filteredSales, cultureLabelById]);
 
   return (
     <section className="risk-kpi-shell">
       <section className="stats-grid risk-kpi-grid">
         <article className="card stat-card">
-          <span>Produção total</span>
-          <strong>{formatNumber0(productionTotal)} sc</strong>
+          <span className="stat-card-primary-title">Produção líquida</span>
+          <strong>{formatNumber0(netProductionVolume)} sc</strong>
+          <span className="stat-card-secondary-label">Produção total</span>
+          <strong className="stat-card-secondary-value">{formatNumber0(productionTotal)} sc</strong>
+          <span className="stat-card-secondary-label">Área x Produtividade</span>
+          <strong className="stat-card-secondary-value">{formatNumber2(totalArea)} ha | {formatNumber2(totalArea > 0 ? productionTotal / totalArea : 0)} sc/ha</strong>
         </article>
         <article className="card stat-card">
-          <span>Venda física</span>
-          <strong>{formatNumber0(physicalSoldVolume)} sc</strong>
-        </article>
-        <article className="card stat-card">
-          <span>Hedge em bolsa</span>
-          <strong>{formatNumber0(derivativeCommodityVolume)} sc</strong>
-        </article>
-        <article className="card stat-card">
-          <span>Hedge cambial</span>
-          <strong>{formatNumber0(derivativeCurrencyVolume)} U$</strong>
-        </article>
-        <article className="card stat-card">
-          <span>MTM derivativos</span>
-          <strong>R$ {formatCurrency2(derivativeMtm)}</strong>
-        </article>
-        <article className="card stat-card">
-          <span>Cobertura comercial</span>
-          <strong>{formatPercent1(commercializationCoverage)}</strong>
+          <span className="stat-card-primary-title">Hedge</span>
+          <strong>
+            {formatPercent1(commercializationCoverage)}
+            <span className="stat-card-primary-meta">({formatNumber0(totalCommercializedVolume)} sc)</span>
+          </strong>
+          <span className="stat-card-secondary-label">Venda física</span>
+          <strong className="stat-card-secondary-value">
+            {physicalPriceLines.length
+              ? physicalPriceLines.map((item) => (
+                  <span key={`physical-${item.unitLabel || "sem-unidade"}`} className="stat-card-secondary-line">
+                    {formatNumber0(item.volume)} sc | {formatCurrency2(item.averagePrice)}
+                    {item.unitLabel ? ` ${item.unitLabel}` : ""}
+                  </span>
+                ))
+              : `${formatNumber0(physicalSoldVolume)} sc`}
+          </strong>
+          <span className="stat-card-secondary-label">Hedge em bolsa</span>
+          <strong className="stat-card-secondary-value">
+            {derivativePriceLines.length
+              ? derivativePriceLines.map((item) => (
+                  <span key={`derivative-${item.unitLabel || "sem-unidade"}`} className="stat-card-secondary-line">
+                    {formatNumber0(item.volume)} sc | Strike {formatCurrency2(item.averageStrike)}
+                    {item.unitLabel ? ` ${item.unitLabel}` : ""}
+                  </span>
+                ))
+              : `${formatNumber0(derivativeCommodityVolume)} sc`}
+          </strong>
         </article>
       </section>
 
@@ -2347,69 +2849,21 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         physicalScPerHa={physicalScPerHa}
         policyMinPercent={currentPolicyMinPercent}
         policyMaxPercent={currentPolicyMaxPercent}
+        productionBase={productionTotal}
+        physicalRows={filteredSales}
+        derivativeRows={bolsaDerivatives}
+        policies={filteredPolicies}
+        onOpenHedgePolicy={() => navigate("/dashboard/politica-hedge")}
       />
 
-      <section className="content-grid risk-kpi-content">
-        <div className="chart-card chart-card-large">
-          <div className="chart-card-header">
-            <div>
-              <h3>Radar da comercialização por componente</h3>
-              <p className="muted">Leitura objetiva da combinação entre físico, bolsa/CBOT, dólar e basis dentro do método de venda por componentes.</p>
-            </div>
-          </div>
-          <div className="risk-kpi-list">
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Venda física já capturada</strong>
-                <span>Volume já monetizado no físico, importante para travar margem e caixa.</span>
-              </div>
-              <b>{formatNumber0(physicalSoldVolume)} sc</b>
-            </div>
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Bolsa / CBOT protegida</strong>
-                <span>Volume derivativo em commodity, útil para separar o momento da venda de CBOT do basis.</span>
-              </div>
-              <b>{formatNumber0(derivativeCommodityVolume)} sc</b>
-            </div>
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Dólar futuro protegido</strong>
-                <span>Volume financeiro em moeda, alinhado ao método de travar câmbio em momento distinto da soja.</span>
-              </div>
-              <b>{formatNumber0(derivativeCurrencyVolume)} U$</b>
-            </div>
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Basis já definido</strong>
-                <span>Contratos físicos com basis explícito, sinalizando avanço na captura do componente regional.</span>
-              </div>
-              <b>{basisContracts} contratos</b>
-            </div>
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Spot físico médio</strong>
-                <span>Referência de tela para confrontar preço atual, basis médio e qualidade da comercialização.</span>
-              </div>
-              <b>{formatCurrency2(quoteAverage)}</b>
-            </div>
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Políticas ativas / base de custo</strong>
-                <span>Políticas em uso e custo orçado filtrado, fundamentais para disciplina de risco.</span>
-              </div>
-              <b>{policyCount} / R$ {formatCurrency2(filteredBudgetCosts.reduce((sum, item) => sum + Number(item.valor || 0), 0))}</b>
-            </div>
-          </div>
-        </div>
-
-        <DonutChart
-          centerLabel="Mix"
-          centerValue={formatPercent1(commercializationCoverage)}
-          slices={mixSlices}
+      <section className="risk-kpi-long-short-grid">
+        <CommercialRiskLongShortChart
+          rows={longShortRows}
+          cultureButtons={options.cropBoardCrops || []}
+          selectedCultureIds={filter.cultura}
+          onToggleCulture={(value) => toggleFilterValue("cultura", value)}
+          onClearCultures={() => updateFilter("cultura", [])}
         />
-
-        <ScenarioBars data={leverageBars} />
       </section>
 
       <section className="risk-kpi-derivative-donuts">
@@ -2480,33 +2934,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
             </div>
           </div>
         </article>
-      </section>
-
-      <section className="chart-card risk-kpi-culture-card">
-        <div className="chart-card-header">
-          <div>
-            <h3>Cobertura por cultura</h3>
-            <p className="muted">Produção versus comercialização física e proteção em bolsa, para priorizar onde ainda existe exposição relevante.</p>
-          </div>
-        </div>
-        <div className="risk-kpi-culture-list">
-          {cultureRows.map((item) => (
-            <div key={item.label} className="risk-kpi-culture-row">
-              <div className="risk-kpi-culture-head">
-                <strong>{item.label}</strong>
-                <span>{formatPercent1(item.coverage)}</span>
-              </div>
-              <div className="risk-kpi-track">
-                <span className="risk-kpi-track-physical" style={{ width: `${Math.min((item.physical / Math.max(item.production, 1)) * 100, 100)}%` }} />
-                <span className="risk-kpi-track-derivative" style={{ width: `${Math.min((item.derivatives / Math.max(item.production, 1)) * 100, 100)}%` }} />
-              </div>
-              <small>
-                Produção: {formatNumber0(item.production)} sc | Físico: {formatNumber0(item.physical)} sc | Bolsa: {formatNumber0(item.derivatives)} sc
-              </small>
-            </div>
-          ))}
-          {!cultureRows.length ? <p className="muted">Sem dados suficientes para montar a visão por cultura com o filtro atual.</p> : null}
-        </div>
       </section>
     </section>
   );
@@ -2925,6 +3352,123 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
   );
 }
 
+function buildHedgePolicyChartState({
+  unit,
+  frequency,
+  baseValue,
+  physicalRows,
+  derivativeRows,
+  policies,
+  physicalValueGetter,
+  derivativeValueGetter,
+  showPhysical = true,
+  showDerivatives = true,
+  simulatedIncrement = 0,
+}) {
+  const policyRows = (policies || [])
+    .map((item) => ({
+      ...item,
+      monthDate: startOfDashboardMonth(item.mes_ano),
+      minRatio: normalizePolicyRatio(
+        unit === "BRL" ? item.vendas_x_custo_minimo : item.vendas_x_prod_total_minimo,
+      ),
+      maxRatio: normalizePolicyRatio(
+        unit === "BRL" ? item.vendas_x_custo_maximo : item.vendas_x_prod_total_maximo,
+      ),
+    }))
+    .filter((item) => item.monthDate && (item.minRatio != null || item.maxRatio != null))
+    .sort((left, right) => left.monthDate - right.monthDate);
+
+  const physicalSeries = (physicalRows || [])
+    .map((item) => ({
+      date: startOfDashboardDay(item.data_negociacao || item.created_at),
+      value: physicalValueGetter(item),
+    }))
+    .filter((item) => item.date && Number.isFinite(item.value) && item.value > 0)
+    .sort((left, right) => left.date - right.date);
+
+  const derivativeSeries = (derivativeRows || [])
+    .map((item) => ({
+      startDate: startOfDashboardDay(item.data_contratacao || item.created_at),
+      endDate: startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at),
+      value: derivativeValueGetter(item),
+    }))
+    .filter((item) => item.startDate && item.endDate && Number.isFinite(item.value) && item.value > 0)
+    .sort((left, right) => left.startDate - right.startDate);
+
+  const allDates = [
+    ...policyRows.map((item) => item.monthDate),
+    ...physicalSeries.map((item) => item.date),
+    ...derivativeSeries.flatMap((item) => [item.startDate, item.endDate]),
+  ].filter(Boolean);
+
+  const today = startOfDashboardDay(new Date());
+  const startDate = allDates.length ? new Date(Math.min(...allDates.map((item) => item.getTime()))) : today;
+  const endDate = allDates.length ? new Date(Math.max(...allDates.map((item) => item.getTime()), today.getTime())) : today;
+  const buckets = buildHedgeBuckets(startDate, endDate, frequency);
+
+  let activePolicy = policyRows[0] || null;
+  let activePolicyIndex = 0;
+  let physicalPointer = 0;
+  let physicalTotal = 0;
+
+  const points = buckets.map((bucket) => {
+    while (
+      activePolicy &&
+      activePolicyIndex < policyRows.length - 1 &&
+      policyRows[activePolicyIndex + 1].monthDate <= startOfDashboardMonth(bucket.date)
+    ) {
+      activePolicyIndex += 1;
+      activePolicy = policyRows[activePolicyIndex];
+    }
+
+    while (physicalPointer < physicalSeries.length && physicalSeries[physicalPointer].date <= bucket.date) {
+      physicalTotal += physicalSeries[physicalPointer].value;
+      physicalPointer += 1;
+    }
+
+    const derivativeTotal = derivativeSeries.reduce((sum, item) => {
+      const isActive = item.startDate <= bucket.date && bucket.date < item.endDate;
+      return isActive ? sum + item.value : sum;
+    }, 0);
+
+    const visibleDerivative = showDerivatives ? derivativeTotal : 0;
+    const visiblePhysical = showPhysical ? physicalTotal : 0;
+    const total = visibleDerivative + visiblePhysical;
+    const minValue = activePolicy?.minRatio != null ? activePolicy.minRatio * baseValue : null;
+    const maxValue = activePolicy?.maxRatio != null ? activePolicy.maxRatio * baseValue : null;
+
+    return {
+      ...bucket,
+      physicalRaw: physicalTotal,
+      derivativeRaw: derivativeTotal,
+      physicalVisible: visiblePhysical,
+      derivativeVisible: visibleDerivative,
+      minValue,
+      maxValue,
+      minPct: baseValue > 0 && minValue != null ? minValue / baseValue : null,
+      maxPct: baseValue > 0 && maxValue != null ? maxValue / baseValue : null,
+      total,
+      totalPct: baseValue > 0 ? total / baseValue : 0,
+    };
+  });
+
+  const totalDataset = points.map((item, index) => item.total + (index === points.length - 1 ? simulatedIncrement : 0));
+
+  return {
+    labels: points.map((item) => item.label),
+    points,
+    minDataset: points.map((item) => item.minValue ?? null),
+    maxDataset: points.map((item) => item.maxValue ?? null),
+    minPctDataset: points.map((item) => (item.minPct != null ? item.minPct * 100 : null)),
+    maxPctDataset: points.map((item) => (item.maxPct != null ? item.maxPct * 100 : null)),
+    derivativeDataset: points.map((item) => item.derivativeVisible),
+    physicalDataset: points.map((item) => item.derivativeVisible + item.physicalVisible),
+    totalDataset,
+    totalPctDataset: points.map((item) => item.totalPct * 100),
+  };
+}
+
 function HedgePolicyChart({
   title,
   unit,
@@ -2939,6 +3483,8 @@ function HedgePolicyChart({
   derivativeDetailValueGetter = derivativeValueGetter,
   onFocusToggle,
   extraActions = null,
+  simulatedIncrement = 0,
+  simulatedLabel = null,
 }) {
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
@@ -2947,112 +3493,35 @@ function HedgePolicyChart({
   const [showPhysical, setShowPhysical] = useState(true);
   const [showDerivatives, setShowDerivatives] = useState(true);
 
-  const chartState = useMemo(() => {
-    const policyRows = (policies || [])
-      .map((item) => ({
-        ...item,
-        monthDate: startOfDashboardMonth(item.mes_ano),
-        minRatio: normalizePolicyRatio(
-          unit === "BRL" ? item.vendas_x_custo_minimo : item.vendas_x_prod_total_minimo,
-        ),
-        maxRatio: normalizePolicyRatio(
-          unit === "BRL" ? item.vendas_x_custo_maximo : item.vendas_x_prod_total_maximo,
-        ),
-      }))
-      .filter((item) => item.monthDate && (item.minRatio != null || item.maxRatio != null))
-      .sort((left, right) => left.monthDate - right.monthDate);
-
-    const physicalSeries = (physicalRows || [])
-      .map((item) => ({
-        date: startOfDashboardDay(item.data_negociacao || item.created_at),
-        value: physicalValueGetter(item),
-      }))
-      .filter((item) => item.date && Number.isFinite(item.value) && item.value > 0)
-      .sort((left, right) => left.date - right.date);
-
-    const derivativeSeries = (derivativeRows || [])
-      .map((item) => ({
-        startDate: startOfDashboardDay(item.data_contratacao || item.created_at),
-        endDate: startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at),
-        value: derivativeValueGetter(item),
-      }))
-      .filter((item) => item.startDate && item.endDate && Number.isFinite(item.value) && item.value > 0)
-      .sort((left, right) => left.startDate - right.startDate);
-
-    const allDates = [
-      ...policyRows.map((item) => item.monthDate),
-      ...physicalSeries.map((item) => item.date),
-      ...derivativeSeries.flatMap((item) => [item.startDate, item.endDate]),
-    ].filter(Boolean);
-
-    const today = startOfDashboardDay(new Date());
-    const startDate = allDates.length ? new Date(Math.min(...allDates.map((item) => item.getTime()))) : today;
-    const endDate = allDates.length ? new Date(Math.max(...allDates.map((item) => item.getTime()), today.getTime())) : today;
-    const buckets = buildHedgeBuckets(startDate, endDate, frequency);
-
-    let activePolicy = policyRows[0] || null;
-    let physicalPointer = 0;
-    let physicalTotal = 0;
-
-    const points = buckets.map((bucket) => {
-      while (
-        activePolicy &&
-        policyRows.findIndex((item) => item === activePolicy) < policyRows.length - 1 &&
-        policyRows[policyRows.findIndex((item) => item === activePolicy) + 1].monthDate <= startOfDashboardMonth(bucket.date)
-      ) {
-        activePolicy = policyRows[policyRows.findIndex((item) => item === activePolicy) + 1];
-      }
-
-      while (physicalPointer < physicalSeries.length && physicalSeries[physicalPointer].date <= bucket.date) {
-        physicalTotal += physicalSeries[physicalPointer].value;
-        physicalPointer += 1;
-      }
-
-      const derivativeTotal = derivativeSeries.reduce((sum, item) => {
-        const isActive = item.startDate <= bucket.date && bucket.date < item.endDate;
-        return isActive ? sum + item.value : sum;
-      }, 0);
-
-      const visibleDerivative = showDerivatives ? derivativeTotal : 0;
-      const visiblePhysical = showPhysical ? physicalTotal : 0;
-      const total = visibleDerivative + visiblePhysical;
-      const minValue = activePolicy?.minRatio != null ? activePolicy.minRatio * baseValue : null;
-      const maxValue = activePolicy?.maxRatio != null ? activePolicy.maxRatio * baseValue : null;
-
-      return {
-        ...bucket,
-        physicalRaw: physicalTotal,
-        derivativeRaw: derivativeTotal,
-        physicalVisible: visiblePhysical,
-        derivativeVisible: visibleDerivative,
-        minValue,
-        maxValue,
-        total,
-        totalPct: baseValue > 0 ? total / baseValue : 0,
-      };
-    });
-
-    return {
-      labels: points.map((item) => item.label),
-      points,
-      minDataset: points.map((item) => item.minValue ?? null),
-      maxDataset: points.map((item) => item.maxValue ?? null),
-      derivativeDataset: points.map((item) => item.derivativeVisible),
-      physicalDataset: points.map((item) => item.derivativeVisible + item.physicalVisible),
-      totalDataset: points.map((item) => item.total),
-    };
-  }, [
-    baseValue,
-    derivativeRows,
-    derivativeValueGetter,
-    frequency,
-    physicalRows,
-    physicalValueGetter,
-    policies,
-    showDerivatives,
-    showPhysical,
-    unit,
-  ]);
+  const chartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit,
+        frequency,
+        baseValue,
+        physicalRows,
+        derivativeRows,
+        policies,
+        physicalValueGetter,
+        derivativeValueGetter,
+        showPhysical,
+        showDerivatives,
+        simulatedIncrement,
+      }),
+    [
+      baseValue,
+      derivativeRows,
+      derivativeValueGetter,
+      frequency,
+      physicalRows,
+      physicalValueGetter,
+      policies,
+      simulatedIncrement,
+      showDerivatives,
+      showPhysical,
+      unit,
+    ],
+  );
 
   useEffect(() => {
     if (!chartState.points.length) {
@@ -3145,10 +3614,14 @@ function HedgePolicyChart({
               font: { size: 10, weight: "700" },
               offset: 2,
               padding: { top: 3, bottom: 3, left: 6, right: 6 },
-              formatter: (_, context) =>
-                `${((chartState.points[context.dataIndex]?.totalPct || 0) * 100).toLocaleString("pt-BR", {
+              formatter: (_, context) => {
+                const point = chartState.points[context.dataIndex];
+                const extra = context.dataIndex === chartState.points.length - 1 ? simulatedIncrement : 0;
+                const pct = baseValue > 0 ? ((point?.total || 0) + extra) / baseValue : 0;
+                return `${(pct * 100).toLocaleString("pt-BR", {
                   maximumFractionDigits: 1,
-                })}%`,
+                })}%`;
+              },
             },
           },
         ],
@@ -3207,27 +3680,29 @@ function HedgePolicyChart({
 
   const activePoint = chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
+  const activeSimulation = activeIndex === chartState.points.length - 1 ? simulatedIncrement : 0;
   const statusSummary = useMemo(() => {
     if (!activePoint) return null;
-    if (Number.isFinite(activePoint.maxValue) && activePoint.total > activePoint.maxValue) {
+    const activeTotal = activePoint.total + activeSimulation;
+    if (Number.isFinite(activePoint.maxValue) && activeTotal > activePoint.maxValue) {
       return {
         tone: "bad",
-        text: `${(((activePoint.total - activePoint.maxValue) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
+        text: `${(((activeTotal - activePoint.maxValue) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
           maximumFractionDigits: 1,
         })}% acima da politica`,
       };
     }
-    if (Number.isFinite(activePoint.minValue) && activePoint.total < activePoint.minValue) {
+    if (Number.isFinite(activePoint.minValue) && activeTotal < activePoint.minValue) {
       return {
         tone: "bad",
-        text: `${(((activePoint.minValue - activePoint.total) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
+        text: `${(((activePoint.minValue - activeTotal) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
           maximumFractionDigits: 1,
         })}% abaixo da politica`,
       };
     }
     return {
       tone: "ok",
-      text: `${((activePoint.totalPct || 0) * 100).toLocaleString("pt-BR", {
+      text: `${((baseValue > 0 ? activeTotal / baseValue : 0) * 100).toLocaleString("pt-BR", {
         maximumFractionDigits: 1,
       })}% dentro da politica`,
     };
@@ -3340,11 +3815,16 @@ function HedgePolicyChart({
           </div>
           <div className={`hedge-floating-total-box ${statusSummary?.tone || "ok"}`}>
             <div className="hedge-floating-total-main">
-              Total Realizado: {((activePoint.totalPct || 0) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% —{" "}
-              {formatHedgeTooltipValue(activePoint.total, unit)}
+              Total Realizado: {((baseValue > 0 ? (activePoint.total + activeSimulation) / baseValue : 0) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% —{" "}
+              {formatHedgeTooltipValue(activePoint.total + activeSimulation, unit)}
             </div>
             <div className="hedge-floating-total-status">{statusSummary?.text || "—"}</div>
           </div>
+          {activeSimulation > 0 && simulatedLabel ? (
+            <div className="hedge-floating-line">
+              Simulação: +{formatHedgeTooltipValue(activeSimulation, unit)} {simulatedLabel}
+            </div>
+          ) : null}
           <div className="hedge-floating-line">
             Vendas Fisico:{" "}
             {((activePoint.physicalRaw / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% —{" "}
@@ -3519,10 +3999,273 @@ function HedgePolicyChart({
   );
 }
 
+function HedgePolicyRangeChart({
+  title,
+  unit,
+  frequency,
+  baseValue,
+  physicalRows,
+  derivativeRows,
+  policies,
+  physicalValueGetter,
+  derivativeValueGetter,
+  onFocusToggle,
+}) {
+  const chartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit,
+        frequency,
+        baseValue,
+        physicalRows,
+        derivativeRows,
+        policies,
+        physicalValueGetter,
+        derivativeValueGetter,
+      }),
+    [baseValue, derivativeRows, derivativeValueGetter, frequency, physicalRows, physicalValueGetter, policies, unit],
+  );
+
+  const latestPoint = chartState.points.at(-1) || null;
+
+  const option = useMemo(() => {
+    if (!latestPoint) return null;
+    const maxDomain = Math.max(
+      Number(latestPoint.maxValue || 0),
+      Number(latestPoint.total || 0),
+      Number(latestPoint.physicalRaw + latestPoint.derivativeRaw || 0),
+      baseValue * 0.2,
+      1,
+    );
+
+    return {
+      animationDuration: 220,
+      grid: { left: 70, right: 40, top: 22, bottom: 16 },
+      xAxis: {
+        type: "value",
+        min: 0,
+        max: maxDomain * 1.08,
+        axisLabel: {
+          color: "#475569",
+          formatter: (value) => formatHedgeAxisValue(value, unit),
+        },
+        splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+      },
+      yAxis: {
+        type: "category",
+        data: ["Atual"],
+        axisTick: { show: false },
+        axisLine: { show: false },
+        axisLabel: { color: "#0f172a", fontWeight: 700 },
+      },
+      tooltip: { show: false },
+      series: [
+        {
+          type: "bar",
+          stack: "realizado",
+          data: [latestPoint.derivativeRaw],
+          barWidth: 28,
+          itemStyle: { color: "rgba(251, 146, 60, 0.85)", borderRadius: [10, 0, 0, 10] },
+          markArea: latestPoint.minValue != null && latestPoint.maxValue != null ? {
+            silent: true,
+            itemStyle: { color: "rgba(34, 197, 94, 0.10)" },
+            data: [[{ xAxis: latestPoint.minValue }, { xAxis: latestPoint.maxValue }]],
+          } : undefined,
+        },
+        {
+          type: "bar",
+          stack: "realizado",
+          data: [latestPoint.physicalRaw],
+          barWidth: 28,
+          itemStyle: { color: "rgba(250, 204, 21, 0.45)", borderRadius: [0, 10, 10, 0] },
+        },
+        {
+          type: "scatter",
+          data: [[latestPoint.total, "Atual"]],
+          symbolSize: 16,
+          itemStyle: { color: "#111827" },
+          label: {
+            show: true,
+            position: "top",
+            color: "#111827",
+            fontWeight: 800,
+            formatter: () =>
+              `${(latestPoint.totalPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
+          },
+        },
+      ],
+    };
+  }, [baseValue, latestPoint, unit]);
+
+  return (
+    <article className="hedge-chart-card">
+      <div className="hedge-chart-card-header">
+        <h3>{title}</h3>
+        <div className="hedge-chart-actions">
+          <button type="button" className="hedge-chart-icon-btn" onClick={onFocusToggle} title="Destacar gráfico">
+            ⛶
+          </button>
+        </div>
+      </div>
+      {latestPoint ? (
+        <aside className="hedge-floating-card">
+          <div className="hedge-floating-topline">
+            <div className="hedge-floating-title">{formatHedgeTitleDate(latestPoint.date)}</div>
+          </div>
+          <div className="hedge-floating-line">
+            Faixa alvo:{" "}
+            {latestPoint.minValue != null && latestPoint.maxValue != null
+              ? `${formatHedgeTooltipValue(latestPoint.minValue, unit)} ate ${formatHedgeTooltipValue(latestPoint.maxValue, unit)}`
+              : "—"}
+          </div>
+          <div className="hedge-floating-line">
+            Derivativos: {formatHedgeTooltipValue(latestPoint.derivativeRaw, unit)}
+          </div>
+          <div className="hedge-floating-line">
+            Fisico: {formatHedgeTooltipValue(latestPoint.physicalRaw, unit)}
+          </div>
+        </aside>
+      ) : null}
+      <div className="hedge-chart-wrap hedge-chart-wrap--compact">
+        {option ? <ReactECharts option={option} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} /> : null}
+      </div>
+    </article>
+  );
+}
+
+function HedgePolicyPercentChart({
+  title,
+  unit,
+  frequency,
+  baseValue,
+  physicalRows,
+  derivativeRows,
+  policies,
+  physicalValueGetter,
+  derivativeValueGetter,
+  onFocusToggle,
+}) {
+  const chartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit,
+        frequency,
+        baseValue,
+        physicalRows,
+        derivativeRows,
+        policies,
+        physicalValueGetter,
+        derivativeValueGetter,
+      }),
+    [baseValue, derivativeRows, derivativeValueGetter, frequency, physicalRows, physicalValueGetter, policies, unit],
+  );
+
+  const latestPoint = chartState.points.at(-1) || null;
+
+  const option = useMemo(() => ({
+    animationDuration: 220,
+    grid: { left: 50, right: 22, top: 18, bottom: 38 },
+    tooltip: {
+      trigger: "axis",
+      valueFormatter: (value) =>
+        value == null ? "—" : `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`,
+    },
+    legend: {
+      bottom: 0,
+      textStyle: { color: "#475569", fontSize: 11, fontWeight: 700 },
+      itemWidth: 12,
+      itemHeight: 12,
+    },
+    xAxis: {
+      type: "category",
+      data: chartState.labels,
+      axisLabel: { color: "#475569", fontSize: 11, fontWeight: 700 },
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: "rgba(148, 163, 184, 0.3)" } },
+    },
+    yAxis: {
+      type: "value",
+      min: 0,
+      axisLabel: {
+        color: "#475569",
+        formatter: (value) => `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`,
+      },
+      splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+    },
+    series: [
+      {
+        name: "Politica Min.",
+        type: "line",
+        smooth: false,
+        symbol: "none",
+        lineStyle: { color: "#22c55e", width: 2 },
+        areaStyle: undefined,
+        data: chartState.minPctDataset,
+      },
+      {
+        name: "Politica Max.",
+        type: "line",
+        smooth: false,
+        symbol: "none",
+        lineStyle: { color: "#22c55e", width: 2 },
+        areaStyle: { color: "rgba(34, 197, 94, 0.10)" },
+        data: chartState.maxPctDataset,
+      },
+      {
+        name: "Realizado",
+        type: "line",
+        smooth: false,
+        symbol: "circle",
+        symbolSize: 7,
+        lineStyle: { color: "#111827", width: 4 },
+        itemStyle: { color: "#111827" },
+        areaStyle: { color: "rgba(250, 204, 21, 0.16)" },
+        data: chartState.totalPctDataset,
+      },
+    ],
+  }), [chartState.labels, chartState.maxPctDataset, chartState.minPctDataset, chartState.totalPctDataset]);
+
+  return (
+    <article className="hedge-chart-card">
+      <div className="hedge-chart-card-header">
+        <h3>{title}</h3>
+        <div className="hedge-chart-actions">
+          <button type="button" className="hedge-chart-icon-btn" onClick={onFocusToggle} title="Destacar gráfico">
+            ⛶
+          </button>
+        </div>
+      </div>
+      {latestPoint ? (
+        <aside className="hedge-floating-card">
+          <div className="hedge-floating-topline">
+            <div className="hedge-floating-title">{formatHedgeTitleDate(latestPoint.date)}</div>
+          </div>
+          <div className="hedge-floating-line">
+            Realizado: {(latestPoint.totalPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+          </div>
+          <div className="hedge-floating-line">
+            Politica:{" "}
+            {latestPoint.minPct != null && latestPoint.maxPct != null
+              ? `${(latestPoint.minPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% ate ${(latestPoint.maxPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
+              : "—"}
+          </div>
+        </aside>
+      ) : null}
+      <div className="hedge-chart-wrap hedge-chart-wrap--compact">
+        <ReactECharts option={option} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+      </div>
+    </article>
+  );
+}
+
 function HedgePolicyDashboard({ dashboardFilter }) {
   const { matchesDashboardFilter } = useDashboardFilter();
   const [frequency, setFrequency] = useState("monthly");
   const [focusedChart, setFocusedChart] = useState(null);
+  const [showSimulationBox, setShowSimulationBox] = useState(false);
+  const [simulationVolume, setSimulationVolume] = useState("");
+  const [simulationValue, setSimulationValue] = useState("");
+  const [simulationCurrency, setSimulationCurrency] = useState("BRL");
   const [usdBrlRate, setUsdBrlRate] = useState(0);
   const [policies, setPolicies] = useState([]);
   const [physicalSales, setPhysicalSales] = useState([]);
@@ -3600,10 +4343,70 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     [dashboardFilter, derivatives],
   );
 
+  const parsedSimulationVolume = parseLocalizedInputNumber(simulationVolume) || 0;
+  const parsedSimulationValue = parseLocalizedInputNumber(simulationValue) || 0;
+  const hasSimulationValues = parsedSimulationVolume > 0 || parsedSimulationValue > 0;
+  const simulatedCostValue =
+    simulationCurrency === "USD" ? parsedSimulationValue * Math.max(usdBrlRate, 0) : parsedSimulationValue;
+  const simulationLabel = simulationCurrency === "USD" ? "convertido em R$" : "adicionado em R$";
+
+  const resetSimulation = () => {
+    setSimulationVolume("");
+    setSimulationValue("");
+    setSimulationCurrency("BRL");
+    setShowSimulationBox(false);
+  };
+
   return (
     <section className="hedge-dashboard-shell">
+      <div className="hedge-dashboard-toolbar">
+        <button
+          type="button"
+          className="btn btn-outline-secondary btn-sm"
+          onClick={() => {
+            if (hasSimulationValues) {
+              resetSimulation();
+              return;
+            }
+            setShowSimulationBox((current) => !current);
+          }}
+        >
+          {hasSimulationValues ? "Limpar simulação" : "Simular nova operação"}
+        </button>
+      </div>
+      {showSimulationBox ? (
+        <div className="hedge-simulation-card">
+          <div className="hedge-simulation-grid">
+            <label className="hedge-simulation-field">
+              <span>Volume (scs)</span>
+              <input
+                className="form-control"
+                value={simulationVolume}
+                onChange={(event) => setSimulationVolume(event.target.value)}
+                placeholder="0"
+              />
+            </label>
+            <label className="hedge-simulation-field">
+              <span>Valor total</span>
+              <input
+                className="form-control"
+                value={simulationValue}
+                onChange={(event) => setSimulationValue(event.target.value)}
+                placeholder="0"
+              />
+            </label>
+            <label className="hedge-simulation-field">
+              <span>Moeda</span>
+              <select className="form-select" value={simulationCurrency} onChange={(event) => setSimulationCurrency(event.target.value)}>
+                <option value="BRL">R$</option>
+                <option value="USD">US$</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      ) : null}
       <section className={`hedge-dashboard-grid${focusedChart ? " single-visible" : ""}`}>
-        {focusedChart !== "production" ? (
+        {(!focusedChart || focusedChart === "cost") ? (
           <HedgePolicyChart
             title="Gráfico 1 — Hedge sobre o custo (R$)"
             unit="BRL"
@@ -3615,6 +4418,8 @@ function HedgePolicyDashboard({ dashboardFilter }) {
             physicalValueGetter={(item) => getPhysicalCostValue(item, usdBrlRate)}
             derivativeValueGetter={(item) => getDerivativeCostValue(item, usdBrlRate)}
             onFocusToggle={() => setFocusedChart((current) => (current === "cost" ? null : "cost"))}
+            simulatedIncrement={simulatedCostValue}
+            simulatedLabel={simulationLabel}
             extraActions={
               <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
                 <option value="daily">Diario</option>
@@ -3624,7 +4429,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
             }
           />
         ) : null}
-        {focusedChart !== "cost" ? (
+        {(!focusedChart || focusedChart === "production") ? (
           <HedgePolicyChart
             title="Gráfico 2 — Hedge produção liquida (sc)"
             unit="SC"
@@ -3638,6 +4443,8 @@ function HedgePolicyDashboard({ dashboardFilter }) {
             physicalDetailValueGetter={(item) => getPhysicalCostValue(item, usdBrlRate)}
             derivativeDetailValueGetter={(item) => getDerivativeCostValue(item, usdBrlRate)}
             onFocusToggle={() => setFocusedChart((current) => (current === "production" ? null : "production"))}
+            simulatedIncrement={parsedSimulationVolume}
+            simulatedLabel="adicionado em volume"
           />
         ) : null}
       </section>
@@ -3690,7 +4497,7 @@ const buildMergedCurrencyExposureDraft = (model) => {
 };
 
 function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
-  const { matchesDashboardFilter } = useDashboardFilter();
+  const { matchesDashboardFilter, filter, updateFilter } = useDashboardFilter();
   const [cropBoards, setCropBoards] = useState([]);
   const [physicalPayments, setPhysicalPayments] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
@@ -3732,6 +4539,9 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
       .filter((item) => selectedIds.has(String(item.id)))
       .map((item) => normalizeText(item.cultura));
   }, [dashboardFilter?.cultura, filterOptions?.crops]);
+
+  const selectedCultureValue = Array.isArray(filter?.cultura) && filter.cultura.length ? String(filter.cultura[0]) : "";
+  const selectedSeasonValue = Array.isArray(filter?.safra) && filter.safra.length ? String(filter.safra[0]) : "";
 
   const filteredCropBoards = useMemo(
     () => cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
@@ -4243,6 +5053,30 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
 
   return (
     <section className="currency-hedge-shell">
+      <div className="currency-hedge-filterbar">
+        <label className="currency-hedge-filterfield">
+          <span>Cultura</span>
+          <select className="form-select" value={selectedCultureValue} onChange={(event) => updateFilter("cultura", event.target.value ? [event.target.value] : [])}>
+            <option value="">Todas</option>
+            {(filterOptions?.cropBoardCrops || filterOptions?.crops || []).map((item) => (
+              <option key={`currency-crop-${item.id}`} value={String(item.id)}>
+                {item.cultura || item.nome || item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="currency-hedge-filterfield">
+          <span>Safra</span>
+          <select className="form-select" value={selectedSeasonValue} onChange={(event) => updateFilter("safra", event.target.value ? [event.target.value] : [])}>
+            <option value="">Todas</option>
+            {(filterOptions?.cropBoardSeasons || filterOptions?.seasons || []).map((item) => (
+              <option key={`currency-season-${item.id}`} value={String(item.id)}>
+                {item.safra || item.nome || item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="currency-hedge-controls">
         <article className="currency-hedge-col currency-hedge-col--exposure">
           <div className="currency-hedge-col-title">Produção Líquida Total (scs)</div>
@@ -5496,6 +6330,138 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   );
 }
 
+function StrategiesTriggersDashboard({ dashboardFilter }) {
+  const [strategies, setStrategies] = useState([]);
+  const [triggers, setTriggers] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([resourceService.listAll("strategies"), resourceService.listAll("strategy-triggers")]).then(([strategiesResponse, triggersResponse]) => {
+      if (!isMounted) return;
+      setStrategies(strategiesResponse || []);
+      setTriggers(triggersResponse || []);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const filteredStrategies = useMemo(
+    () =>
+      strategies.filter((item) =>
+        rowMatchesDashboardFilter(item, dashboardFilter, {
+          groupKeys: ["grupo", "grupos"],
+          subgroupKeys: ["subgrupo", "subgrupos"],
+        }),
+      ),
+    [dashboardFilter, strategies],
+  );
+  const filteredTriggers = useMemo(
+    () =>
+      triggers.filter((item) =>
+        rowMatchesDashboardFilter(item, dashboardFilter, {
+          groupKeys: ["grupo", "grupos"],
+          subgroupKeys: ["subgrupo", "subgrupos"],
+          cultureKeys: ["cultura"],
+        }),
+      ),
+    [dashboardFilter, triggers],
+  );
+
+  const activeStrategies = filteredStrategies.filter((item) => !normalizeText(item.status).includes("inativ")).length;
+  const activeTriggers = filteredTriggers.filter((item) => !normalizeText(item.status_gatilho).includes("inativ")).length;
+  const openTriggers = filteredTriggers.filter((item) => !normalizeText(item.status_gatilho).includes("dispar") && !normalizeText(item.status_gatilho).includes("encerr")).length;
+  const monitoredCrops = new Set(filteredTriggers.map((item) => readCultureLabel(item.cultura)).filter((value) => value && normalizeText(value) !== "sem cultura")).size;
+  const nextExpiringStrategies = [...filteredStrategies]
+    .filter((item) => parseDashboardDate(item.data_validade))
+    .sort((left, right) => parseDashboardDate(left.data_validade) - parseDashboardDate(right.data_validade))
+    .slice(0, 6);
+  const triggerStatusSlices = useMemo(() => {
+    const waiting = filteredTriggers.filter((item) => normalizeText(item.status_gatilho).includes("monitor") || normalizeText(item.status_gatilho).includes("aberto")).length;
+    const triggered = filteredTriggers.filter((item) => normalizeText(item.status_gatilho).includes("dispar") || normalizeText(item.status_gatilho).includes("acion")).length;
+    const inactive = filteredTriggers.filter((item) => normalizeText(item.status_gatilho).includes("inativ") || normalizeText(item.status_gatilho).includes("encerr")).length;
+    const items = [
+      { label: "Monitorando", value: waiting, color: "#0f766e" },
+      { label: "Disparados", value: triggered, color: "#f59e0b" },
+      { label: "Inativos", value: inactive, color: "#94a3b8" },
+    ].filter((item) => item.value > 0);
+    return items.length ? items : [{ label: "Sem gatilhos", value: 1, color: "#cbd5e1" }];
+  }, [filteredTriggers]);
+  const triggerCultureBars = useMemo(() => {
+    const map = new Map();
+    filteredTriggers.forEach((item) => {
+      const label = readCultureLabel(item.cultura);
+      if (!label || normalizeText(label) === "sem cultura") return;
+      map.set(label, (map.get(label) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .map(([label, value], index) => ({
+        label,
+        value,
+        formatted: `${value} gatilhos`,
+        color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+      }))
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 5);
+  }, [filteredTriggers]);
+
+  return (
+    <section className="risk-kpi-shell">
+      <section className="stats-grid risk-kpi-grid">
+        <article className="card stat-card">
+          <span>Estratégias</span>
+          <strong>{formatNumber0(filteredStrategies.length)}</strong>
+          <span className="stat-card-secondary-label">Ativas</span>
+          <strong className="stat-card-secondary-value">{formatNumber0(activeStrategies)}</strong>
+        </article>
+        <article className="card stat-card">
+          <span>Gatilhos</span>
+          <strong>{formatNumber0(filteredTriggers.length)}</strong>
+          <span className="stat-card-secondary-label">Em monitoramento</span>
+          <strong className="stat-card-secondary-value">{formatNumber0(openTriggers)}</strong>
+        </article>
+        <article className="card stat-card">
+          <span>Gatilhos ativos</span>
+          <strong>{formatNumber0(activeTriggers)}</strong>
+        </article>
+        <article className="card stat-card">
+          <span>Culturas monitoradas</span>
+          <strong>{formatNumber0(monitoredCrops)}</strong>
+        </article>
+      </section>
+
+      <section className="content-grid">
+        <div className="chart-card chart-card-large">
+          <div className="chart-card-header">
+            <div>
+              <h3>Estratégias mais próximas do vencimento</h3>
+              <p className="muted">Priorização rápida das estratégias que pedem revisão primeiro.</p>
+            </div>
+          </div>
+          <div className="risk-kpi-list">
+            {nextExpiringStrategies.length ? (
+              nextExpiringStrategies.map((item) => (
+                <div key={item.id} className="risk-kpi-row">
+                  <div>
+                    <strong>{item.descricao_estrategia || "Estratégia sem descrição"}</strong>
+                    <span>{item.status || "Sem status"}</span>
+                  </div>
+                  <b>{formatBrazilianDate(item.data_validade)}</b>
+                </div>
+              ))
+            ) : (
+              <p className="muted">Sem estratégias com data de validade no filtro atual.</p>
+            )}
+          </div>
+        </div>
+
+        <DonutChart centerLabel="Gatilhos" centerValue={`${filteredTriggers.length}`} slices={triggerStatusSlices} />
+        <ScenarioBars data={triggerCultureBars.length ? triggerCultureBars : [{ label: "Sem dados", value: 1, formatted: "0 gatilhos", color: "#cbd5e1" }]} />
+      </section>
+    </section>
+  );
+}
+
 const dashboardContent = {
   cashflow: {
     title: "Fluxo de Caixa",
@@ -5630,8 +6596,12 @@ const dashboardContent = {
     description: "Leitura consolidada entre venda fisica em U$, bolsa e dolar com detalhamento por periodo.",
   },
   commercialRisk: {
-    title: "KPIs de Risco Comercial",
-    description: "Indicadores executivos para gestão de risco, comercialização por componentes e acompanhamento de MTM dos derivativos.",
+    title: "Resumo",
+    description: "Indicadores executivos para gestão de risco, comercialização, hedge e disciplina operacional.",
+  },
+  strategiesTriggers: {
+    title: "Estratégias e Gatilhos",
+    description: "Visão consolidada das estratégias cadastradas, gatilhos monitorados e vencimentos prioritários.",
   },
   currencyExposure: {
     title: "Exposição e Hedge cambial",
@@ -5754,6 +6724,15 @@ export function DashboardPage({ kind = "cashflow" }) {
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <CommercialRiskDashboard dashboardFilter={filter} />
+      </div>
+    );
+  }
+
+  if (kind === "strategiesTriggers") {
+    return (
+      <div className="resource-page dashboard-page">
+        <PageHeader title={content.title} description={content.description} />
+        <StrategiesTriggersDashboard dashboardFilter={filter} />
       </div>
     );
   }

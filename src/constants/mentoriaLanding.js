@@ -19,7 +19,7 @@ export const MENTORIA_LANDING_MODULES = [
   {
     id: "10",
     title: "Execução Prática",
-    description: "Operando com a ferramenta SDT Position, a melhor ferramenta de hedge do Brasil.",
+    description: "Operando com a ferramenta Hedge Position, a melhor ferramenta de hedge do Brasil.",
   },
   { id: "11", title: "Indicadores Financeiros", description: "As métricas que realmente importam no Agro." },
   {

@@ -81,7 +81,7 @@ export function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <aside className="login-aside">
-          <div className="mono">SDT Position SaaS</div>
+          <div className="mono">Hedge Position SaaS</div>
           <h1>Gestao integrada de risco, hedge e exposicao agricola.</h1>
           <p>
             Plataforma preparada para multi-tenant, operacoes fisicas, derivativos, estrategias, mercado,

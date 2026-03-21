@@ -139,7 +139,7 @@ export const rowMatchesDashboardFilter = (
 export function DashboardFilterProvider({ children }) {
   const { isAuthenticated } = useAuth();
   const [filter, setFilter] = useState(readStoredFilter);
-  const [options, setOptions] = useState({ groups: [], subgroups: [], crops: [], seasons: [], localities: [] });
+  const [options, setOptions] = useState({ groups: [], subgroups: [], crops: [], seasons: [], cropBoardCrops: [], cropBoardSeasons: [], localities: [] });
   const [panelOpen, setPanelOpen] = useState(false);
 
   useEffect(() => {
@@ -158,6 +158,14 @@ export function DashboardFilterProvider({ children }) {
       resourceService.listAll("physical-quotes"),
     ]).then(([groups, subgroups, crops, seasons, cropBoards, physicalQuotes]) => {
       if (!isMounted) return;
+      const cropBoardCultureIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["cultura"])))];
+      const cropBoardSeasonIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["safra"])))];
+      const cropBoardCrops = (crops || [])
+        .filter((item) => cropBoardCultureIds.includes(String(item.id)))
+        .sort((a, b) => String(a.cultura || "").localeCompare(String(b.cultura || ""), "pt-BR"));
+      const cropBoardSeasons = (seasons || [])
+        .filter((item) => cropBoardSeasonIds.includes(String(item.id)))
+        .sort((a, b) => String(a.safra || "").localeCompare(String(b.safra || ""), "pt-BR"));
       const localities = [
         ...(cropBoards || []).flatMap((item) => (Array.isArray(item.localidade) ? item.localidade : [])),
         ...(physicalQuotes || []).map((item) => item.localidade).filter(Boolean),
@@ -181,6 +189,8 @@ export function DashboardFilterProvider({ children }) {
         subgroups: subgroups || [],
         crops: crops || [],
         seasons: seasons || [],
+        cropBoardCrops,
+        cropBoardSeasons,
         localities,
       });
     });
@@ -197,6 +207,16 @@ export function DashboardFilterProvider({ children }) {
       setPanelOpen,
       updateFilter(field, value) {
         setFilter((current) => ({ ...current, [field]: normalizeValues(value) }));
+      },
+      toggleFilterValue(field, value) {
+        const normalizedValue = String(value ?? "");
+        setFilter((current) => {
+          const currentValues = normalizeValues(current?.[field]);
+          const nextValues = currentValues.includes(normalizedValue)
+            ? currentValues.filter((item) => item !== normalizedValue)
+            : [...currentValues, normalizedValue];
+          return { ...current, [field]: nextValues };
+        });
       },
       clearFilter() {
         setFilter(EMPTY_FILTER);

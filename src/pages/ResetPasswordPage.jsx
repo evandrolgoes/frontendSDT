@@ -54,7 +54,7 @@ export function ResetPasswordPage() {
     <div className="login-page">
       <div className="login-card">
         <aside className="login-aside">
-          <div className="mono">SDT Position SaaS</div>
+          <div className="mono">Hedge Position SaaS</div>
           <h1>Redefinicao de senha.</h1>
           <p>Defina uma nova senha para voltar a acessar a plataforma com seguranca.</p>
         </aside>

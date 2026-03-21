@@ -5,28 +5,36 @@ import { useAuth } from "../contexts/AuthContext";
 import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { getNavigationSections } from "../routes/routes";
 
-function MultiFilterField({ label, value, options, optionLabelKey, onChange }) {
+function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
   return (
-    <label>
-      {label}
-      <select
-        multiple
-        value={value}
-        onChange={(event) => onChange(Array.from(event.target.selectedOptions, (option) => option.value))}
-      >
-        {options.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item[optionLabelKey]}
-          </option>
+    <section className="dashboard-chip-group dashboard-chip-group-popup">
+      <div className="dashboard-chip-group-header">
+        <strong>{title}</strong>
+        {selectedValues.length ? (
+          <button type="button" className="dashboard-chip-clear" onClick={onClear}>
+            Limpar
+          </button>
+        ) : null}
+      </div>
+      <div className="dashboard-chip-list">
+        {items.map((item) => (
+          <button
+            key={`${title}-${item.id}`}
+            type="button"
+            className={`dashboard-chip${selectedValues.includes(String(item.id)) ? " active" : ""}`}
+            onClick={() => onToggle(String(item.id))}
+          >
+            {item[labelKey]}
+          </button>
         ))}
-      </select>
-    </label>
+      </div>
+    </section>
   );
 }
 
 export function AdminLayout({ children }) {
   const { user, logout } = useAuth();
-  const { filter, options, panelOpen, setPanelOpen, updateFilter, clearFilter } = useDashboardFilter();
+  const { filter, options, panelOpen, setPanelOpen, toggleFilterValue, updateFilter, clearFilter } = useDashboardFilter();
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState(() =>
@@ -84,37 +92,7 @@ export function AdminLayout({ children }) {
       <aside className="sidebar">
         <div className="sidebar-content">
           <div className="brand">
-            <h1>SDT Position</h1>
-            <p>Risco, hedge e exposicao multi-tenant</p>
-          </div>
-          <div className="sidebar-dashboard-filter">
-            <button
-              type="button"
-              className="sidebar-filter-trigger"
-              onClick={() => setPanelOpen((current) => !current)}
-              aria-label="Abrir filtros dos dashboards"
-              title="Filtros dos dashboards"
-            >
-              <span className="sidebar-filter-toggle">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M3 6h18l-7 8v4l-4 2v-6L3 6z"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </span>
-              <span className="sidebar-filter-summary">
-                {filterSummary.map((item) => (
-                  <span key={item} className="sidebar-filter-summary-line">
-                    {item}
-                  </span>
-                ))}
-              </span>
-            </button>
+            <h1>Hedge Position</h1>
           </div>
           <nav className="sidebar-sections">
             {navigationSections.map((section) => (
@@ -159,53 +137,49 @@ export function AdminLayout({ children }) {
           </button>
         </div>
       </aside>
-      {sidebarCollapsed ? (
-        <div className="sidebar-filter-floating">
-          <button
-            type="button"
-            className="sidebar-filter-toggle floating"
-            onClick={() => setPanelOpen((current) => !current)}
-            aria-label="Abrir filtros dos dashboards"
-            title="Filtros dos dashboards"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M3 6h18l-7 8v4l-4 2v-6L3 6z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        </div>
-      ) : null}
       {panelOpen ? (
         <div className="sidebar-filter-modal-backdrop" onClick={() => setPanelOpen(false)}>
           <div className="sidebar-filter-modal" onClick={(event) => event.stopPropagation()}>
             <div className="sidebar-filter-modal-header">
               <strong>Filtro dashboards</strong>
-              <button type="button" className="sidebar-filter-close" onClick={() => setPanelOpen(false)} aria-label="Fechar filtro">
-                ×
-              </button>
-            </div>
-            <div className="sidebar-filter-panel modal">
-              <MultiFilterField label="Grupo" value={filter.grupo} options={options.groups} optionLabelKey="grupo" onChange={(value) => updateFilter("grupo", value)} />
-              <MultiFilterField label="Subgrupo" value={filter.subgrupo} options={options.subgroups} optionLabelKey="subgrupo" onChange={(value) => updateFilter("subgrupo", value)} />
-              <MultiFilterField label="Cultura" value={filter.cultura} options={options.crops} optionLabelKey="cultura" onChange={(value) => updateFilter("cultura", value)} />
-              <MultiFilterField label="Safra" value={filter.safra} options={options.seasons} optionLabelKey="safra" onChange={(value) => updateFilter("safra", value)} />
-              <MultiFilterField label="Localidade" value={filter.localidade} options={options.localities} optionLabelKey="label" onChange={(value) => updateFilter("localidade", value)} />
-              <div className="sidebar-filter-actions">
-                <button type="button" className="sidebar-filter-clear" onClick={clearFilter}>
-                  Limpar
+              <div className="sidebar-filter-modal-header-actions">
+                <button type="button" className="sidebar-filter-clear top" onClick={clearFilter}>
+                  Limpar tudo
+                </button>
+                <button type="button" className="sidebar-filter-close" onClick={() => setPanelOpen(false)} aria-label="Fechar filtro">
+                  ×
                 </button>
               </div>
+            </div>
+            <div className="sidebar-filter-panel modal dashboard-filter-popup-grid">
+              <PopupChipGroup title="Grupos" items={options.groups} selectedValues={filter.grupo} labelKey="grupo" onToggle={(value) => toggleFilterValue("grupo", value)} onClear={() => updateFilter("grupo", [])} />
+              <PopupChipGroup title="Subgrupos" items={options.subgroups} selectedValues={filter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleFilterValue("subgrupo", value)} onClear={() => updateFilter("subgrupo", [])} />
+              <PopupChipGroup title="Culturas" items={options.cropBoardCrops || []} selectedValues={filter.cultura} labelKey="cultura" onToggle={(value) => toggleFilterValue("cultura", value)} onClear={() => updateFilter("cultura", [])} />
+              <PopupChipGroup title="Safras" items={options.cropBoardSeasons || []} selectedValues={filter.safra} labelKey="safra" onToggle={(value) => toggleFilterValue("safra", value)} onClear={() => updateFilter("safra", [])} />
+              <PopupChipGroup title="Localidade de Referência" items={options.localities} selectedValues={filter.localidade} labelKey="label" onToggle={(value) => toggleFilterValue("localidade", value)} onClear={() => updateFilter("localidade", [])} />
             </div>
           </div>
         </div>
       ) : null}
       <main className="main-area">
+        <button
+          type="button"
+          className="dashboard-floating-filter-trigger"
+          onClick={() => setPanelOpen((current) => !current)}
+          aria-label="Abrir filtros dos dashboards"
+          title={filterSummary.join(" | ")}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M3 6h18l-7 8v4l-4 2v-6L3 6z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
         {children}
       </main>
     </div>

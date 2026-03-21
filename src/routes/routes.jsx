@@ -1,5 +1,6 @@
 import { DashboardPage } from "../pages/DashboardPage";
 import { DerivativeOperationsPage } from "../pages/DerivativeOperationsPage";
+import { JsonImportPage } from "../pages/JsonImportPage";
 import { PriceCompositionNovoPage } from "../pages/PriceCompositionNovoPage";
 import { ResourcePage } from "../pages/ResourcePage";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
@@ -8,8 +9,9 @@ const baseNavigationSections = [
   {
     label: "Dashboard",
     items: [
+      { path: "/dashboard/kpis-risco-comercial", label: "Resumo" },
       { path: "/dashboard/fluxo-caixa", label: "Fluxo de Caixa" },
-      { path: "/dashboard/kpis-risco-comercial", label: "KPIs de Risco Comercial" },
+      { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos" },
       { path: "/dashboard/politica-hedge", label: "Politica de Hedge" },
       { path: "/dashboard/composicao-precos", label: "Composicao de Precos" },
       { path: "/dashboard/venda-componentes", label: "Venda de Componentes" },
@@ -55,6 +57,7 @@ const baseNavigationSections = [
       { path: "/safras", label: "Safra" },
       { path: "/usuarios", label: "Usuarios" },
       { path: "/logs", label: "Log" },
+      { path: "/importador-json", label: "Importador JSON" },
     ],
   },
 ];
@@ -67,6 +70,7 @@ export const appRoutes = [
   { path: "/dashboard", element: <DashboardPage kind="cashflow" /> },
   { path: "/dashboard/fluxo-caixa", element: <DashboardPage kind="cashflow" /> },
   { path: "/dashboard/kpis-risco-comercial", element: <DashboardPage kind="commercialRisk" /> },
+  { path: "/dashboard/estrategias-gatilhos", element: <DashboardPage kind="strategiesTriggers" /> },
   { path: "/dashboard/politica-hedge", element: <DashboardPage kind="hedgePolicy" /> },
   { path: "/dashboard/composicao-precos", element: <PriceCompositionNovoPage /> },
   { path: "/dashboard/venda-componentes", element: <DashboardPage kind="componentSales" /> },
@@ -96,4 +100,5 @@ export const appRoutes = [
   { path: "/vendas-fisico", element: <ResourcePage key="physical-sales" definition={resourceDefinitions.physicalSales} /> },
   { path: "/usuarios", element: <ResourcePage key="users" definition={resourceDefinitions.users} /> },
   { path: "/logs", element: <ResourcePage key="logs" definition={resourceDefinitions.logs} /> },
+  { path: "/importador-json", element: <JsonImportPage /> },
 ];
