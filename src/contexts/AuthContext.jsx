@@ -39,6 +39,10 @@ export function AuthProvider({ children }) {
       tokenStorage.setTokens({ access: data.access, refresh: data.refresh });
       setUser(data.user);
     },
+    impersonate(sessionPayload) {
+      tokenStorage.setTokens({ access: sessionPayload.access, refresh: sessionPayload.refresh });
+      setUser(sessionPayload.user);
+    },
     logout() {
       tokenStorage.clear();
       setUser(null);

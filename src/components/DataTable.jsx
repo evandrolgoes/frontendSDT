@@ -210,13 +210,15 @@ export function DataTable({
   onRowClick,
   selectedId,
   getRowClassName,
+  rowQuickActions = [],
 }) {
   const canCreate = typeof onCreate === "function";
   const canEdit = typeof onEdit === "function";
   const canDuplicate = typeof onDuplicate === "function";
   const canDelete = typeof onDelete === "function";
   const canRowClick = typeof onRowClick === "function";
-  const showActions = canEdit || canDuplicate || canDelete;
+  const visibleQuickActions = rowQuickActions.filter((action) => typeof action?.onClick === "function");
+  const showActions = canEdit || canDuplicate || canDelete || visibleQuickActions.length > 0;
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [columnFilters, setColumnFilters] = useState({});
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
@@ -312,9 +314,16 @@ export function DataTable({
     });
   }, [columnFilters, preparedColumns, rows, searchValue, sortConfig]);
 
+  const actionColumnWidth = useMemo(() => {
+    if (!showActions) {
+      return "";
+    }
+    return `${42 + visibleQuickActions.length * 34}px `;
+  }, [showActions, visibleQuickActions.length]);
+
   const gridTemplateColumns = useMemo(
-    () => `${showActions ? "42px " : ""}repeat(${preparedColumns.length}, 160px)`,
-    [preparedColumns.length, showActions],
+    () => `${showActions ? actionColumnWidth : ""}repeat(${preparedColumns.length}, 160px)`,
+    [actionColumnWidth, preparedColumns.length, showActions],
   );
 
   const footerStats = useMemo(() => {
@@ -524,6 +533,27 @@ export function DataTable({
               >
                   {showActions ? (
                     <div className="bubble-grid-cell bubble-action-col">
+                      {visibleQuickActions.map((action) => {
+                        const isVisible = typeof action.visible === "function" ? action.visible(row) : true;
+                        if (!isVisible) {
+                          return null;
+                        }
+                        return (
+                          <button
+                            key={action.key || action.label}
+                            className={`bubble-mini-action bubble-mini-action-quick ${action.className || ""}`.trim()}
+                            type="button"
+                            title={action.title || action.label}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              action.onClick(row);
+                              setActionRowId(null);
+                            }}
+                          >
+                            {action.icon || action.label}
+                          </button>
+                        );
+                      })}
                       <button
                         className="bubble-mini-action"
                         type="button"

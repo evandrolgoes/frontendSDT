@@ -4,7 +4,9 @@ import { DataTable } from "../components/DataTable";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceForm } from "../components/ResourceForm";
+import { useAuth } from "../contexts/AuthContext";
 import { useResourceCrud } from "../hooks/useResourceCrud";
+import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate } from "../utils/date";
 
@@ -15,6 +17,31 @@ const relationResourceLabels = {
   seasons: "safra",
   counterparties: "obs",
   strategies: "descricao_estrategia",
+};
+
+const formatTenantUsageMetric = (currentValue, maxValue) => {
+  const current = Number(currentValue || 0);
+  const limit = maxValue === null || maxValue === undefined || maxValue === "" ? null : Number(maxValue);
+  const unlimited = limit === null || Number.isNaN(limit);
+
+  if (unlimited) {
+    return {
+      current,
+      limitLabel: "Sem limite",
+      ratioLabel: "Livre",
+      tone: "healthy",
+    };
+  }
+
+  const ratio = limit > 0 ? current / limit : 0;
+  const ratioPercent = Math.round(ratio * 100);
+
+  return {
+    current,
+    limitLabel: `${limit}`,
+    ratioLabel: `${ratioPercent}% usado`,
+    tone: ratio >= 1 ? "critical" : ratio >= 0.8 ? "warning" : "healthy",
+  };
 };
 
 const normalizeDerivativeLookupValue = (value) =>
@@ -156,6 +183,7 @@ const useLookupRows = (columns, rows) => {
 };
 
 export function ResourcePage({ definition }) {
+  const { user, impersonate } = useAuth();
   const { rows, loading, load, save, remove, filters, setFilters, error, setError } = useResourceCrud(definition.resource, {
     page: 1,
   });
@@ -319,6 +347,30 @@ export function ResourcePage({ definition }) {
     ];
   }, [definition.customForm, tableColumns, editingDerivativeStrike, load, definition.resource]);
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
+  const rowQuickActions = useMemo(() => {
+    if (definition.resource !== "users") {
+      return [];
+    }
+
+    return [
+      {
+        key: "run-as-user",
+        label: "Run",
+        title: "Entrar como este usuario",
+        className: "bubble-mini-action-run",
+        visible: (row) => Boolean(row?.id) && !row?.is_superuser,
+        onClick: async (row) => {
+          try {
+            const { data } = await api.post(`/auth/impersonate/${row.id}/`);
+            impersonate(data);
+            window.location.href = "/dashboard/kpis-risco-comercial";
+          } catch (requestError) {
+            setError(requestError?.response?.data?.detail || "Nao foi possivel acessar como este usuario.");
+          }
+        },
+      },
+    ];
+  }, [definition.resource, impersonate, setError]);
 
   useEffect(() => {
     let isMounted = true;
@@ -408,9 +460,121 @@ export function ResourcePage({ definition }) {
     setDetailItem(item);
   };
 
+  const tenantUsageCards = useMemo(() => {
+    if (definition.resource !== "tenants" || !current) {
+      return [];
+    }
+
+    return [
+      {
+        label: "Grupos",
+        ...formatTenantUsageMetric(current.current_groups, current.max_groups),
+      },
+      {
+        label: "Subgrupos",
+        ...formatTenantUsageMetric(current.current_subgroups, current.max_subgroups),
+      },
+      {
+        label: "Usuários",
+        ...formatTenantUsageMetric(current.current_users, current.max_users),
+      },
+      {
+        label: "Convites",
+        ...formatTenantUsageMetric(current.current_invitations, current.max_invitations),
+      },
+    ];
+  }, [current, definition.resource]);
+
+  const resourceLimitSummary = useMemo(() => {
+    const tenantSummary = user?.tenant_slug
+      ? {
+          max_groups: user.tenant_max_groups,
+          max_subgroups: user.tenant_max_subgroups,
+          max_invitations: user.tenant_max_invitations,
+          current_groups: user.tenant_current_groups,
+          current_subgroups: user.tenant_current_subgroups,
+          current_invitations: user.tenant_current_invitations,
+        }
+      : null;
+
+    if (!tenantSummary) {
+      return null;
+    }
+
+    if (definition.resource === "groups") {
+      const limit = tenantSummary.max_groups;
+      const currentValue = tenantSummary.current_groups || 0;
+      const remaining = limit === null || limit === undefined || limit === "" ? null : Math.max(Number(limit) - Number(currentValue), 0);
+      return {
+        title: "Resumo de grupos",
+        description: "Acompanhamento do uso contratado para grupos.",
+        cards: [
+          { label: "Grupos criados", value: `${currentValue}`, detail: "Ja cadastrados", tone: "healthy" },
+          { label: "Ainda pode criar", value: remaining === null ? "Sem limite" : `${remaining}`, detail: remaining === null ? "Livre" : `de ${limit}`, tone: remaining === 0 ? "critical" : "warning" },
+        ],
+      };
+    }
+
+    if (definition.resource === "subgroups") {
+      const limit = tenantSummary.max_subgroups;
+      const currentValue = tenantSummary.current_subgroups || 0;
+      const remaining = limit === null || limit === undefined || limit === "" ? null : Math.max(Number(limit) - Number(currentValue), 0);
+      return {
+        title: "Resumo de subgrupos",
+        description: "Acompanhamento do uso contratado para subgrupos.",
+        cards: [
+          { label: "Subgrupos criados", value: `${currentValue}`, detail: "Ja cadastrados", tone: "healthy" },
+          { label: "Ainda pode criar", value: remaining === null ? "Sem limite" : `${remaining}`, detail: remaining === null ? "Livre" : `de ${limit}`, tone: remaining === 0 ? "critical" : "warning" },
+        ],
+      };
+    }
+
+    if (definition.resource === "invitations") {
+      const limit = tenantSummary.max_invitations;
+      const currentValue = tenantSummary.current_invitations || 0;
+      const remaining = limit === null || limit === undefined || limit === "" ? null : Math.max(Number(limit) - Number(currentValue), 0);
+      return {
+        title: "Resumo de convites",
+        description: "Acompanhamento dos convites ativos do tenant.",
+        cards: [
+          { label: "Convites ja feitos", value: `${currentValue}`, detail: "Pendentes ou enviados", tone: "healthy" },
+          { label: "Ainda pode convidar", value: remaining === null ? "Sem limite" : `${remaining}`, detail: remaining === null ? "Livre" : `de ${limit}`, tone: remaining === 0 ? "critical" : "warning" },
+        ],
+      };
+    }
+
+    return null;
+  }, [
+    definition.resource,
+    user?.tenant_slug,
+    user?.tenant_max_groups,
+    user?.tenant_max_subgroups,
+    user?.tenant_max_invitations,
+    user?.tenant_current_groups,
+    user?.tenant_current_subgroups,
+    user?.tenant_current_invitations,
+  ]);
+
   return (
-    <div className="resource-page">
+    <div className={`resource-page ${resourceLimitSummary ? "resource-page-with-summary" : ""}`}>
       <PageHeader title={definition.title} description={definition.description} />
+      {resourceLimitSummary ? (
+        <section className="tenant-usage-panel resource-summary-panel">
+          <div className="tenant-usage-header">
+            <strong>{resourceLimitSummary.title}</strong>
+            <span className="muted">{resourceLimitSummary.description}</span>
+          </div>
+          <div className="tenant-usage-grid resource-summary-grid">
+            {resourceLimitSummary.cards.map((card) => (
+              <article key={card.label} className={`tenant-usage-card ${card.tone}`}>
+                <span className="tenant-usage-label">{card.label}</span>
+                <strong className="tenant-usage-value">{card.value}</strong>
+                <span className="tenant-usage-ratio">{card.detail}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <DataTable
         title={loading ? `${definition.title} carregando...` : definition.title}
         columns={effectiveTableColumns}
@@ -428,6 +592,7 @@ export function ResourcePage({ definition }) {
         onDelete={definition.readonly ? undefined : handleDelete}
         onRowClick={definition.readonly ? handleReadonlyOpen : undefined}
         selectedId={current?.id}
+        rowQuickActions={rowQuickActions}
         getRowClassName={
           definition.customForm === "derivative-operation"
             ? (row) => (String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "")
@@ -545,6 +710,28 @@ export function ResourcePage({ definition }) {
           title={current ? `Editar ${definition.title}` : `Novo ${definition.title}`}
           fields={definition.fields}
           initialValues={current || {}}
+          submitLabel={definition.submitLabel || "Salvar"}
+          beforeContent={
+            definition.resource === "tenants" && current ? (
+              <section className="tenant-usage-panel">
+                <div className="tenant-usage-header">
+                  <strong>Uso atual x limite</strong>
+                  <span className="muted">Leitura comercial do pacote contratado.</span>
+                </div>
+                <div className="tenant-usage-grid">
+                  {tenantUsageCards.map((card) => (
+                    <article key={card.label} className={`tenant-usage-card ${card.tone}`}>
+                      <span className="tenant-usage-label">{card.label}</span>
+                      <strong className="tenant-usage-value">
+                        {card.current} <span>/ {card.limitLabel}</span>
+                      </strong>
+                      <span className="tenant-usage-ratio">{card.ratioLabel}</span>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null
+          }
           existingAttachments={attachments}
           onDeleteAttachment={async (attachment) => {
             await resourceService.remove("attachments", attachment.id);

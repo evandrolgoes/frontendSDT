@@ -4,101 +4,134 @@ import { JsonImportPage } from "../pages/JsonImportPage";
 import { PriceCompositionNovoPage } from "../pages/PriceCompositionNovoPage";
 import { ResourcePage } from "../pages/ResourcePage";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
+import { hasModuleAccess, hasUserTypeAccess } from "../constants/accessModules";
 
 const baseNavigationSections = [
   {
     label: "Dashboard",
     items: [
-      { path: "/dashboard/kpis-risco-comercial", label: "Resumo" },
-      { path: "/dashboard/fluxo-caixa", label: "Fluxo de Caixa" },
-      { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos" },
-      { path: "/dashboard/politica-hedge", label: "Politica de Hedge" },
-      { path: "/dashboard/composicao-precos", label: "Composicao de Precos" },
-      { path: "/dashboard/venda-componentes", label: "Venda de Componentes" },
-      { path: "/dashboard/exposicao-hedge-cambial", label: "Exposição e Hedge cambial" },
-      { path: "/dashboard/simulacoes", label: "Simulacoes" },
-      { path: "/dashboard/mtm", label: "MTM" },
+      { path: "/dashboard/kpis-risco-comercial", label: "Resumo", module: "dashboard_summary" },
+      { path: "/dashboard/fluxo-caixa", label: "Fluxo de Caixa", module: "dashboard_cashflow" },
+      { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos", module: "dashboard_strategies_triggers" },
+      { path: "/dashboard/politica-hedge", label: "Politica de Hedge", module: "dashboard_hedge_policy" },
+      { path: "/dashboard/composicao-precos", label: "Composicao de Precos", module: "dashboard_price_composition" },
+      { path: "/dashboard/venda-componentes", label: "Venda de Componentes", module: "dashboard_component_sales" },
+      { path: "/dashboard/exposicao-hedge-cambial", label: "Exposição e Hedge cambial", module: "dashboard_currency_exposure" },
+      { path: "/dashboard/simulacoes", label: "Simulacoes", module: "dashboard_simulations" },
+      { path: "/dashboard/mtm", label: "MTM", module: "dashboard_mtm" },
     ],
   },
   {
     label: "Cadastros",
     items: [
-      { path: "/grupos", label: "Grupo" },
-      { path: "/subgrupos", label: "Subgrupo" },
-      { path: "/contrapartes", label: "Contrapartes" },
+      { path: "/grupos", label: "Grupo", module: "cad_groups" },
+      { path: "/subgrupos", label: "Subgrupo", module: "cad_subgroups" },
+      { path: "/contrapartes", label: "Contrapartes", module: "cad_counterparties" },
     ],
   },
   {
     label: "Operacoes",
     items: [
-      { path: "/cotacoes-fisico", label: "Cotacoes Fisico" },
-      { path: "/custo-orcamento", label: "Custo Orcamento" },
-      { path: "/custo-realizado", label: "Custo Realizado" },
-      { path: "/pgtos-fisico", label: "Pgtos Fisico" },
-      { path: "/pgtos-caixa", label: "Pgtos Caixa" },
-      { path: "/derivativos", label: "Derivativos" },
-      { path: "/estrategias", label: "Estrategias" },
-      { path: "/gatilhos", label: "Gatilhos" },
-      { path: "/politica-hedge", label: "Politica de Hedge" },
-      { path: "/quadro-safra", label: "Quadro Safra" },
-      { path: "/vendas-fisico", label: "Vendas Fisico" },
+      { path: "/cotacoes-fisico", label: "Cotacoes Fisico", module: "ops_physical_quotes" },
+      { path: "/custo-orcamento", label: "Custo Orcamento", module: "ops_budget_costs" },
+      { path: "/custo-realizado", label: "Custo Realizado", module: "ops_actual_costs" },
+      { path: "/pgtos-fisico", label: "Pgtos Fisico", module: "ops_physical_payments" },
+      { path: "/pgtos-caixa", label: "Pgtos Caixa", module: "ops_cash_payments" },
+      { path: "/derivativos", label: "Derivativos", module: "ops_derivatives" },
+      { path: "/estrategias", label: "Estrategias", module: "ops_strategies" },
+      { path: "/gatilhos", label: "Gatilhos", module: "ops_triggers" },
+      { path: "/politica-hedge", label: "Politica de Hedge", module: "ops_hedge_policies" },
+      { path: "/quadro-safra", label: "Quadro Safra", module: "ops_crop_boards" },
+      { path: "/vendas-fisico", label: "Vendas Fisico", module: "ops_physical_sales" },
     ],
   },
   {
     label: "Sistema",
-    superuserOnly: true,
     items: [
-      { path: "/culturas", label: "Cultura" },
-      { path: "/moedas", label: "Moeda" },
-      { path: "/unidades", label: "Unidade" },
-      { path: "/moeda-unidade", label: "Moeda/Unidade" },
-      { path: "/bolsas", label: "Bolsa" },
-      { path: "/nomes-operacoes-derivativos", label: "Nome Operacoes Derivativos" },
-      { path: "/safras", label: "Safra" },
-      { path: "/usuarios", label: "Usuarios" },
-      { path: "/logs", label: "Log" },
-      { path: "/importador-json", label: "Importador JSON" },
+      { path: "/tenants", label: "Tenants", module: "sys_tenants", superuserOnly: true },
+      { path: "/culturas", label: "Cultura", module: "sys_crops", superuserOnly: true },
+      { path: "/moedas", label: "Moeda", module: "sys_currencies", superuserOnly: true },
+      { path: "/unidades", label: "Unidade", module: "sys_units", superuserOnly: true },
+      { path: "/moeda-unidade", label: "Moeda/Unidade", module: "sys_price_units", superuserOnly: true },
+      { path: "/bolsas", label: "Bolsa", module: "sys_exchanges", superuserOnly: true },
+      { path: "/nomes-operacoes-derivativos", label: "Nome Operacoes Derivativos", module: "sys_derivative_operation_names", superuserOnly: true },
+      { path: "/safras", label: "Safra", module: "sys_seasons", superuserOnly: true },
+      { path: "/usuarios", label: "Usuarios", module: "sys_users", allowedUserTypes: ["admin", "user_admin"] },
+      { path: "/convites", label: "Convites", module: "sys_invites", allowedUserTypes: ["admin", "user_admin"] },
+      { path: "/logs", label: "Log", module: "sys_logs" },
+      { path: "/importador-json", label: "Importador JSON", module: "sys_json_import", superuserOnly: true },
     ],
   },
 ];
 
 export function getNavigationSections(user) {
-  return baseNavigationSections.filter((section) => !section.superuserOnly || user?.is_superuser);
+  return baseNavigationSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) =>
+          (!item.superuserOnly || user?.is_superuser) &&
+          hasModuleAccess(user, item.module) &&
+          hasUserTypeAccess(user, item.allowedUserTypes),
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
 }
 
 export const appRoutes = [
-  { path: "/dashboard", element: <DashboardPage kind="cashflow" /> },
-  { path: "/dashboard/fluxo-caixa", element: <DashboardPage kind="cashflow" /> },
-  { path: "/dashboard/kpis-risco-comercial", element: <DashboardPage kind="commercialRisk" /> },
-  { path: "/dashboard/estrategias-gatilhos", element: <DashboardPage kind="strategiesTriggers" /> },
-  { path: "/dashboard/politica-hedge", element: <DashboardPage kind="hedgePolicy" /> },
-  { path: "/dashboard/composicao-precos", element: <PriceCompositionNovoPage /> },
-  { path: "/dashboard/venda-componentes", element: <DashboardPage kind="componentSales" /> },
-  { path: "/dashboard/exposicao-hedge-cambial", element: <DashboardPage kind="currencyExposure" /> },
-  { path: "/dashboard/simulacoes", element: <DashboardPage kind="simulations" /> },
-  { path: "/dashboard/mtm", element: <DashboardPage kind="mtm" /> },
-  { path: "/grupos", element: <ResourcePage key="groups" definition={resourceDefinitions.groups} /> },
-  { path: "/subgrupos", element: <ResourcePage key="subgroups" definition={resourceDefinitions.subgroups} /> },
-  { path: "/culturas", element: <ResourcePage key="crops" definition={resourceDefinitions.crops} /> },
-  { path: "/moedas", element: <ResourcePage key="currencies" definition={resourceDefinitions.currencies} /> },
-  { path: "/unidades", element: <ResourcePage key="units" definition={resourceDefinitions.units} /> },
-  { path: "/moeda-unidade", element: <ResourcePage key="price-units" definition={resourceDefinitions.priceUnits} /> },
-  { path: "/bolsas", element: <ResourcePage key="exchanges" definition={resourceDefinitions.exchanges} /> },
-  { path: "/nomes-operacoes-derivativos", element: <ResourcePage key="derivative-operation-names" definition={resourceDefinitions.derivativeOperationNames} /> },
-  { path: "/safras", element: <ResourcePage key="seasons" definition={resourceDefinitions.seasons} /> },
-  { path: "/contrapartes", element: <ResourcePage key="counterparties" definition={resourceDefinitions.counterparties} /> },
-  { path: "/cotacoes-fisico", element: <ResourcePage key="physical-quotes" definition={resourceDefinitions.physicalQuotes} /> },
-  { path: "/custo-orcamento", element: <ResourcePage key="budget-costs" definition={resourceDefinitions.budgetCosts} /> },
-  { path: "/custo-realizado", element: <ResourcePage key="actual-costs" definition={resourceDefinitions.actualCosts} /> },
-  { path: "/pgtos-fisico", element: <ResourcePage key="physical-payments" definition={resourceDefinitions.physicalPayments} /> },
-  { path: "/pgtos-caixa", element: <ResourcePage key="cash-payments" definition={resourceDefinitions.cashPayments} /> },
-  { path: "/derivativos", element: <DerivativeOperationsPage /> },
-  { path: "/estrategias", element: <ResourcePage key="strategies" definition={resourceDefinitions.strategies} /> },
-  { path: "/gatilhos", element: <ResourcePage key="strategy-triggers" definition={resourceDefinitions.strategyTriggers} /> },
-  { path: "/politica-hedge", element: <ResourcePage key="hedge-policies" definition={resourceDefinitions.hedgePolicies} /> },
-  { path: "/quadro-safra", element: <ResourcePage key="crop-boards" definition={resourceDefinitions.cropBoards} /> },
-  { path: "/vendas-fisico", element: <ResourcePage key="physical-sales" definition={resourceDefinitions.physicalSales} /> },
-  { path: "/usuarios", element: <ResourcePage key="users" definition={resourceDefinitions.users} /> },
-  { path: "/logs", element: <ResourcePage key="logs" definition={resourceDefinitions.logs} /> },
-  { path: "/importador-json", element: <JsonImportPage /> },
+  { path: "/dashboard", element: <DashboardPage kind="cashflow" />, module: "dashboard_cashflow" },
+  { path: "/dashboard/fluxo-caixa", element: <DashboardPage kind="cashflow" />, module: "dashboard_cashflow" },
+  { path: "/dashboard/kpis-risco-comercial", element: <DashboardPage kind="commercialRisk" />, module: "dashboard_summary" },
+  { path: "/dashboard/estrategias-gatilhos", element: <DashboardPage kind="strategiesTriggers" />, module: "dashboard_strategies_triggers" },
+  { path: "/dashboard/politica-hedge", element: <DashboardPage kind="hedgePolicy" />, module: "dashboard_hedge_policy" },
+  { path: "/dashboard/composicao-precos", element: <PriceCompositionNovoPage />, module: "dashboard_price_composition" },
+  { path: "/dashboard/venda-componentes", element: <DashboardPage kind="componentSales" />, module: "dashboard_component_sales" },
+  { path: "/dashboard/exposicao-hedge-cambial", element: <DashboardPage kind="currencyExposure" />, module: "dashboard_currency_exposure" },
+  { path: "/dashboard/simulacoes", element: <DashboardPage kind="simulations" />, module: "dashboard_simulations" },
+  { path: "/dashboard/mtm", element: <DashboardPage kind="mtm" />, module: "dashboard_mtm" },
+  { path: "/tenants", element: <ResourcePage key="tenants" definition={resourceDefinitions.tenants} />, module: "sys_tenants", superuserOnly: true },
+  { path: "/grupos", element: <ResourcePage key="groups" definition={resourceDefinitions.groups} />, module: "cad_groups" },
+  { path: "/subgrupos", element: <ResourcePage key="subgroups" definition={resourceDefinitions.subgroups} />, module: "cad_subgroups" },
+  { path: "/culturas", element: <ResourcePage key="crops" definition={resourceDefinitions.crops} />, module: "sys_crops", superuserOnly: true },
+  { path: "/moedas", element: <ResourcePage key="currencies" definition={resourceDefinitions.currencies} />, module: "sys_currencies", superuserOnly: true },
+  { path: "/unidades", element: <ResourcePage key="units" definition={resourceDefinitions.units} />, module: "sys_units", superuserOnly: true },
+  { path: "/moeda-unidade", element: <ResourcePage key="price-units" definition={resourceDefinitions.priceUnits} />, module: "sys_price_units", superuserOnly: true },
+  { path: "/bolsas", element: <ResourcePage key="exchanges" definition={resourceDefinitions.exchanges} />, module: "sys_exchanges", superuserOnly: true },
+  { path: "/nomes-operacoes-derivativos", element: <ResourcePage key="derivative-operation-names" definition={resourceDefinitions.derivativeOperationNames} />, module: "sys_derivative_operation_names", superuserOnly: true },
+  { path: "/safras", element: <ResourcePage key="seasons" definition={resourceDefinitions.seasons} />, module: "sys_seasons", superuserOnly: true },
+  { path: "/contrapartes", element: <ResourcePage key="counterparties" definition={resourceDefinitions.counterparties} />, module: "cad_counterparties" },
+  { path: "/cotacoes-fisico", element: <ResourcePage key="physical-quotes" definition={resourceDefinitions.physicalQuotes} />, module: "ops_physical_quotes" },
+  { path: "/custo-orcamento", element: <ResourcePage key="budget-costs" definition={resourceDefinitions.budgetCosts} />, module: "ops_budget_costs" },
+  { path: "/custo-realizado", element: <ResourcePage key="actual-costs" definition={resourceDefinitions.actualCosts} />, module: "ops_actual_costs" },
+  { path: "/pgtos-fisico", element: <ResourcePage key="physical-payments" definition={resourceDefinitions.physicalPayments} />, module: "ops_physical_payments" },
+  { path: "/pgtos-caixa", element: <ResourcePage key="cash-payments" definition={resourceDefinitions.cashPayments} />, module: "ops_cash_payments" },
+  { path: "/derivativos", element: <DerivativeOperationsPage />, module: "ops_derivatives" },
+  { path: "/estrategias", element: <ResourcePage key="strategies" definition={resourceDefinitions.strategies} />, module: "ops_strategies" },
+  { path: "/gatilhos", element: <ResourcePage key="strategy-triggers" definition={resourceDefinitions.strategyTriggers} />, module: "ops_triggers" },
+  { path: "/politica-hedge", element: <ResourcePage key="hedge-policies" definition={resourceDefinitions.hedgePolicies} />, module: "ops_hedge_policies" },
+  { path: "/quadro-safra", element: <ResourcePage key="crop-boards" definition={resourceDefinitions.cropBoards} />, module: "ops_crop_boards" },
+  { path: "/vendas-fisico", element: <ResourcePage key="physical-sales" definition={resourceDefinitions.physicalSales} />, module: "ops_physical_sales" },
+  {
+    path: "/usuarios",
+    element: <ResourcePage key="users" definition={resourceDefinitions.users} />,
+    module: "sys_users",
+    allowedUserTypes: ["admin", "user_admin"],
+  },
+  {
+    path: "/convites",
+    element: <ResourcePage key="invitations" definition={resourceDefinitions.invitations} />,
+    module: "sys_invites",
+    allowedUserTypes: ["admin", "user_admin"],
+  },
+  { path: "/logs", element: <ResourcePage key="logs" definition={resourceDefinitions.logs} />, module: "sys_logs" },
+  { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true },
 ];
+
+export function getAccessibleRoutePath(user) {
+  const firstSection = getNavigationSections(user)[0];
+  return firstSection?.items?.[0]?.path || "/dashboard";
+}
+
+export function getRouteDefinition(pathname) {
+  return appRoutes.find((route) => route.path === pathname) || null;
+}

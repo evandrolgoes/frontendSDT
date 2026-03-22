@@ -243,6 +243,7 @@ export function ResourceForm({
   title,
   fields,
   initialValues = {},
+  beforeContent = null,
   existingAttachments = [],
   onDeleteAttachment,
   onSubmit,
@@ -793,6 +794,7 @@ export function ResourceForm({
           </button>
         </div>
         {error ? <div className="form-error">{error}</div> : null}
+        {beforeContent}
         <div className="form-grid">
           {fields.filter((field) => isFieldVisible(field, values)).map((field) => (
             <div className={`field${field.type === "textarea" ? " field-full" : ""}`} key={field.name}>

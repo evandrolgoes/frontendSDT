@@ -1,3 +1,5 @@
+import { moduleOptions } from "../constants/accessModules";
+
 const yesNoOptions = [
   { value: "true", label: "Sim" },
   { value: "false", label: "Nao" },
@@ -6,6 +8,20 @@ const yesNoOptions = [
 const accessStatusOptions = [
   { value: "pending", label: "Pendente" },
   { value: "active", label: "Ativo" },
+];
+
+const subscriptionStatusOptions = [
+  { value: "active", label: "Ativa" },
+  { value: "trial", label: "Trial" },
+  { value: "pending", label: "Pendente" },
+  { value: "suspended", label: "Suspensa" },
+  { value: "cancelled", label: "Cancelada" },
+];
+
+const userTypeOptions = [
+  { value: "admin", label: "Admin" },
+  { value: "user", label: "Usuario" },
+  { value: "user_admin", label: "Usuario-admin" },
 ];
 
 const buySellOptions = [
@@ -68,6 +84,45 @@ const orderDefinitionEntries = (entries = [], keyName) => {
 };
 
 const baseResourceDefinitions = {
+  tenants: {
+    resource: "tenants",
+    title: "Tenants",
+    description: "Configuracao comercial do tenant, com limites e modulos habilitados.",
+    searchPlaceholder: "Buscar tenant...",
+    columns: [
+      { key: "name", label: "Nome" },
+      { key: "description", label: "Descricao" },
+      { key: "subscription_status", label: "Status assinatura" },
+      { key: "current_groups", label: "Grupos atuais", type: "number" },
+      { key: "current_subgroups", label: "Subgrupos atuais", type: "number" },
+      { key: "current_users", label: "Usuarios atuais", type: "number" },
+      { key: "current_invitations", label: "Convites atuais", type: "number" },
+      { key: "max_groups", label: "Max. grupos", type: "number" },
+      { key: "max_subgroups", label: "Max. subgrupos", type: "number" },
+      { key: "max_users", label: "Max. usuarios", type: "number" },
+      { key: "max_invitations", label: "Max. convites", type: "number" },
+      { key: "enabled_modules", label: "Modulos habilitados", type: "select-multi" },
+    ],
+    fields: [
+      { name: "name", label: "Nome" },
+      { name: "slug", label: "Slug" },
+      { name: "description", label: "Descricao", type: "textarea", optional: true },
+      { name: "subscription_status", label: "Status assinatura", type: "select", options: subscriptionStatusOptions, optional: true },
+      { name: "expires_at", label: "Expira em", type: "date", optional: true },
+      { name: "max_groups", label: "Max. grupos", type: "number", optional: true },
+      { name: "max_subgroups", label: "Max. subgrupos", type: "number", optional: true },
+      { name: "max_users", label: "Max. usuarios", type: "number", optional: true },
+      { name: "max_invitations", label: "Max. convites", type: "number", optional: true },
+      {
+        name: "enabled_modules",
+        label: "Modulos habilitados",
+        type: "select-multi",
+        options: moduleOptions,
+        optional: true,
+        helpText: 'Deixe vazio para "habilitar tudo".',
+      },
+    ],
+  },
   groups: {
     resource: "groups",
     title: "Grupo",
@@ -576,6 +631,7 @@ const baseResourceDefinitions = {
       { key: "full_name", label: "Nome completo" },
       { key: "email", label: "Email" },
       { key: "tenant_name", label: "Tenant" },
+      { key: "user_type", label: "Tipo de usuario" },
       { key: "access_status", label: "Status" },
       { key: "is_active", label: "Ativo" },
       { key: "is_staff", label: "Equipe" },
@@ -588,11 +644,29 @@ const baseResourceDefinitions = {
       { name: "full_name", label: "Nome completo" },
       { name: "email", label: "Email", type: "email" },
       { name: "phone", label: "Telefone" },
+      { name: "user_type", label: "Tipo de usuario", type: "select", options: userTypeOptions },
       { name: "password", label: "Senha", type: "password", optional: true, helpText: "Preencha para definir ou alterar a senha do usuario." },
       { name: "access_status", label: "Status", type: "select", options: accessStatusOptions },
       { name: "is_staff", label: "Usuario da equipe", type: "select", options: yesNoOptions },
       { name: "assigned_groups", label: "Grupos atribuidos", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
       { name: "assigned_subgroups", label: "Subgrupos atribuidos", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
+    ],
+  },
+  invitations: {
+    resource: "invitations",
+    title: "Convites",
+    description: "Convites enviados pelo admin do cliente para novos usuarios do tenant.",
+    searchPlaceholder: "Buscar convite por email...",
+    submitLabel: "Enviar convite",
+    columns: [
+      { key: "email", label: "Email" },
+      { key: "status", label: "Status" },
+      { key: "expires_at", label: "Expira em", type: "date" },
+      { key: "invited_by_name", label: "Convidado por" },
+      { key: "invite_url", label: "Link do convite" },
+    ],
+    fields: [
+      { name: "email", label: "Email", type: "email" },
     ],
   },
 };

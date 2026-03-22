@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "../routes/ProtectedRoute";
 import { appRoutes } from "../routes/routes";
 import { MentoriaLandingPage } from "../pages/MentoriaLandingPage";
+import { InvitationSignupPage } from "../pages/InvitationSignupPage";
 import { LoginPage } from "../pages/LoginPage";
 import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 
@@ -13,6 +14,7 @@ export default function App() {
       <Route path="/landing/landing-page-mentoria" element={<MentoriaLandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/abrir-conta/:token" element={<InvitationSignupPage />} />
       <Route element={<ProtectedRoute />}>
         {appRoutes.map((route) => (
           <Route
