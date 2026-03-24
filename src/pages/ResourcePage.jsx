@@ -10,6 +10,8 @@ import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate } from "../utils/date";
 
+const TRADINGVIEW_REFRESH_MS = 60000;
+
 const relationResourceLabels = {
   groups: "grupo",
   subgroups: "subgrupo",
@@ -85,6 +87,29 @@ const formatBrazilianNumber = (value, digits = 4) =>
     maximumFractionDigits: digits,
   });
 
+const formatSignedBrazilianNumber = (value, digits = 2) => {
+  const parsed = parseLocalizedNumber(value);
+  const signal = parsed > 0 ? "+" : parsed < 0 ? "-" : "";
+  return `${signal}${Math.abs(parsed).toLocaleString("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+};
+
+const formatBrazilianPhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+  if (!digits) {
+    return "—";
+  }
+  if (digits.length <= 2) {
+    return `(${digits}`;
+  }
+  if (digits.length <= 7) {
+    return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  }
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
+
 const calculateDerivativeMtm = (row, strikeMtm) => {
   const status = String(row.status_operacao || "").trim().toLowerCase();
   if (status !== "em aberto") {
@@ -96,8 +121,9 @@ const calculateDerivativeMtm = (row, strikeMtm) => {
 
   const operationName = String(row.nome_da_operacao || "");
   const volume = parseLocalizedNumber(row.volume ?? row.volume_fisico);
-  const strikeMontagem = parseLocalizedNumber(row.strike_montagem);
-  const strikeMercado = parseLocalizedNumber(strikeMtm);
+  const strikeFactor = String(row.moeda_unidade || "").trim().toLowerCase().startsWith("c") ? 0.01 : 1;
+  const strikeMontagem = parseLocalizedNumber(row.strike_montagem) * strikeFactor;
+  const strikeMercado = parseLocalizedNumber(strikeMtm) * strikeFactor;
   let usd = 0;
 
   if (operationName.includes("Venda NDF")) usd = (strikeMontagem - strikeMercado) * volume;
@@ -182,8 +208,148 @@ const useLookupRows = (columns, rows) => {
   );
 };
 
+const formatSimpleTableValue = (column, value) => {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  if (column.type === "number") {
+    return formatBrazilianNumber(value, 2);
+  }
+  if (column.type === "date") {
+    return formatBrazilianDate(value, "—");
+  }
+  return String(value);
+};
+
+const buildTradingviewChartUrl = (row) => {
+  const symbolParam = String(row?.ticker || row?.symbol || "").trim();
+  if (!symbolParam) {
+    return "";
+  }
+  return `https://br.tradingview.com/chart/QwgamVHA/?symbol=${encodeURIComponent(symbolParam)}`;
+};
+
+function SimpleQuotesTable({
+  title,
+  rows,
+  columns,
+  searchValue,
+  searchPlaceholder,
+  onSearchChange,
+  onClear,
+  onTickerClick,
+}) {
+  const filteredRows = useMemo(() => {
+    const search = String(searchValue || "")
+      .trim()
+      .toLowerCase();
+
+    if (!search) {
+      return rows;
+    }
+
+    return rows.filter((row) =>
+      columns.some((column) => String(row?.[column.key] ?? "").toLowerCase().includes(search)),
+    );
+  }, [columns, rows, searchValue]);
+
+  return (
+    <section className="simple-quotes-shell">
+      <div className="simple-quotes-toolbar">
+        <div className="simple-quotes-title">{title}</div>
+        <div className="simple-quotes-toolbar-actions">
+          <input
+            className="simple-quotes-search"
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+          <button className="bubble-btn bubble-btn-light" type="button" onClick={onClear}>
+            Limpar
+          </button>
+        </div>
+      </div>
+
+      <div className="simple-quotes-viewport custom-scrollbar">
+        <table className="simple-quotes-table">
+          <thead>
+            <tr>
+              {columns.map((column) => (
+                <th key={column.key}>{column.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.length ? (
+              filteredRows.map((row) => (
+                <tr key={row.id}>
+                  {columns.map((column) => {
+                    const numericValue = parseLocalizedNumber(row?.[column.key]);
+                    const toneClass =
+                      column.key === "change_value" || column.key === "change_percent"
+                        ? numericValue > 0
+                          ? " is-positive"
+                          : numericValue < 0
+                            ? " is-negative"
+                            : ""
+                        : "";
+
+                    return (
+                      <td key={column.key} className={toneClass}>
+                        {column.key === "ticker" && typeof onTickerClick === "function" ? (
+                          <button
+                            type="button"
+                            className="simple-quotes-ticker-button"
+                            onClick={() => onTickerClick(row)}
+                            title={`Abrir grafico de ${row?.symbol || row?.ticker || ""}`}
+                          >
+                            {formatSimpleTableValue(column, row?.[column.key])}
+                          </button>
+                        ) : (
+                          formatSimpleTableValue(column, row?.[column.key])
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td className="simple-quotes-empty" colSpan={columns.length}>
+                  Nenhum registro encontrado.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+const openTradingviewPopupWindow = (url) => {
+  if (!url || typeof window === "undefined") {
+    return;
+  }
+  const width = Math.min(1440, Math.max(1100, Math.floor(window.screen.width * 0.86)));
+  const height = Math.min(920, Math.max(760, Math.floor(window.screen.height * 0.88)));
+  const left = Math.max(0, Math.floor((window.screen.width - width) / 2));
+  const top = Math.max(0, Math.floor((window.screen.height - height) / 2));
+  const features = [
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+    "resizable=yes",
+    "scrollbars=yes",
+    "noopener=yes",
+    "noreferrer=yes",
+  ].join(",");
+  window.open(url, "_blank", features);
+};
+
 export function ResourcePage({ definition }) {
-  const { user, impersonate } = useAuth();
+  const { user, impersonate, refreshProfile } = useAuth();
   const { rows, loading, load, save, remove, filters, setFilters, error, setError } = useResourceCrud(definition.resource, {
     page: 1,
   });
@@ -193,7 +359,115 @@ export function ResourcePage({ definition }) {
   const [attachments, setAttachments] = useState([]);
   const [derivativeQuotes, setDerivativeQuotes] = useState({});
   const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
+  const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
+  const [accessRequestValues, setAccessRequestValues] = useState([""]);
+  const [isAccessRequestOpen, setIsAccessRequestOpen] = useState(false);
+  const [pendingAccessRequests, setPendingAccessRequests] = useState([]);
+  const [isPendingAccessOpen, setIsPendingAccessOpen] = useState(false);
   const tableColumns = useMemo(() => buildTableColumns(definition), [definition]);
+  const supportsAccessWorkflow = definition.resource === "groups" || definition.resource === "subgroups";
+  const summaryCards = useMemo(() => {
+    if (definition.resource === "groups") {
+      return [
+        {
+          label: "Grupos como proprietario",
+          ...formatTenantUsageMetric(user?.owned_groups_count, user?.max_owned_groups),
+        },
+      ];
+    }
+    if (definition.resource === "subgroups") {
+      return [
+        {
+          label: "Subgrupos como proprietario",
+          ...formatTenantUsageMetric(user?.owned_subgroups_count, user?.max_owned_subgroups),
+        },
+      ];
+    }
+    if (definition.resource === "admin-invitations") {
+      return [
+        {
+          label: "Convites administrativos",
+          ...formatTenantUsageMetric(user?.active_admin_invitations_count, user?.max_admin_invitations),
+        },
+      ];
+    }
+    return [];
+  }, [
+    definition.resource,
+    user?.active_admin_invitations_count,
+    user?.max_admin_invitations,
+    user?.max_owned_groups,
+    user?.max_owned_subgroups,
+    user?.owned_groups_count,
+    user?.owned_subgroups_count,
+  ]);
+  const filterCards = useMemo(() => {
+    if (definition.resource !== "tradingview-watchlist-quotes") {
+      return [];
+    }
+
+    const sectionStats = rows.reduce((acc, row) => {
+      const key = String(row.section_name || "Sem secao").trim() || "Sem secao";
+      if (!acc[key]) {
+        acc[key] = { count: 0, firstRow: row };
+      }
+      acc[key].count += 1;
+      const currentFirstOrder = Number(acc[key].firstRow?.sort_order || Number.MAX_SAFE_INTEGER);
+      const nextOrder = Number(row?.sort_order || Number.MAX_SAFE_INTEGER);
+      if (nextOrder < currentFirstOrder) {
+        acc[key].firstRow = row;
+      }
+      return acc;
+    }, {});
+
+    return Object.entries(sectionStats)
+      .filter(([label]) => {
+        const normalizedLabel = String(label || "").trim().toLowerCase();
+        return normalizedLabel && !["indices", "índices", "soja b3", "sem secao"].includes(normalizedLabel);
+      })
+      .map(([label, stats]) => ({
+        key: label,
+        label,
+        search: label,
+        firstRow: stats.firstRow,
+      }));
+  }, [definition.resource, rows]);
+  const activeFilterCardKey = useMemo(() => {
+    const currentSearch = String(filters.search || "").trim();
+    if (!currentSearch) {
+      return "";
+    }
+    return filterCards.find((item) => item.search === currentSearch)?.key || "";
+  }, [filterCards, filters.search]);
+  const latestSyncLabel = useMemo(() => {
+    if (definition.resource !== "tradingview-watchlist-quotes" || !rows.length) {
+      return "";
+    }
+
+    const latestRow = [...rows].sort(
+      (left, right) => new Date(right?.synced_at || 0).getTime() - new Date(left?.synced_at || 0).getTime(),
+    )[0];
+
+    if (!latestRow?.synced_at) {
+      return "";
+    }
+
+    const date = new Date(latestRow.synced_at);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    const timeLabel = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    const dateLabel = `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getFullYear()).slice(-2)}`;
+    return `Ultima atualizacao: ${timeLabel} de ${dateLabel}`;
+  }, [definition.resource, rows]);
+
+  const marqueeFilterCards = useMemo(() => {
+    if (filterCards.length <= 1) {
+      return filterCards;
+    }
+    return [...filterCards, ...filterCards];
+  }, [filterCards]);
   const nextDerivativeOperationCode = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
       return "";
@@ -217,6 +491,10 @@ export function ResourcePage({ definition }) {
     setAttachments([]);
     setDerivativeQuotes({});
     setEditingDerivativeStrike({});
+    setAccessRequestValues([""]);
+    setIsAccessRequestOpen(false);
+    setPendingAccessRequests([]);
+    setIsPendingAccessOpen(false);
     setError("");
   }, [definition.resource, setError]);
 
@@ -229,15 +507,11 @@ export function ResourcePage({ definition }) {
       }
 
       try {
-        const payload = await resourceService.fetchJsonCached(
-          "sheety-cotacoes-spot",
-          "https://api.sheety.co/90083751cf0794f44c9730c96a94cedf/apiCotacoesSpotGetBubble/planilha1",
-        );
-        const sourceRows = Array.isArray(payload?.planilha1) ? payload.planilha1 : Array.isArray(payload) ? payload : [];
+        const sourceRows = await resourceService.listTradingviewQuotes({ force: true });
         const nextQuotes = sourceRows.reduce((acc, item) => {
-          const key = String(item?.ctrbolsa || "").trim();
+          const key = String(item?.ticker || "").trim();
           if (key) {
-            acc[key] = parseLocalizedNumber(item?.cotacao);
+            acc[key] = parseLocalizedNumber(item?.price);
           }
           return acc;
         }, {});
@@ -252,11 +526,85 @@ export function ResourcePage({ definition }) {
     };
 
     loadDerivativeQuotes();
+    const intervalId = window.setInterval(loadDerivativeQuotes, TRADINGVIEW_REFRESH_MS);
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        loadDerivativeQuotes();
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+    };
+  }, [definition.customForm]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadPendingAccessRequests = async () => {
+      if (!supportsAccessWorkflow || !user?.id) {
+        return;
+      }
+      try {
+        const { data } = await api.get(`/${definition.resource}/pending-access-requests/`);
+        if (isMounted) {
+          const items = Array.isArray(data) ? data : [];
+          setPendingAccessRequests(items);
+          setIsPendingAccessOpen(items.length > 0);
+        }
+      } catch {
+        if (isMounted) {
+          setPendingAccessRequests([]);
+          setIsPendingAccessOpen(false);
+        }
+      }
+    };
+
+    loadPendingAccessRequests();
 
     return () => {
       isMounted = false;
     };
-  }, [definition.customForm]);
+  }, [definition.resource, supportsAccessWorkflow, user?.id]);
+
+  useEffect(() => {
+    if (!definition.autoRefreshIntervalMs) {
+      return undefined;
+    }
+
+    const refreshRows = async () => {
+      try {
+        await load({ force: true });
+      } catch {
+        // Keep the table usable even if an automatic refresh attempt fails.
+      }
+    };
+
+    const intervalId = window.setInterval(async () => {
+      await refreshRows();
+    }, definition.autoRefreshIntervalMs);
+
+    const handleVisibilityOrFocus = async () => {
+      if (document.visibilityState === "visible") {
+        await refreshRows();
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+    };
+  }, [definition.autoRefreshIntervalMs, load]);
 
   const normalizedRows = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
@@ -271,18 +619,18 @@ export function ResourcePage({ definition }) {
       strike_liquid_mtm:
         editingDerivativeStrike[row.id] !== undefined
           ? editingDerivativeStrike[row.id]
-          : (row.strike_liquidacao ?? derivativeQuotes[row.contrato_derivativo] ?? 0),
+          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
       ajustes_mtm: calculateDerivativeMtm(
         row,
         editingDerivativeStrike[row.id] !== undefined
           ? editingDerivativeStrike[row.id]
-          : (row.strike_liquidacao ?? derivativeQuotes[row.contrato_derivativo] ?? 0),
+          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
       ).usd,
       ajustes_mtm_brl: calculateDerivativeMtm(
         row,
         editingDerivativeStrike[row.id] !== undefined
           ? editingDerivativeStrike[row.id]
-          : (row.strike_liquidacao ?? derivativeQuotes[row.contrato_derivativo] ?? 0),
+          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
       ).brl,
     }));
   }, [definition.customForm, rows, derivativeQuotes, editingDerivativeStrike]);
@@ -304,8 +652,18 @@ export function ResourcePage({ definition }) {
       { key: "contrato_derivativo", label: "Contrato bolsa" },
       { key: "data_contratacao", label: "Data contratacao", type: "date" },
       { key: "tipo_derivativo", label: "Tipo derivativo" },
-      { key: "volume", label: "Volume", type: "number" },
-      { key: "strike_montagem", label: "Strike montagem", type: "number" },
+      {
+        key: "volume",
+        label: "Volume",
+        type: "number",
+        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.unidade ? ` ${row.unidade}` : ""}`,
+      },
+      {
+        key: "strike_montagem",
+        label: "Strike montagem",
+        type: "number",
+        render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda_unidade ? ` ${row.moeda_unidade}` : ""}`,
+      },
       {
         key: "strike_liquid_mtm",
         label: "Strike liquid (MTM)",
@@ -315,40 +673,71 @@ export function ResourcePage({ definition }) {
             <input
               className="bubble-cell-input"
               inputMode="decimal"
-              value={formatBrazilianNumber(value, 4)}
+              value={
+                editingDerivativeStrikeInput[row.id] !== undefined
+                  ? editingDerivativeStrikeInput[row.id]
+                  : formatBrazilianNumber(value, 4)
+              }
               onClick={(event) => event.stopPropagation()}
+              onFocus={() => {
+                setEditingDerivativeStrikeInput((currentState) => ({
+                  ...currentState,
+                  [row.id]: formatBrazilianNumber(value, 4),
+                }));
+              }}
               onChange={(event) => {
                 const raw = event.target.value;
+                setEditingDerivativeStrikeInput((currentState) => ({
+                  ...currentState,
+                  [row.id]: raw,
+                }));
                 setEditingDerivativeStrike((currentState) => ({
                   ...currentState,
                   [row.id]: parseLocalizedNumber(raw),
                 }));
               }}
               onBlur={async () => {
-                const strikeValue = editingDerivativeStrike[row.id] ?? parseLocalizedNumber(value);
-                await resourceService.patch(definition.resource, row.id, {
-                  strike_liquidacao: strikeValue,
-                });
+                const strikeValue =
+                  editingDerivativeStrike[row.id] ??
+                  parseLocalizedNumber(editingDerivativeStrikeInput[row.id]) ??
+                  parseLocalizedNumber(value);
                 setEditingDerivativeStrike((currentState) => {
+                  const nextState = {
+                    ...currentState,
+                    [row.id]: strikeValue,
+                  };
+                  return nextState;
+                });
+                setEditingDerivativeStrikeInput((currentState) => {
                   const nextState = { ...currentState };
                   delete nextState[row.id];
                   return nextState;
                 });
-                await load();
               }}
             />
           ) : (
             formatBrazilianNumber(value, 4)
           ),
       },
-      { key: "ajustes_mtm", label: "Ajustes MTM", type: "number" },
-      { key: "ajustes_mtm_brl", label: "Ajustes MTM R$", type: "number" },
+      {
+        key: "ajustes_mtm",
+        label: "Ajustes MTM",
+        type: "number",
+        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.volume_financeiro_moeda ? ` ${row.volume_financeiro_moeda}` : ""}`,
+      },
+      {
+        key: "ajustes_mtm_brl",
+        label: "Ajustes MTM R$",
+        type: "number",
+        render: (value) => formatBrazilianNumber(value, 0),
+      },
       { key: "id", label: "ID" },
     ];
-  }, [definition.customForm, tableColumns, editingDerivativeStrike, load, definition.resource]);
+  }, [definition.customForm, tableColumns, editingDerivativeStrike, editingDerivativeStrikeInput, definition.resource]);
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
+  const useSimpleQuotesTable = definition.resource === "tradingview-watchlist-quotes";
   const rowQuickActions = useMemo(() => {
-    if (definition.resource !== "users") {
+    if (definition.resource !== "users" || definition.enableRunActions === false) {
       return [];
     }
 
@@ -371,6 +760,84 @@ export function ResourcePage({ definition }) {
       },
     ];
   }, [definition.resource, impersonate, setError]);
+
+  const activeFormFields = useMemo(() => {
+    const baseFields = current ? definition.editFields || definition.fields : definition.fields;
+    if (definition.resource === "users") {
+      return baseFields.filter((field) => !(field.name === "tenant" && !user?.is_superuser));
+    }
+    if (definition.resource === "admin-invitations") {
+      return baseFields.filter((field) => {
+        if (field.name === "tenant") {
+          return false;
+        }
+        if (field.name === "target_tenant_slug" && !user?.is_superuser && user?.tenant_slug !== "admin") {
+          return false;
+        }
+        return true;
+      });
+    }
+    if (!["invitations", "admin-invitations"].includes(definition.resource)) {
+      return baseFields;
+    }
+    return baseFields.filter((field) => {
+      if (field.name === "tenant" && !user?.is_superuser) {
+        return false;
+      }
+      return true;
+    });
+  }, [current, definition.editFields, definition.fields, definition.resource, user?.is_superuser, user?.tenant_slug]);
+
+  const canCreateRecord = useMemo(() => {
+    if (definition.allowCreate === false) {
+      return false;
+    }
+    if (definition.readonly) {
+      return false;
+    }
+    if (definition.resource === "groups") {
+      if (!(user?.tenant_can_register_groups || user?.is_superuser)) {
+        return false;
+      }
+      if (user?.is_superuser || user?.max_owned_groups === null || user?.max_owned_groups === undefined) {
+        return true;
+      }
+      return Number(user?.owned_groups_count || 0) < Number(user?.max_owned_groups);
+    }
+    if (definition.resource === "subgroups") {
+      if (!(user?.tenant_can_register_subgroups || user?.is_superuser)) {
+        return false;
+      }
+      if (user?.is_superuser || user?.max_owned_subgroups === null || user?.max_owned_subgroups === undefined) {
+        return true;
+      }
+      return Number(user?.owned_subgroups_count || 0) < Number(user?.max_owned_subgroups);
+    }
+    if (definition.resource === "admin-invitations") {
+      if (!(user?.tenant_can_send_invitations || user?.is_superuser)) {
+        return false;
+      }
+      if (user?.is_superuser || user?.max_admin_invitations === null || user?.max_admin_invitations === undefined) {
+        return true;
+      }
+      return Number(user?.active_admin_invitations_count || 0) < Number(user?.max_admin_invitations);
+    }
+    return true;
+  }, [
+    definition.allowCreate,
+    definition.readonly,
+    definition.resource,
+    user?.active_admin_invitations_count,
+    user?.is_superuser,
+    user?.max_admin_invitations,
+    user?.max_owned_groups,
+    user?.max_owned_subgroups,
+    user?.owned_groups_count,
+    user?.owned_subgroups_count,
+    user?.tenant_can_register_groups,
+    user?.tenant_can_register_subgroups,
+    user?.tenant_can_send_invitations,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -402,6 +869,19 @@ export function ResourcePage({ definition }) {
             status_operacao: "Em aberto",
             siblingRows: [],
           }
+        : supportsAccessWorkflow
+          ? {
+              owner: user?.id,
+              users_with_access: user?.id ? [user.id] : [],
+            }
+          : definition.resource === "admin-invitations"
+            ? {
+                ...(user?.is_superuser || user?.tenant_slug === "admin" ? {} : { target_tenant_slug: "usuario" }),
+              }
+          : definition.resource === "invitations" && user?.tenant_id
+            ? {
+                tenant: user.tenant_id,
+              }
         : null,
     );
     setError("");
@@ -413,7 +893,14 @@ export function ResourcePage({ definition }) {
       definition.customForm === "derivative-operation"
         ? normalizedRows.find((row) => row.id === item.id) || item
         : rows.find((row) => row.id === item.id) || item;
-    setCurrent(rawItem);
+    setCurrent(
+      definition.resource === "admin-invitations" && !user?.is_superuser && user?.tenant_slug !== "admin"
+        ? {
+            ...rawItem,
+            target_tenant_slug: rawItem.target_tenant_slug || "usuario",
+          }
+        : rawItem,
+    );
     setError("");
     setIsModalOpen(true);
   };
@@ -450,155 +937,175 @@ export function ResourcePage({ definition }) {
       return;
     }
     if (definition.customForm === "derivative-operation") {
-      await remove(item);
+      const removed = await remove(item);
+      if (removed) {
+        await refreshProfile();
+      }
       return;
     }
-    await remove(item);
+    const removed = await remove(item);
+    if (removed) {
+      await refreshProfile();
+    }
   };
 
   const handleReadonlyOpen = (item) => {
     setDetailItem(item);
   };
 
-  const tenantUsageCards = useMemo(() => {
-    if (definition.resource !== "tenants" || !current) {
+  const toolbarActions = useMemo(() => {
+    if (!supportsAccessWorkflow) {
       return [];
     }
-
     return [
       {
-        label: "Grupos",
-        ...formatTenantUsageMetric(current.current_groups, current.max_groups),
-      },
-      {
-        label: "Subgrupos",
-        ...formatTenantUsageMetric(current.current_subgroups, current.max_subgroups),
-      },
-      {
-        label: "Usuários",
-        ...formatTenantUsageMetric(current.current_users, current.max_users),
-      },
-      {
-        label: "Convites",
-        ...formatTenantUsageMetric(current.current_invitations, current.max_invitations),
+        key: "request-access",
+        label: definition.requestAccessLabel || "Solicitar acesso",
+        className: "bubble-btn bubble-btn-light",
+        onClick: () => {
+          setAccessRequestValues([""]);
+          setIsAccessRequestOpen(true);
+        },
       },
     ];
-  }, [current, definition.resource]);
+  }, [definition.requestAccessLabel, supportsAccessWorkflow]);
 
-  const resourceLimitSummary = useMemo(() => {
-    const tenantSummary = user?.tenant_slug
-      ? {
-          max_groups: user.tenant_max_groups,
-          max_subgroups: user.tenant_max_subgroups,
-          max_invitations: user.tenant_max_invitations,
-          current_groups: user.tenant_current_groups,
-          current_subgroups: user.tenant_current_subgroups,
-          current_invitations: user.tenant_current_invitations,
-        }
-      : null;
-
-    if (!tenantSummary) {
-      return null;
+  const handleSubmitAccessRequest = async () => {
+    const names = accessRequestValues.map((item) => item.trim()).filter(Boolean);
+    if (!names.length) {
+      setError("Informe pelo menos um nome para solicitar acesso.");
+      return;
     }
-
-    if (definition.resource === "groups") {
-      const limit = tenantSummary.max_groups;
-      const currentValue = tenantSummary.current_groups || 0;
-      const remaining = limit === null || limit === undefined || limit === "" ? null : Math.max(Number(limit) - Number(currentValue), 0);
-      return {
-        title: "Resumo de grupos",
-        description: "Acompanhamento do uso contratado para grupos.",
-        cards: [
-          { label: "Grupos criados", value: `${currentValue}`, detail: "Ja cadastrados", tone: "healthy" },
-          { label: "Ainda pode criar", value: remaining === null ? "Sem limite" : `${remaining}`, detail: remaining === null ? "Livre" : `de ${limit}`, tone: remaining === 0 ? "critical" : "warning" },
-        ],
-      };
+    try {
+      const { data } = await api.post(`/${definition.resource}/request-access/`, { names });
+      setError("");
+      window.alert(data?.detail || "Solicitacao enviada.");
+      setIsAccessRequestOpen(false);
+      setAccessRequestValues([""]);
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "Nao foi possivel enviar a solicitacao.");
     }
+  };
 
-    if (definition.resource === "subgroups") {
-      const limit = tenantSummary.max_subgroups;
-      const currentValue = tenantSummary.current_subgroups || 0;
-      const remaining = limit === null || limit === undefined || limit === "" ? null : Math.max(Number(limit) - Number(currentValue), 0);
-      return {
-        title: "Resumo de subgrupos",
-        description: "Acompanhamento do uso contratado para subgrupos.",
-        cards: [
-          { label: "Subgrupos criados", value: `${currentValue}`, detail: "Ja cadastrados", tone: "healthy" },
-          { label: "Ainda pode criar", value: remaining === null ? "Sem limite" : `${remaining}`, detail: remaining === null ? "Livre" : `de ${limit}`, tone: remaining === 0 ? "critical" : "warning" },
-        ],
-      };
+  const handleReviewAccessRequest = async (requestId, actionName) => {
+    try {
+      await api.post(`/${definition.resource}/${actionName}-access-request/`, { request_id: requestId });
+      setPendingAccessRequests((currentState) => currentState.filter((item) => item.id !== requestId));
+      await load();
+      await refreshProfile();
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "Nao foi possivel processar a solicitacao.");
     }
-
-    if (definition.resource === "invitations") {
-      const limit = tenantSummary.max_invitations;
-      const currentValue = tenantSummary.current_invitations || 0;
-      const remaining = limit === null || limit === undefined || limit === "" ? null : Math.max(Number(limit) - Number(currentValue), 0);
-      return {
-        title: "Resumo de convites",
-        description: "Acompanhamento dos convites ativos do tenant.",
-        cards: [
-          { label: "Convites ja feitos", value: `${currentValue}`, detail: "Pendentes ou enviados", tone: "healthy" },
-          { label: "Ainda pode convidar", value: remaining === null ? "Sem limite" : `${remaining}`, detail: remaining === null ? "Livre" : `de ${limit}`, tone: remaining === 0 ? "critical" : "warning" },
-        ],
-      };
-    }
-
-    return null;
-  }, [
-    definition.resource,
-    user?.tenant_slug,
-    user?.tenant_max_groups,
-    user?.tenant_max_subgroups,
-    user?.tenant_max_invitations,
-    user?.tenant_current_groups,
-    user?.tenant_current_subgroups,
-    user?.tenant_current_invitations,
-  ]);
+  };
 
   return (
-    <div className={`resource-page ${resourceLimitSummary ? "resource-page-with-summary" : ""}`}>
+    <div
+      className={`resource-page${summaryCards.length ? " resource-page-with-summary" : ""}${
+        filterCards.length ? " resource-page-with-filters" : ""
+      }${latestSyncLabel ? " resource-page-with-meta" : ""}`}
+    >
       <PageHeader title={definition.title} description={definition.description} />
-      {resourceLimitSummary ? (
+      {latestSyncLabel ? (
+        <div className="resource-last-sync">
+          <span>{latestSyncLabel}</span>
+          {loading ? <span className="resource-last-sync-status">atualizando</span> : null}
+        </div>
+      ) : null}
+      {summaryCards.length ? (
         <section className="tenant-usage-panel resource-summary-panel">
           <div className="tenant-usage-header">
-            <strong>{resourceLimitSummary.title}</strong>
-            <span className="muted">{resourceLimitSummary.description}</span>
+            <strong>Limites do usuario</strong>
           </div>
           <div className="tenant-usage-grid resource-summary-grid">
-            {resourceLimitSummary.cards.map((card) => (
-              <article key={card.label} className={`tenant-usage-card ${card.tone}`}>
-                <span className="tenant-usage-label">{card.label}</span>
-                <strong className="tenant-usage-value">{card.value}</strong>
-                <span className="tenant-usage-ratio">{card.detail}</span>
+            {summaryCards.map((item) => (
+              <article className={`tenant-usage-card ${item.tone}`} key={item.label}>
+                <span className="tenant-usage-label">{item.label}</span>
+                <div className="tenant-usage-value">
+                  <strong>{item.current}</strong>
+                  <span>/ {item.limitLabel}</span>
+                </div>
+                <span className="tenant-usage-ratio">{item.ratioLabel}</span>
               </article>
             ))}
           </div>
         </section>
       ) : null}
-      <DataTable
-        title={loading ? `${definition.title} carregando...` : definition.title}
-        columns={effectiveTableColumns}
-        rows={displayRows}
-        searchValue={filters.search || ""}
-        searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
-        onSearchChange={(value) => setFilters((currentFilters) => ({ ...currentFilters, search: value, page: 1 }))}
-        onCreate={definition.readonly ? undefined : handleCreate}
-        onClear={() => {
-          setFilters({ page: 1, search: "" });
-          setCurrent(null);
-        }}
-        onEdit={definition.readonly ? handleReadonlyOpen : handleEdit}
-        onDuplicate={definition.readonly ? undefined : handleDuplicate}
-        onDelete={definition.readonly ? undefined : handleDelete}
-        onRowClick={definition.readonly ? handleReadonlyOpen : undefined}
-        selectedId={current?.id}
-        rowQuickActions={rowQuickActions}
-        getRowClassName={
-          definition.customForm === "derivative-operation"
-            ? (row) => (String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "")
-            : undefined
-        }
-      />
+      {filterCards.length ? (
+        <section className="resource-filter-panel">
+          <div className="resource-filter-marquee">
+            <div className={`resource-filter-track${filterCards.length > 1 ? " is-animated" : ""}`}>
+            {marqueeFilterCards.map((item, index) => (
+              <button
+                key={`${item.key}-${index}`}
+                type="button"
+                className={`resource-filter-card${activeFilterCardKey === item.key ? " is-active" : ""}`}
+                onClick={() => setFilters((currentFilters) => ({ ...currentFilters, search: item.search, page: 1 }))}
+              >
+                <span className="resource-filter-card-label">{item.label}</span>
+                <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatBrazilianNumber(item.firstRow.price, 2) : "—"}</strong>
+                <span
+                  className={`resource-filter-card-variation${
+                    parseLocalizedNumber(item.firstRow?.change_value) > 0
+                      ? " is-positive"
+                      : parseLocalizedNumber(item.firstRow?.change_value) < 0
+                        ? " is-negative"
+                        : ""
+                  }`}
+                >
+                  {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
+                    ? `${formatSignedBrazilianNumber(item.firstRow.change_value, 2)} (${formatSignedBrazilianNumber(item.firstRow.change_percent, 2)}%)`
+                    : "Sem variacao"}
+                </span>
+              </button>
+            ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+      {useSimpleQuotesTable ? (
+        <SimpleQuotesTable
+          title={loading ? `${definition.title} carregando...` : definition.title}
+          columns={effectiveTableColumns}
+          rows={displayRows}
+          searchValue={filters.search || ""}
+          searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
+          onSearchChange={(value) => setFilters((currentFilters) => ({ ...currentFilters, search: value, page: 1 }))}
+          onClear={() => {
+            setFilters({ page: 1, search: "" });
+            setCurrent(null);
+          }}
+          onTickerClick={(row) => openTradingviewPopupWindow(buildTradingviewChartUrl(row))}
+        />
+      ) : (
+        <DataTable
+          title={loading ? `${definition.title} carregando...` : definition.title}
+          columns={effectiveTableColumns}
+          rows={displayRows}
+          searchValue={filters.search || ""}
+          searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
+          onSearchChange={(value) => setFilters((currentFilters) => ({ ...currentFilters, search: value, page: 1 }))}
+          onCreate={canCreateRecord ? handleCreate : undefined}
+          onClear={() => {
+            setFilters({ page: 1, search: "" });
+            setCurrent(null);
+          }}
+          onEdit={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : handleEdit}
+          onDuplicate={definition.readonly || definition.allowDuplicate === false ? undefined : handleDuplicate}
+          onDelete={definition.readonly || definition.allowDelete === false ? undefined : handleDelete}
+          onRowClick={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : undefined}
+          selectedId={current?.id}
+          rowQuickActions={rowQuickActions}
+          toolbarActions={toolbarActions}
+          showTitleButton={definition.showTitleButton !== false}
+          showClearButton={definition.showClearButton !== false}
+          tableHeight={definition.tableHeight}
+          getRowClassName={
+            definition.customForm === "derivative-operation"
+              ? (row) => (String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "")
+              : undefined
+          }
+        />
+      )}
 
       {isModalOpen && !definition.readonly && definition.customForm === "derivative-operation" ? (
         <DerivativeOperationForm
@@ -691,6 +1198,7 @@ export function ResourcePage({ definition }) {
             }
 
             await load();
+            await refreshProfile();
 
             if (primaryRecord) {
               if (files.length) {
@@ -708,30 +1216,9 @@ export function ResourcePage({ definition }) {
       {isModalOpen && !definition.readonly && definition.customForm !== "derivative-operation" ? (
         <ResourceForm
           title={current ? `Editar ${definition.title}` : `Novo ${definition.title}`}
-          fields={definition.fields}
+          fields={activeFormFields}
           initialValues={current || {}}
           submitLabel={definition.submitLabel || "Salvar"}
-          beforeContent={
-            definition.resource === "tenants" && current ? (
-              <section className="tenant-usage-panel">
-                <div className="tenant-usage-header">
-                  <strong>Uso atual x limite</strong>
-                  <span className="muted">Leitura comercial do pacote contratado.</span>
-                </div>
-                <div className="tenant-usage-grid">
-                  {tenantUsageCards.map((card) => (
-                    <article key={card.label} className={`tenant-usage-card ${card.tone}`}>
-                      <span className="tenant-usage-label">{card.label}</span>
-                      <strong className="tenant-usage-value">
-                        {card.current} <span>/ {card.limitLabel}</span>
-                      </strong>
-                      <span className="tenant-usage-ratio">{card.ratioLabel}</span>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null
-          }
           existingAttachments={attachments}
           onDeleteAttachment={async (attachment) => {
             await resourceService.remove("attachments", attachment.id);
@@ -748,11 +1235,19 @@ export function ResourcePage({ definition }) {
             setError("");
           }}
           onSubmit={async (payload, rawValues) => {
-            const attachmentField = definition.fields.find((field) => field.type === "file-multi");
+            const formFields = activeFormFields;
+            const attachmentField = formFields.find((field) => field.type === "file-multi");
             const files = attachmentField && Array.isArray(rawValues[attachmentField.name]) ? rawValues[attachmentField.name] : [];
-            const cleanPayload = attachmentField
+            let cleanPayload = attachmentField
               ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== attachmentField.name))
               : payload;
+
+            if (definition.resource === "admin-invitations" && !user?.is_superuser && user?.tenant_slug !== "admin") {
+              cleanPayload = {
+                ...cleanPayload,
+                target_tenant_slug: "usuario",
+              };
+            }
 
             if (definition.resource === "physical-sales" && cleanPayload.cultura_produto) {
               const crops = await resourceService.listAll("crops");
@@ -764,6 +1259,7 @@ export function ResourcePage({ definition }) {
 
             const saved = await save(cleanPayload, current);
             if (saved) {
+              await refreshProfile();
               if (attachmentField && files.length) {
                 await resourceService.uploadAttachments(definition.resource, saved.id, files);
               }
@@ -774,6 +1270,87 @@ export function ResourcePage({ definition }) {
             }
           }}
         />
+      ) : null}
+
+      {isAccessRequestOpen ? (
+        <div className="modal-shell">
+          <div className="modal-backdrop" onClick={() => setIsAccessRequestOpen(false)} />
+          <div className="modal-card">
+            <div className="modal-header">
+              <div>
+                <strong>{definition.requestAccessTitle || "Solicitar acesso"}</strong>
+                <div className="muted">Informe um ou mais nomes e envie para aprovacao do proprietario.</div>
+              </div>
+              <button className="btn btn-secondary" type="button" onClick={() => setIsAccessRequestOpen(false)}>
+                Fechar
+              </button>
+            </div>
+            <div className="form-grid">
+              {accessRequestValues.map((item, index) => (
+                <div className="field field-full" key={`${definition.resource}-request-${index}`}>
+                  <label>{definition.requestAccessPlaceholder || "Nome"}</label>
+                  <input
+                    value={item}
+                    onChange={(event) =>
+                      setAccessRequestValues((currentState) =>
+                        currentState.map((currentItem, currentIndex) => (currentIndex === index ? event.target.value : currentItem)),
+                      )
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" type="button" onClick={() => setAccessRequestValues((currentState) => [...currentState, ""])}>
+                Adicionar mais um
+              </button>
+              <button className="btn btn-primary" type="button" onClick={handleSubmitAccessRequest}>
+                Enviar solicitacao
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isPendingAccessOpen && pendingAccessRequests.length ? (
+        <div className="modal-shell">
+          <div className="modal-backdrop" onClick={() => setIsPendingAccessOpen(false)} />
+          <div className="modal-card">
+            <div className="modal-header">
+              <div>
+                <strong>Solicitacoes pendentes</strong>
+                <div className="muted">Aprove ou rejeite os pedidos de acesso aos seus registros.</div>
+              </div>
+              <button className="btn btn-secondary" type="button" onClick={() => setIsPendingAccessOpen(false)}>
+                Fechar
+              </button>
+            </div>
+            <div className="access-request-list">
+              {pendingAccessRequests.map((item) => (
+                <div className="access-request-item" key={item.id}>
+                  <div className="access-request-copy">
+                    <div className="access-request-badge">
+                      {definition.resource === "groups" ? "Grupo" : "Subgrupo"}
+                    </div>
+                    <strong>{item.group_name || item.subgroup_name}</strong>
+                    <div className="access-request-user">
+                      <span>{item.requester_name || "Usuario solicitante"}</span>
+                      <small>Email: {item.requester_email || "nao informado"}</small>
+                    </div>
+                  </div>
+                  <div className="access-request-actions">
+                    <button className="btn btn-secondary" type="button" onClick={() => handleReviewAccessRequest(item.id, "reject")}>
+                      Rejeitar
+                    </button>
+                    <button className="btn btn-primary" type="button" onClick={() => handleReviewAccessRequest(item.id, "approve")}>
+                      Aprovar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {detailItem && definition.readonly ? (
@@ -794,7 +1371,11 @@ export function ResourcePage({ definition }) {
                 <div className={`field${field.type === "textarea" ? " field-full" : ""}`} key={field.name}>
                   <label>{field.label}</label>
                   <div className="detail-value">
-                    {field.type === "date" ? formatBrazilianDate(detailItem[field.name], "—") : (detailItem[field.name] || "—")}
+                    {field.type === "date"
+                      ? formatBrazilianDate(detailItem[field.name], "—")
+                      : field.name === "phone" || String(field.label || "").trim().toLowerCase() === "telefone"
+                        ? formatBrazilianPhone(detailItem[field.name])
+                        : (detailItem[field.name] || "—")}
                   </div>
                 </div>
               ))}

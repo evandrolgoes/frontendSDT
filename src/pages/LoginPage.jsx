@@ -4,6 +4,20 @@ import { Navigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { api } from "../services/api";
 
+const formatBrazilianPhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+  if (!digits) {
+    return "";
+  }
+  if (digits.length <= 2) {
+    return `(${digits}`;
+  }
+  if (digits.length <= 7) {
+    return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  }
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
+
 const extractMessage = (error) => {
   const data = error?.response?.data;
   if (!data) {
@@ -211,7 +225,7 @@ export function LoginPage() {
                 <input
                   id="access_phone"
                   value={accessForm.phone}
-                  onChange={(event) => setAccessForm((current) => ({ ...current, phone: event.target.value }))}
+                  onChange={(event) => setAccessForm((current) => ({ ...current, phone: formatBrazilianPhone(event.target.value) }))}
                 />
               </div>
               <div className="field field-full">

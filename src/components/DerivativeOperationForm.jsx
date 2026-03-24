@@ -5,6 +5,8 @@ import { InfoPopup } from "./InfoPopup";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate, isBrazilianDate, isIsoDate, parseBrazilianDate } from "../utils/date";
 
+const TRADINGVIEW_REFRESH_MS = 60000;
+
 const buySellOptions = [
   { value: "Compra", label: "Compra" },
   { value: "Venda", label: "Venda" },
@@ -30,23 +32,35 @@ const normalizeLookupValue = (value) =>
     .replaceAll("-", "")
     .replaceAll("/", "");
 
-const listDerivativeContractsFromBrowser = async (bolsa) => {
-  const payload = await resourceService.fetchJsonCached(
-    "sheety-cotacoes-spot",
-    "https://api.sheety.co/90083751cf0794f44c9730c96a94cedf/apiCotacoesSpotGetBubble/planilha1",
-  );
-  const rows = Array.isArray(payload?.planilha1) ? payload.planilha1 : Array.isArray(payload) ? payload : [];
-  const normalizedBolsa = normalizeLookupValue(bolsa);
+const normalizeDescriptionBase = (value) =>
+  String(value || "")
+    .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-  const options = rows
-    .filter((row) => normalizeLookupValue(row?.bolsa) === normalizedBolsa)
-    .map((row) => ({
-      value: row?.ctrbolsa || "",
-      label: row?.ctrbolsa || "",
-    }))
-    .filter((option) => option.value);
+const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
+  const normalized = normalizeLookupValue(bolsaLabel);
 
-  return options.filter((option, index, self) => self.findIndex((item) => item.value === option.value) === index);
+  if (!normalized) {
+    return null;
+  }
+
+  const exactMatch = exchanges.find((item) => normalizeLookupValue(item.nome) === normalized);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  if (normalized.includes("soybean")) {
+    return exchanges.find((item) => normalizeLookupValue(item.cultura) === "soja") || null;
+  }
+  if (normalized.includes("corn") || normalized.includes("milho")) {
+    return exchanges.find((item) => normalizeLookupValue(item.cultura) === "milho") || null;
+  }
+  if (normalized.includes("dollar") || normalized.includes("dolar") || normalized.includes("usd")) {
+    return exchanges.find((item) => normalizeLookupValue(item.cultura) === "dolar") || null;
+  }
+
+  return null;
 };
 
 const parseLocalizedNumber = (value) => {
@@ -130,11 +144,16 @@ const buildPhysicalVolumeLabel = (unit) =>
 const buildStrikeLabel = (currencyUnit) =>
   `Strike montagem${currencyUnit ? ` (${currencyUnit})` : " (Moeda/unidade)"}`;
 
-const deriveItemValues = ({ item, contractSize }) => {
+const resolveStrikeFinancialFactor = (currencyUnit) => {
+  const normalized = String(currencyUnit || "").trim().toLowerCase();
+  return normalized.startsWith("c") ? 0.01 : 1;
+};
+
+const deriveItemValues = ({ item, contractSize, currencyUnit }) => {
   const strike = parseLocalizedNumber(item.strike_montagem) || 0;
   const lotes = parseLocalizedNumber(item.numero_lotes) || 0;
   const physicalVolume = lotes * contractSize;
-  const financialVolume = physicalVolume * strike;
+  const financialVolume = physicalVolume * strike * resolveStrikeFinancialFactor(currencyUnit);
 
   return {
     ...item,
@@ -157,13 +176,18 @@ export function DerivativeOperationForm({
   const [values, setValues] = useState({});
   const [lookupOptions, setLookupOptions] = useState({});
   const [contractOptions, setContractOptions] = useState([]);
+  const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
   const [premiumHelpOpen, setPremiumHelpOpen] = useState(false);
   const selectedExchange = useMemo(
-    () =>
-      (lookupOptions.exchanges || []).find(
-        (item) => normalizeLookupValue(item.nome) === normalizeLookupValue(values.bolsa_ref),
-      ),
+    () => inferExchangeFromBolsaLabel(values.bolsa_ref, lookupOptions.exchanges || []),
     [lookupOptions.exchanges, values.bolsa_ref],
+  );
+  const selectedTickerQuote = useMemo(
+    () =>
+      (tradingviewQuotes || []).find(
+        (item) => normalizeLookupValue(item?.ticker) === normalizeLookupValue(values.contrato_derivativo),
+      ) || null,
+    [tradingviewQuotes, values.contrato_derivativo],
   );
   const isMoedaMode = normalizeLookupValue(values.moeda_ou_cmdtye) === "moeda";
 
@@ -254,31 +278,60 @@ export function DerivativeOperationForm({
   useEffect(() => {
     let isMounted = true;
 
+    const loadTradingviewQuotes = async () => {
+      try {
+        const items = await resourceService.listTradingviewQuotes({ force: true });
+        if (isMounted) {
+          setTradingviewQuotes(Array.isArray(items) ? items : []);
+        }
+      } catch {
+        if (isMounted) {
+          setTradingviewQuotes([]);
+        }
+      }
+    };
+
+    loadTradingviewQuotes();
+
+    const intervalId = window.setInterval(loadTradingviewQuotes, TRADINGVIEW_REFRESH_MS);
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        loadTradingviewQuotes();
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
     const loadContracts = async () => {
       if (!values.bolsa_ref) {
         setContractOptions([]);
         return;
       }
 
-      try {
-        let options = await resourceService.listDerivativeContracts(values.bolsa_ref);
-        if (!Array.isArray(options) || !options.length) {
-          options = await listDerivativeContractsFromBrowser(values.bolsa_ref);
-        }
-        if (isMounted) {
-          setContractOptions(Array.isArray(options) ? options : []);
-        }
-      } catch {
-        try {
-          const fallbackOptions = await listDerivativeContractsFromBrowser(values.bolsa_ref);
-          if (isMounted) {
-            setContractOptions(Array.isArray(fallbackOptions) ? fallbackOptions : []);
-          }
-        } catch {
-          if (isMounted) {
-            setContractOptions([]);
-          }
-        }
+      const normalizedBolsa = normalizeLookupValue(values.bolsa_ref);
+      const options = tradingviewQuotes
+        .filter((item) => normalizeLookupValue(normalizeDescriptionBase(item?.description)) === normalizedBolsa)
+        .map((item) => ({
+          value: item?.ticker || "",
+          label: item?.ticker || "",
+        }))
+        .filter((option) => option.value)
+        .filter((option, index, self) => self.findIndex((current) => current.value === option.value) === index);
+
+      if (isMounted) {
+        setContractOptions(options);
       }
     };
 
@@ -287,20 +340,7 @@ export function DerivativeOperationForm({
     return () => {
       isMounted = false;
     };
-  }, [values.bolsa_ref]);
-
-  useEffect(() => {
-    if (!selectedExchange?.nome || !values.bolsa_ref) {
-      return;
-    }
-    if (String(values.bolsa_ref) === String(selectedExchange.nome)) {
-      return;
-    }
-    if (normalizeLookupValue(values.bolsa_ref) !== normalizeLookupValue(selectedExchange.nome)) {
-      return;
-    }
-    setValues((current) => ({ ...current, bolsa_ref: selectedExchange.nome }));
-  }, [selectedExchange, values.bolsa_ref]);
+  }, [tradingviewQuotes, values.bolsa_ref]);
 
   useEffect(() => {
     if (!values.bolsa_ref || !selectedExchange) {
@@ -332,28 +372,35 @@ export function DerivativeOperationForm({
   }, [selectedExchange]);
 
   const bolsaOptions = useMemo(() => {
-    const exchanges = lookupOptions.exchanges || [];
+    const baseOptions = tradingviewQuotes
+      .map((item) => normalizeDescriptionBase(item?.description))
+      .filter(Boolean)
+      .filter((value, index, self) => self.findIndex((current) => normalizeLookupValue(current) === normalizeLookupValue(value)) === index)
+      .map((value) => ({ value, label: value }));
+
     if (!values.cultura) {
-      return exchanges;
+      return baseOptions;
     }
+
     const selectedCrop = (lookupOptions.crops || []).find((item) => String(item.id) === String(values.cultura));
-    const allowedBolsaRefs = Array.isArray(selectedCrop?.bolsa_ref)
-      ? selectedCrop.bolsa_ref.map((value) => normalizeLookupValue(value))
-      : selectedCrop?.bolsa_ref
-        ? [normalizeLookupValue(selectedCrop.bolsa_ref)]
-        : [];
+    const cropName = normalizeLookupValue(selectedCrop?.cultura);
 
-    if (!allowedBolsaRefs.length) {
-      return exchanges;
+    if (!cropName) {
+      return baseOptions;
     }
 
-    return exchanges.filter(
-      (item) =>
-        allowedBolsaRefs.includes(normalizeLookupValue(item.nome)) ||
-        allowedBolsaRefs.includes(String(item.id)) ||
-        normalizeLookupValue(item.cultura) === normalizeLookupValue(selectedCrop?.cultura),
+    const keywordMap = {
+      soja: ["soybean"],
+      milho: ["corn"],
+      dolar: ["dollar", "usd"],
+    };
+    const allowedKeywords = keywordMap[cropName] || [cropName];
+    const filteredOptions = baseOptions.filter((item) =>
+      allowedKeywords.some((keyword) => normalizeLookupValue(item.label).includes(normalizeLookupValue(keyword))),
     );
-  }, [lookupOptions.crops, lookupOptions.exchanges, values.cultura]);
+
+    return filteredOptions.length ? filteredOptions : baseOptions;
+  }, [lookupOptions.crops, tradingviewQuotes, values.cultura]);
 
   useEffect(() => {
     if (!values.bolsa_ref) {
@@ -363,7 +410,7 @@ export function DerivativeOperationForm({
       return;
     }
     const bolsaStillAllowed = bolsaOptions.some(
-      (option) => normalizeLookupValue(option.nome) === normalizeLookupValue(values.bolsa_ref),
+      (option) => normalizeLookupValue(option.value) === normalizeLookupValue(values.bolsa_ref),
     );
     if (bolsaStillAllowed) {
       return;
@@ -446,10 +493,52 @@ export function DerivativeOperationForm({
         return deriveItemValues({
           item: { ...item, [key]: value },
           contractSize,
+          currencyUnit: values.moeda_unidade,
         });
       }),
     }));
   };
+
+  useEffect(() => {
+    const strikeFromApi = parseLocalizedNumber(selectedTickerQuote?.price);
+    if (!Number.isFinite(strikeFromApi)) {
+      return;
+    }
+
+    setValues((current) => {
+      if (!current.contrato_derivativo) {
+        return current;
+      }
+
+      const nextItems = (current.itens || []).map((item) => {
+        const hasExistingId = Boolean(item?.id);
+        const hasManualStrike = parseLocalizedNumber(item?.strike_montagem) !== undefined;
+
+        if (hasExistingId || hasManualStrike) {
+          return item;
+        }
+
+        const nextItem = {
+          ...item,
+          strike_montagem: formatBrazilianNumber(strikeFromApi, 4),
+        };
+
+        if (isMoedaMode) {
+          return nextItem;
+        }
+
+        const contractSize = parseLocalizedNumber(selectedExchange?.volume_padrao_contrato) || 0;
+        return deriveItemValues({
+          item: nextItem,
+          contractSize,
+          currencyUnit: current.moeda_unidade,
+        });
+      });
+
+      const changed = nextItems.some((item, index) => item !== current.itens[index]);
+      return changed ? { ...current, itens: nextItems } : current;
+    });
+  }, [isMoedaMode, selectedExchange?.volume_padrao_contrato, selectedTickerQuote?.price, values.contrato_derivativo]);
 
   const addItem = () => {
     if (!window.confirm("Você realmente deseja adicionar uma nova operação nessa mesma estratégia?")) {
@@ -591,7 +680,7 @@ export function DerivativeOperationForm({
             {renderSelect(
               "bolsa_ref",
               values.bolsa_ref,
-              bolsaOptions.map((option) => ({ value: option.nome, label: option.nome })),
+              bolsaOptions,
               (value) => updateValue("bolsa_ref", value),
             )}
           </div>

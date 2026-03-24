@@ -70,12 +70,21 @@ const invalidateCache = (resource = null) => {
 };
 
 export const resourceService = {
-  list: (resource, params = {}) =>
-    remember(buildCacheKey("list", resource, params), () =>
+  list: (resource, params = {}, options = {}) => {
+    const cacheKey = buildCacheKey("list", resource, params);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
       api.get(`/${resource}/`, { params }).then((response) => response.data),
-    ),
-  listAll: async (resource, params = {}) => {
-    return remember(buildCacheKey("listAll", resource, params), async () => {
+    );
+  },
+  listAll: async (resource, params = {}, options = {}) => {
+    const cacheKey = buildCacheKey("listAll", resource, params);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, async () => {
       let nextPage = 1;
       let aggregated = [];
 
@@ -109,7 +118,11 @@ export const resourceService = {
     });
   },
   patch: (resource, id, payload) =>
-    api.patch(`/${resource}/${id}/`, payload).then((response) => {
+    (() => {
+      const body = containsBinaryValue(payload) ? toFormData(payload) : payload;
+      const config = body instanceof FormData ? { headers: { "Content-Type": "multipart/form-data" } } : undefined;
+      return api.patch(`/${resource}/${id}/`, body, config);
+    })().then((response) => {
       invalidateCache(resource);
       return response.data;
     }),
@@ -132,10 +145,15 @@ export const resourceService = {
         return response.data;
       });
   },
-  listAttachments: (resource, id) =>
-    remember(buildCacheKey("attachments", `${resource}/${id}`, {}), () =>
+  listAttachments: (resource, id, options = {}) => {
+    const cacheKey = buildCacheKey("attachments", `${resource}/${id}`, {});
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
       api.get(`/${resource}/${id}/attachments/`).then((response) => response.data),
-    ),
+    );
+  },
   listDerivativeContracts: (bolsa) =>
     remember(buildCacheKey("lookup", "derivative-contracts", { bolsa }), () =>
       api.get("derivative-contracts/", { params: { bolsa } }).then((response) => response.data),
@@ -148,6 +166,40 @@ export const resourceService = {
     remember(buildCacheKey("lookup", "localidades/municipios", { uf }), () =>
       api.get("localidades/municipios/", { params: { uf } }).then((response) => response.data),
     ),
+  listTradingviewQuotes: (options = {}) => {
+    const cacheKey = buildCacheKey("lookup", "tradingview-watchlist-quotes", {});
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api
+        .get("tradingview-watchlist-quotes/", { params: { format: "json", page_size: 100 } })
+        .then((response) => response.data)
+        .then((data) => data.results || data),
+    );
+  },
+  listTradingviewTickerPrices: (options = {}) => {
+    const cacheKey = buildCacheKey("lookup", "tradingview-watchlist-ticker-price", {});
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, async () => {
+      const items = await resourceService.listTradingviewQuotes(options);
+      return (Array.isArray(items) ? items : []).map((item) => ({
+        ticker: item?.ticker || "",
+        price: item?.price,
+      }));
+    });
+  },
+  listMarketNewsCategories: (options = {}) => {
+    const cacheKey = buildCacheKey("lookup", "market-news-categories", {});
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("market-news-posts/categories/").then((response) => response.data),
+    );
+  },
   fetchJsonCached: (cacheKey, url, options = {}) =>
     remember(`external:${cacheKey}`, () => fetch(url, options).then((response) => response.json())),
   invalidateCache,

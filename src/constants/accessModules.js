@@ -8,6 +8,13 @@ export const moduleOptions = [
   { value: "dashboard_currency_exposure", label: "Dashboard: Exposição e Hedge Cambial" },
   { value: "dashboard_simulations", label: "Dashboard: Simulações" },
   { value: "dashboard_mtm", label: "Dashboard: MTM" },
+  { value: "market_fund_positions", label: "Mercado: Posição de Fundos" },
+  { value: "market_quotes", label: "Mercado: Cotações" },
+  { value: "market_blog_news", label: "Mercado: Blog/News" },
+  { value: "market_exports", label: "Mercado: Exportações" },
+  { value: "market_basis", label: "Mercado: Basis" },
+  { value: "market_interest_rates", label: "Mercado: Taxa de Juros" },
+  { value: "market_others", label: "Mercado: Outros" },
   { value: "cad_groups", label: "Cadastro: Grupos" },
   { value: "cad_subgroups", label: "Cadastro: Subgrupos" },
   { value: "cad_counterparties", label: "Cadastro: Contrapartes" },
@@ -31,7 +38,8 @@ export const moduleOptions = [
   { value: "sys_derivative_operation_names", label: "Sistema: Nome Operações Derivativos" },
   { value: "sys_seasons", label: "Sistema: Safras" },
   { value: "sys_users", label: "Sistema: Usuários" },
-  { value: "sys_invites", label: "Sistema: Convites" },
+  { value: "sys_invites", label: "Sistema: Convites e acessos" },
+  { value: "sys_admin_invites", label: "Sistema: Convites Admin" },
   { value: "sys_logs", label: "Sistema: Logs" },
   { value: "sys_json_import", label: "Sistema: Importador JSON" },
 ];
@@ -48,5 +56,20 @@ export function hasModuleAccess(user, moduleCode) {
 export function hasUserTypeAccess(user, allowedUserTypes) {
   if (!allowedUserTypes?.length) return true;
   if (user?.is_superuser) return true;
-  return allowedUserTypes.includes(user?.user_type);
+  if (allowedUserTypes.includes("admin_tenant")) {
+    return user?.tenant_slug === "admin" && ["owner", "manager"].includes(user?.role);
+  }
+  if (allowedUserTypes.includes("invitation_tenants")) {
+    return Boolean(user?.tenant_can_send_invitations) && ["owner", "manager"].includes(user?.role);
+  }
+  if (allowedUserTypes.includes("tenant_can_manage_groups")) {
+    return Boolean(user?.tenant_can_register_groups) && ["owner", "manager"].includes(user?.role);
+  }
+  if (allowedUserTypes.includes("tenant_can_manage_subgroups")) {
+    return Boolean(user?.tenant_can_register_subgroups) && ["owner", "manager"].includes(user?.role);
+  }
+  if (allowedUserTypes.includes("tenant_admin")) {
+    return ["owner", "manager"].includes(user?.role);
+  }
+  return false;
 }

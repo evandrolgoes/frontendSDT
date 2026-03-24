@@ -140,6 +140,20 @@ const formatNumber = (value, fixed = 4) => {
 
 const formatDate = (value) => formatBrazilianDate(value, "—");
 
+const formatPhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+  if (!digits) {
+    return "—";
+  }
+  if (digits.length <= 2) {
+    return `(${digits}`;
+  }
+  if (digits.length <= 7) {
+    return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  }
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
+
 const detectWeightKey = (columns) => {
   const keys = columns.map((column) => column.key);
   return ["volume_fisico", "volume", "producao_total", "area"].find((key) => keys.includes(key)) || null;
@@ -183,6 +197,9 @@ const formatCellValue = (column, value, row) => {
   if (type === "date") {
     return formatDate(value);
   }
+  if (column.key === "phone" || String(column.label || "").trim().toLowerCase() === "telefone") {
+    return formatPhone(value);
+  }
   if (type === "number") {
     return formatNumber(value);
   }
@@ -211,6 +228,10 @@ export function DataTable({
   selectedId,
   getRowClassName,
   rowQuickActions = [],
+  toolbarActions = [],
+  showTitleButton = true,
+  showClearButton = true,
+  tableHeight = null,
 }) {
   const canCreate = typeof onCreate === "function";
   const canEdit = typeof onEdit === "function";
@@ -383,20 +404,34 @@ export function DataTable({
               Novo
             </button>
           ) : null}
-          <button className="bubble-btn bubble-btn-light" type="button">
-            {title}
-          </button>
-          <button
-            className="bubble-btn bubble-btn-danger"
-            type="button"
-            onClick={() => {
-              setColumnFilters({});
-              setSelectedIds(new Set());
-              onClear();
-            }}
-          >
-            Limpar
-          </button>
+          {toolbarActions.map((action) => (
+            <button
+              key={action.key || action.label}
+              className={action.className || "bubble-btn bubble-btn-light"}
+              type="button"
+              onClick={action.onClick}
+            >
+              {action.label}
+            </button>
+          ))}
+          {showTitleButton ? (
+            <button className="bubble-btn bubble-btn-light" type="button">
+              {title}
+            </button>
+          ) : null}
+          {showClearButton ? (
+            <button
+              className="bubble-btn bubble-btn-danger"
+              type="button"
+              onClick={() => {
+                setColumnFilters({});
+                setSelectedIds(new Set());
+                onClear();
+              }}
+            >
+              Limpar
+            </button>
+          ) : null}
         </div>
         <div className="bubble-toolbar-right">
           <div className="bubble-search-wrap">
@@ -410,7 +445,7 @@ export function DataTable({
         </div>
       </div>
 
-      <div className="bubble-table-wrapper custom-scrollbar">
+      <div className="bubble-table-wrapper custom-scrollbar" style={tableHeight ? { height: tableHeight, maxHeight: tableHeight } : undefined}>
         <div className="bubble-table-plane">
           <div className="bubble-grid-header" style={{ gridTemplateColumns }}>
             {showActions ? <div className="bubble-action-spacer" /> : null}

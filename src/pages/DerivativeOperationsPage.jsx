@@ -8,6 +8,7 @@ import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
 
 const definition = resourceDefinitions.derivativeOperations;
+const TRADINGVIEW_REFRESH_MS = resourceDefinitions.tradingviewWatchlistQuotes.autoRefreshIntervalMs || 60000;
 
 const relationResourceLabels = {
   groups: "grupo",
@@ -35,6 +36,11 @@ const formatBrazilianNumber = (value, digits = 4) =>
     maximumFractionDigits: digits,
   });
 
+const resolveStrikeFactor = (currencyUnit) => {
+  const normalized = String(currencyUnit || "").trim().toLowerCase();
+  return normalized.startsWith("c") ? 0.01 : 1;
+};
+
 const calculateDerivativeMtm = (row, strikeMtm) => {
   const status = String(row.status_operacao || "").trim().toLowerCase();
   if (status !== "em aberto") {
@@ -46,8 +52,9 @@ const calculateDerivativeMtm = (row, strikeMtm) => {
 
   const operationName = String(row.nome_da_operacao || "");
   const volume = parseLocalizedNumber(row.volume ?? row.volume_fisico);
-  const strikeMontagem = parseLocalizedNumber(row.strike_montagem);
-  const strikeMercado = parseLocalizedNumber(strikeMtm);
+  const strikeFactor = resolveStrikeFactor(row.moeda_unidade);
+  const strikeMontagem = parseLocalizedNumber(row.strike_montagem) * strikeFactor;
+  const strikeMercado = parseLocalizedNumber(strikeMtm) * strikeFactor;
   let usd = 0;
 
   if (operationName.includes("Venda NDF")) usd = (strikeMontagem - strikeMercado) * volume;
@@ -118,6 +125,7 @@ export function DerivativeOperationsPage() {
   const [attachments, setAttachments] = useState([]);
   const [derivativeQuotes, setDerivativeQuotes] = useState({});
   const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
+  const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
 
   const nextDerivativeOperationCode = useMemo(() => {
     const highestNumber = rows.reduce((maxValue, row) => {
@@ -132,14 +140,10 @@ export function DerivativeOperationsPage() {
 
     const loadDerivativeQuotes = async () => {
       try {
-        const payload = await resourceService.fetchJsonCached(
-          "sheety-cotacoes-spot",
-          "https://api.sheety.co/90083751cf0794f44c9730c96a94cedf/apiCotacoesSpotGetBubble/planilha1",
-        );
-        const sourceRows = Array.isArray(payload?.planilha1) ? payload.planilha1 : Array.isArray(payload) ? payload : [];
+        const sourceRows = await resourceService.listTradingviewQuotes({ force: true });
         const nextQuotes = sourceRows.reduce((acc, item) => {
-          const key = String(item?.ctrbolsa || "").trim();
-          if (key) acc[key] = parseLocalizedNumber(item?.cotacao);
+          const key = String(item?.ticker || "").trim();
+          if (key) acc[key] = parseLocalizedNumber(item?.price);
           return acc;
         }, {});
         if (isMounted) setDerivativeQuotes(nextQuotes);
@@ -149,8 +153,21 @@ export function DerivativeOperationsPage() {
     };
 
     loadDerivativeQuotes();
+    const intervalId = window.setInterval(loadDerivativeQuotes, TRADINGVIEW_REFRESH_MS);
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        loadDerivativeQuotes();
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
     return () => {
       isMounted = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
   }, []);
 
@@ -177,26 +194,26 @@ export function DerivativeOperationsPage() {
     () =>
       rows.map((row) => ({
         ...row,
-        siblingRows: rows
-          .filter((candidate) => candidate.cod_operacao_mae === row.cod_operacao_mae)
-          .sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id),
-        strike_liquid_mtm:
-          editingDerivativeStrike[row.id] !== undefined
-            ? editingDerivativeStrike[row.id]
-            : (row.strike_liquidacao ?? derivativeQuotes[row.contrato_derivativo] ?? 0),
-        ajustes_mtm: calculateDerivativeMtm(
-          row,
-          editingDerivativeStrike[row.id] !== undefined
-            ? editingDerivativeStrike[row.id]
-            : (row.strike_liquidacao ?? derivativeQuotes[row.contrato_derivativo] ?? 0),
-        ).usd,
-        ajustes_mtm_brl: calculateDerivativeMtm(
-          row,
-          editingDerivativeStrike[row.id] !== undefined
-            ? editingDerivativeStrike[row.id]
-            : (row.strike_liquidacao ?? derivativeQuotes[row.contrato_derivativo] ?? 0),
-        ).brl,
-      })),
+      siblingRows: rows
+        .filter((candidate) => candidate.cod_operacao_mae === row.cod_operacao_mae)
+        .sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id),
+      strike_liquid_mtm:
+        editingDerivativeStrike[row.id] !== undefined
+          ? editingDerivativeStrike[row.id]
+          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
+      ajustes_mtm: calculateDerivativeMtm(
+        row,
+        editingDerivativeStrike[row.id] !== undefined
+          ? editingDerivativeStrike[row.id]
+          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
+      ).usd,
+      ajustes_mtm_brl: calculateDerivativeMtm(
+        row,
+        editingDerivativeStrike[row.id] !== undefined
+          ? editingDerivativeStrike[row.id]
+          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
+      ).brl,
+    })),
     [rows, derivativeQuotes, editingDerivativeStrike],
   );
 
@@ -213,8 +230,18 @@ export function DerivativeOperationsPage() {
       { key: "contrato_derivativo", label: "Contrato bolsa" },
       { key: "data_contratacao", label: "Data contratacao", type: "date" },
       { key: "tipo_derivativo", label: "Tipo derivativo" },
-      { key: "volume", label: "Volume", type: "number" },
-      { key: "strike_montagem", label: "Strike montagem", type: "number" },
+      {
+        key: "volume",
+        label: "Volume",
+        type: "number",
+        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.unidade ? ` ${row.unidade}` : ""}`,
+      },
+      {
+        key: "strike_montagem",
+        label: "Strike montagem",
+        type: "number",
+        render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda_unidade ? ` ${row.moeda_unidade}` : ""}`,
+      },
       {
         key: "strike_liquid_mtm",
         label: "Strike liquid (MTM)",
@@ -224,35 +251,67 @@ export function DerivativeOperationsPage() {
             <input
               className="bubble-cell-input"
               inputMode="decimal"
-              value={formatBrazilianNumber(value, 4)}
+              value={
+                editingDerivativeStrikeInput[row.id] !== undefined
+                  ? editingDerivativeStrikeInput[row.id]
+                  : formatBrazilianNumber(value, 4)
+              }
               onClick={(event) => event.stopPropagation()}
+              onFocus={() => {
+                setEditingDerivativeStrikeInput((currentState) => ({
+                  ...currentState,
+                  [row.id]: formatBrazilianNumber(value, 4),
+                }));
+              }}
               onChange={(event) => {
                 const raw = event.target.value;
+                setEditingDerivativeStrikeInput((currentState) => ({
+                  ...currentState,
+                  [row.id]: raw,
+                }));
                 setEditingDerivativeStrike((currentState) => ({
                   ...currentState,
                   [row.id]: parseLocalizedNumber(raw),
                 }));
               }}
               onBlur={async () => {
-                const strikeValue = editingDerivativeStrike[row.id] ?? parseLocalizedNumber(value);
-                await resourceService.patch(definition.resource, row.id, { strike_liquidacao: strikeValue });
+                const strikeValue =
+                  editingDerivativeStrike[row.id] ??
+                  parseLocalizedNumber(editingDerivativeStrikeInput[row.id]) ??
+                  parseLocalizedNumber(value);
                 setEditingDerivativeStrike((currentState) => {
+                  const nextState = {
+                    ...currentState,
+                    [row.id]: strikeValue,
+                  };
+                  return nextState;
+                });
+                setEditingDerivativeStrikeInput((currentState) => {
                   const nextState = { ...currentState };
                   delete nextState[row.id];
                   return nextState;
                 });
-                await load();
               }}
             />
           ) : (
             formatBrazilianNumber(value, 4)
           ),
       },
-      { key: "ajustes_mtm", label: "Ajustes MTM", type: "number" },
-      { key: "ajustes_mtm_brl", label: "Ajustes MTM R$", type: "number" },
+      {
+        key: "ajustes_mtm",
+        label: "Ajustes MTM",
+        type: "number",
+        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.volume_financeiro_moeda ? ` ${row.volume_financeiro_moeda}` : ""}`,
+      },
+      {
+        key: "ajustes_mtm_brl",
+        label: "Ajustes MTM R$",
+        type: "number",
+        render: (value) => formatBrazilianNumber(value, 0),
+      },
       { key: "id", label: "ID" },
     ],
-    [editingDerivativeStrike, load],
+    [editingDerivativeStrike, editingDerivativeStrikeInput],
   );
 
   const displayRows = useLookupRows(columns, normalizedRows);

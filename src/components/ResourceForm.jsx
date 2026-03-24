@@ -100,7 +100,26 @@ const parseBrazilianNumber = (value) => {
   return parseLocalizedNumber(value);
 };
 
+const isPhoneField = (field) => field?.type === "phone" || field?.name === "phone" || String(field?.label || "").trim().toLowerCase() === "telefone";
+
+const formatBrazilianPhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+  if (!digits) {
+    return "";
+  }
+  if (digits.length <= 2) {
+    return `(${digits}`;
+  }
+  if (digits.length <= 7) {
+    return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  }
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
+
 const normalizeFieldValue = (field, value) => {
+  if (field.type === "relation" && field.optional && value === "") {
+    return null;
+  }
   if (value === "" || value === undefined || value === null) {
     return undefined;
   }
@@ -115,6 +134,9 @@ const normalizeFieldValue = (field, value) => {
   }
   if (field.type === "number") {
     return parseBrazilianNumber(value);
+  }
+  if (isPhoneField(field)) {
+    return formatBrazilianPhone(value);
   }
   if (field.type === "date") {
     return parseBrazilianDate(value);
@@ -224,9 +246,13 @@ const matchesCurrentFilters = (option, filterByCurrent, values) =>
     return normalizedCurrentValues.includes(String(optionValue ?? ""));
   });
 
-const isFieldVisible = (field, values) => {
+const isFieldVisible = (field, values, lookupOptions) => {
   if (!field.visibleWhen) {
     return true;
+  }
+
+  if (typeof field.visibleWhen.predicate === "function") {
+    return field.visibleWhen.predicate(values, lookupOptions);
   }
 
   const currentValue = values[field.visibleWhen.field];
@@ -237,6 +263,26 @@ const isFieldVisible = (field, values) => {
     return currentValue !== field.visibleWhen.notEquals;
   }
   return true;
+};
+
+const hasClearableValue = (field, value) => {
+  if (field.readOnly) {
+    return false;
+  }
+  if (field.type === "select-multi") {
+    return Array.isArray(value) ? value.length > 0 : false;
+  }
+  if (field.type === "multirelation" && !field.single) {
+    return Array.isArray(value) ? value.length > 0 : false;
+  }
+  return false;
+};
+
+const getClearedFieldValue = (field) => {
+  if (field.type === "select-multi" || field.type === "multirelation") {
+    return [];
+  }
+  return "";
 };
 
 export function ResourceForm({
@@ -253,6 +299,7 @@ export function ResourceForm({
 }) {
   const [values, setValues] = useState(initialValues);
   const [lookupOptions, setLookupOptions] = useState({});
+  const [accessSearch, setAccessSearch] = useState({});
   const [stateOptions, setStateOptions] = useState(BRAZILIAN_STATES);
   const [cityOptionsByKey, setCityOptionsByKey] = useState({});
   const [localidadeEntries, setLocalidadeEntries] = useState([{ uf: "", cidade: "" }]);
@@ -266,6 +313,9 @@ export function ResourceForm({
         }
         if (field.type === "date") {
           return [field.name, formatBrazilianDate(currentValue)];
+        }
+        if (isPhoneField(field)) {
+          return [field.name, formatBrazilianPhone(currentValue)];
         }
         if (field.type === "multirelation" && field.single) {
           return [field.name, Array.isArray(currentValue) ? String(currentValue[0] ?? "") : String(currentValue ?? "")];
@@ -281,6 +331,59 @@ export function ResourceForm({
     );
     setValues({ ...initialValues, ...formattedValues });
   }, [initialValues]);
+
+  useEffect(() => {
+    setValues((currentValues) => {
+      let hasChanges = false;
+      const nextValues = { ...currentValues };
+
+      fields.forEach((field) => {
+        if (!field.filterByCurrent || !field.resource) {
+          return;
+        }
+
+        const options = (lookupOptions[field.resource] || []).filter((option) =>
+          matchesCurrentFilters(option, field.filterByCurrent, currentValues),
+        );
+        const allowedValues = new Set(
+          options.map((option) => String(option[field.valueKey || "id"] ?? option.id)),
+        );
+
+        if (field.type === "relation") {
+          const currentValue = currentValues[field.name];
+          if (currentValue !== "" && currentValue !== undefined && currentValue !== null) {
+            if (!allowedValues.has(String(currentValue))) {
+              nextValues[field.name] = "";
+              hasChanges = true;
+            }
+          }
+          return;
+        }
+
+        if (field.type === "multirelation") {
+          if (field.single) {
+            const currentValue = Array.isArray(currentValues[field.name])
+              ? String(currentValues[field.name][0] ?? "")
+              : String(currentValues[field.name] ?? "");
+            if (currentValue && !allowedValues.has(currentValue)) {
+              nextValues[field.name] = [];
+              hasChanges = true;
+            }
+            return;
+          }
+
+          const currentSelection = Array.isArray(currentValues[field.name]) ? currentValues[field.name] : [];
+          const filteredSelection = currentSelection.filter((value) => allowedValues.has(String(value)));
+          if (filteredSelection.length !== currentSelection.length) {
+            nextValues[field.name] = filteredSelection;
+            hasChanges = true;
+          }
+        }
+      });
+
+      return hasChanges ? nextValues : currentValues;
+    });
+  }, [fields, lookupOptions, values.tenant]);
 
   useEffect(() => {
     const localidadeValue = initialValues.localidade;
@@ -457,7 +560,64 @@ export function ResourceForm({
   );
 
   const handleChange = (field, value) => {
-    setValues((current) => ({ ...current, [field.name]: value }));
+    const nextValue = isPhoneField(field) ? formatBrazilianPhone(value) : value;
+    setValues((current) => ({ ...current, [field.name]: nextValue }));
+  };
+
+  const handleClearField = (field) => {
+    setValues((current) => ({
+      ...current,
+      [field.name]: getClearedFieldValue(field),
+    }));
+  };
+
+  const formatAccessUserLabel = (field, userOption) => {
+    if (!userOption) {
+      return "";
+    }
+    const label = getOptionLabel(field, userOption);
+    if (userOption.email) {
+      return `${label} (${userOption.email})`;
+    }
+    return label;
+  };
+
+  const getAccessManagerSearchKeys = (field) =>
+    field.accessManagerSearchKeys || [field.labelKey, "nome", "name", "grupo", "subgrupo", "email", "username", "full_name"];
+
+  const formatAccessManagerLabel = (field, option) => {
+    if (!option) {
+      return "";
+    }
+    const label = getOptionLabel(field, option);
+    if (field.resource === "users" && option.email) {
+      return `${label} (${option.email})`;
+    }
+    return label;
+  };
+
+  const handleAccessUserAdd = (field, userId) => {
+    if (!userId) {
+      return;
+    }
+    setValues((current) => {
+      const currentValues = Array.isArray(current[field.name]) ? current[field.name].map(String) : [];
+      if (currentValues.includes(String(userId))) {
+        return current;
+      }
+      return {
+        ...current,
+        [field.name]: [...currentValues, String(userId)],
+      };
+    });
+    setAccessSearch((current) => ({ ...current, [field.name]: "" }));
+  };
+
+  const handleAccessUserRemove = (field, userId) => {
+    setValues((current) => ({
+      ...current,
+      [field.name]: (Array.isArray(current[field.name]) ? current[field.name] : []).filter((item) => String(item) !== String(userId)),
+    }));
   };
 
   const syncLocalidadeValues = (entries) => {
@@ -600,6 +760,94 @@ export function ResourceForm({
         );
       }
       const selectedValues = Array.isArray(currentValue) ? currentValue.map(String) : [];
+
+      if (field.accessManager) {
+        const selectedUsers = selectedValues
+          .map((value) => options.find((option) => String(option.id) === String(value)))
+          .filter(Boolean);
+        const searchValue = accessSearch[field.name] || "";
+        const normalizedSearch = searchValue.trim().toLowerCase();
+        const availableUsers = options.filter((option) => !selectedValues.includes(String(option.id)));
+        const searchKeys = getAccessManagerSearchKeys(field);
+        const filteredUsers = (!normalizedSearch || field.accessManagerShowAllOptions)
+          ? availableUsers.slice(0, field.accessManagerShowAllOptions ? 100 : 12)
+          : availableUsers
+              .filter((option) =>
+                searchKeys
+                  .map((key) => option?.[key])
+                  .filter(Boolean)
+                  .some((item) => String(item).toLowerCase().includes(normalizedSearch)),
+              )
+              .slice(0, 12);
+
+        return (
+          <div className="access-manager">
+            <div className="access-manager-selected">
+              {selectedUsers.length ? (
+                selectedUsers.map((userOption) => (
+                  <div className="access-manager-chip" key={userOption.id}>
+                    <button
+                      className="access-manager-remove"
+                      type="button"
+                      disabled={field.readOnly}
+                      onClick={() => handleAccessUserRemove(field, userOption.id)}
+                      title={field.accessManagerRemoveTitle || "Remover item"}
+                    >
+                      ←
+                    </button>
+                    <span>{formatAccessManagerLabel(field, userOption)}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="field-help">{field.accessManagerEmptyText || "Nenhum item selecionado."}</div>
+              )}
+            </div>
+            <div className="access-manager-search">
+              {field.accessManagerTitle ? <div className="access-manager-title">{field.accessManagerTitle}</div> : null}
+              {!field.hideSearchInput ? (
+                <input
+                  className="form-control"
+                  id={field.name}
+                  type="text"
+                  placeholder={field.searchPlaceholder || "Digite para pesquisar"}
+                  value={searchValue}
+                  disabled={field.readOnly}
+                  onChange={(event) =>
+                    setAccessSearch((current) => ({
+                      ...current,
+                      [field.name]: event.target.value,
+                    }))
+                  }
+                />
+              ) : null}
+              <div className={`access-manager-results${field.accessManagerInlineResults ? " access-manager-results-inline" : ""}`}>
+                {filteredUsers.length ? (
+                  filteredUsers.map((userOption) => (
+                    <button
+                      className={`access-manager-result${field.accessManagerInlineResults ? " access-manager-result-inline" : ""}`}
+                      key={userOption.id}
+                      type="button"
+                      disabled={field.readOnly}
+                      onClick={() => handleAccessUserAdd(field, userOption.id)}
+                    >
+                      {field.resource === "users" ? (
+                        <>
+                          <strong>{getOptionLabel(field, userOption)}</strong>
+                          <span>{formatAccessManagerLabel(field, userOption)}</span>
+                        </>
+                      ) : (
+                        <strong>{getOptionLabel(field, userOption)}</strong>
+                      )}
+                    </button>
+                  ))
+                ) : field.accessManagerNotFoundText ? (
+                  <div className="field-help">{field.accessManagerNotFoundText || "Nenhum item encontrado."}</div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        );
+      }
 
       return (
         <select
@@ -796,11 +1044,22 @@ export function ResourceForm({
         {error ? <div className="form-error">{error}</div> : null}
         {beforeContent}
         <div className="form-grid">
-          {fields.filter((field) => isFieldVisible(field, values)).map((field) => (
+          {fields.filter((field) => isFieldVisible(field, values, lookupOptions)).map((field) => (
             <div className={`field${field.type === "textarea" ? " field-full" : ""}`} key={field.name}>
               <label htmlFor={field.name}>{field.label}</label>
               {renderField(field)}
-              {field.type === "multirelation" ? (
+              {hasClearableValue(field, values[field.name]) ? (
+                <div className="field-clear-row">
+                  <button
+                    className="field-clear-button"
+                    type="button"
+                    onClick={() => handleClearField(field)}
+                  >
+                    Limpar
+                  </button>
+                </div>
+              ) : null}
+              {field.type === "multirelation" && !field.accessManager ? (
                 <div className="field-help">
                   {Array.isArray(values[field.name]) && values[field.name].length
                     ? values[field.name].map((item) => relationLabelMap[field.name]?.[item] || item).join(", ")

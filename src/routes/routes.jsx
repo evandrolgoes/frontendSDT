@@ -1,10 +1,13 @@
 import { DashboardPage } from "../pages/DashboardPage";
 import { DerivativeOperationsPage } from "../pages/DerivativeOperationsPage";
 import { JsonImportPage } from "../pages/JsonImportPage";
+import { MercadoPage } from "../pages/MercadoPage";
+import { MarketNewsPage } from "../pages/MarketNewsPage";
 import { PriceCompositionNovoPage } from "../pages/PriceCompositionNovoPage";
 import { ResourcePage } from "../pages/ResourcePage";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { hasModuleAccess, hasUserTypeAccess } from "../constants/accessModules";
+import { matchPath } from "react-router-dom";
 
 const baseNavigationSections = [
   {
@@ -24,9 +27,21 @@ const baseNavigationSections = [
   {
     label: "Cadastros",
     items: [
-      { path: "/grupos", label: "Grupo", module: "cad_groups" },
-      { path: "/subgrupos", label: "Subgrupo", module: "cad_subgroups" },
+      { path: "/grupos", label: "Grupo", module: "cad_groups", allowedUserTypes: ["tenant_can_manage_groups"] },
+      { path: "/subgrupos", label: "Subgrupo", module: "cad_subgroups", allowedUserTypes: ["tenant_can_manage_subgroups"] },
       { path: "/contrapartes", label: "Contrapartes", module: "cad_counterparties" },
+    ],
+  },
+  {
+    label: "Mercado",
+    items: [
+      { path: "/mercado/posicao-de-fundos", label: "Posicao de Fundos", module: "market_fund_positions" },
+      { path: "/mercado/cotacoes", label: "Cotacoes", module: "market_quotes" },
+      { path: "/mercado/blog-news", label: "Blog/News", module: "market_blog_news" },
+      { path: "/mercado/exportacoes", label: "Exportacoes", module: "market_exports" },
+      { path: "/mercado/basis", label: "Basis", module: "market_basis" },
+      { path: "/mercado/taxa-de-juros", label: "Taxa de Juros", module: "market_interest_rates" },
+      { path: "/mercado/outros", label: "Outros", module: "market_others" },
     ],
   },
   {
@@ -56,8 +71,9 @@ const baseNavigationSections = [
       { path: "/bolsas", label: "Bolsa", module: "sys_exchanges", superuserOnly: true },
       { path: "/nomes-operacoes-derivativos", label: "Nome Operacoes Derivativos", module: "sys_derivative_operation_names", superuserOnly: true },
       { path: "/safras", label: "Safra", module: "sys_seasons", superuserOnly: true },
-      { path: "/usuarios", label: "Usuarios", module: "sys_users", allowedUserTypes: ["admin", "user_admin"] },
-      { path: "/convites", label: "Convites", module: "sys_invites", allowedUserTypes: ["admin", "user_admin"] },
+      { path: "/usuarios", label: "Usuarios", module: "sys_users", allowedUserTypes: ["tenant_admin"] },
+      { path: "/convites-e-acessos", label: "Convites e acessos", module: "sys_invites", allowedUserTypes: ["tenant_admin"] },
+      { path: "/convites-admin", label: "Convites (Admin)", module: "sys_admin_invites", allowedUserTypes: ["invitation_tenants"] },
       { path: "/logs", label: "Log", module: "sys_logs" },
       { path: "/importador-json", label: "Importador JSON", module: "sys_json_import", superuserOnly: true },
     ],
@@ -89,6 +105,15 @@ export const appRoutes = [
   { path: "/dashboard/exposicao-hedge-cambial", element: <DashboardPage kind="currencyExposure" />, module: "dashboard_currency_exposure" },
   { path: "/dashboard/simulacoes", element: <DashboardPage kind="simulations" />, module: "dashboard_simulations" },
   { path: "/dashboard/mtm", element: <DashboardPage kind="mtm" />, module: "dashboard_mtm" },
+  { path: "/mercado", element: <MercadoPage kind="fundPositions" />, module: "market_fund_positions" },
+  { path: "/mercado/posicao-de-fundos", element: <MercadoPage kind="fundPositions" />, module: "market_fund_positions" },
+  { path: "/mercado/cotacoes", element: <ResourcePage key="market-quotes" definition={resourceDefinitions.tradingviewWatchlistQuotes} />, module: "market_quotes" },
+  { path: "/mercado/blog-news", element: <MarketNewsPage />, module: "market_blog_news" },
+  { path: "/mercado/blog-news/:postId", element: <MarketNewsPage />, module: "market_blog_news" },
+  { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports" },
+  { path: "/mercado/basis", element: <MercadoPage kind="basis" />, module: "market_basis" },
+  { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates" },
+  { path: "/mercado/outros", element: <MercadoPage kind="others" />, module: "market_others" },
   { path: "/tenants", element: <ResourcePage key="tenants" definition={resourceDefinitions.tenants} />, module: "sys_tenants", superuserOnly: true },
   { path: "/grupos", element: <ResourcePage key="groups" definition={resourceDefinitions.groups} />, module: "cad_groups" },
   { path: "/subgrupos", element: <ResourcePage key="subgroups" definition={resourceDefinitions.subgroups} />, module: "cad_subgroups" },
@@ -101,6 +126,7 @@ export const appRoutes = [
   { path: "/safras", element: <ResourcePage key="seasons" definition={resourceDefinitions.seasons} />, module: "sys_seasons", superuserOnly: true },
   { path: "/contrapartes", element: <ResourcePage key="counterparties" definition={resourceDefinitions.counterparties} />, module: "cad_counterparties" },
   { path: "/cotacoes-fisico", element: <ResourcePage key="physical-quotes" definition={resourceDefinitions.physicalQuotes} />, module: "ops_physical_quotes" },
+  { path: "/tradingview-experimental", element: <ResourcePage key="tradingview-watchlist-quotes" definition={resourceDefinitions.tradingviewWatchlistQuotes} /> },
   { path: "/custo-orcamento", element: <ResourcePage key="budget-costs" definition={resourceDefinitions.budgetCosts} />, module: "ops_budget_costs" },
   { path: "/custo-realizado", element: <ResourcePage key="actual-costs" definition={resourceDefinitions.actualCosts} />, module: "ops_actual_costs" },
   { path: "/pgtos-fisico", element: <ResourcePage key="physical-payments" definition={resourceDefinitions.physicalPayments} />, module: "ops_physical_payments" },
@@ -115,13 +141,19 @@ export const appRoutes = [
     path: "/usuarios",
     element: <ResourcePage key="users" definition={resourceDefinitions.users} />,
     module: "sys_users",
-    allowedUserTypes: ["admin", "user_admin"],
+    allowedUserTypes: ["tenant_admin"],
   },
   {
-    path: "/convites",
-    element: <ResourcePage key="invitations" definition={resourceDefinitions.invitations} />,
+    path: "/convites-e-acessos",
+    element: <ResourcePage key="invite-access" definition={resourceDefinitions.inviteAccess} />,
     module: "sys_invites",
-    allowedUserTypes: ["admin", "user_admin"],
+    allowedUserTypes: ["tenant_admin"],
+  },
+  {
+    path: "/convites-admin",
+    element: <ResourcePage key="admin-invitations" definition={resourceDefinitions.adminInvitations} />,
+    module: "sys_admin_invites",
+    allowedUserTypes: ["invitation_tenants"],
   },
   { path: "/logs", element: <ResourcePage key="logs" definition={resourceDefinitions.logs} />, module: "sys_logs" },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true },
@@ -133,5 +165,5 @@ export function getAccessibleRoutePath(user) {
 }
 
 export function getRouteDefinition(pathname) {
-  return appRoutes.find((route) => route.path === pathname) || null;
+  return appRoutes.find((route) => Boolean(matchPath({ path: route.path, end: true }, pathname))) || null;
 }

@@ -55,11 +55,11 @@ export function useResourceCrud(resource, initialFilters = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = async () => {
+  const load = async (options = {}) => {
     setLoading(true);
     setError("");
     try {
-      const response = await resourceService.listAll(resource);
+      const response = await resourceService.listAll(resource, {}, options);
       setRows(response);
       setPagination({
         count: Array.isArray(response) ? response.length : 0,

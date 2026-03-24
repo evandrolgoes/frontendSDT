@@ -3,6 +3,20 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../services/api";
 
+const formatBrazilianPhone = (value) => {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+  if (!digits) {
+    return "";
+  }
+  if (digits.length <= 2) {
+    return `(${digits}`;
+  }
+  if (digits.length <= 7) {
+    return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  }
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
+
 const extractMessage = (error) => {
   const data = error?.response?.data;
   if (!data) {
@@ -52,6 +66,13 @@ export function InvitationSignupPage() {
           return;
         }
         setInvitation(data);
+        setForm({
+          full_name: "",
+          username: "",
+          phone: "",
+          password: "",
+          password_confirm: "",
+        });
       } catch (error) {
         if (!active) {
           return;
@@ -103,10 +124,6 @@ export function InvitationSignupPage() {
           {!loading && invitation ? (
             <div className="invite-signup-summary">
               <div className="field">
-                <label>Tenant</label>
-                <input value={invitation.tenant_name || ""} disabled />
-              </div>
-              <div className="field" style={{ marginTop: 12 }}>
                 <label>Email convidado</label>
                 <input value={invitation.email || ""} disabled />
               </div>
@@ -135,7 +152,7 @@ export function InvitationSignupPage() {
                 <input
                   id="invite_phone"
                   value={form.phone}
-                  onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+                  onChange={(event) => setForm((current) => ({ ...current, phone: formatBrazilianPhone(event.target.value) }))}
                 />
               </div>
               <div className="field" style={{ marginTop: 16 }}>
@@ -143,6 +160,7 @@ export function InvitationSignupPage() {
                 <input
                   id="invite_password"
                   type="password"
+                  autoComplete="new-password"
                   value={form.password}
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                 />
@@ -152,6 +170,7 @@ export function InvitationSignupPage() {
                 <input
                   id="invite_password_confirm"
                   type="password"
+                  autoComplete="new-password"
                   value={form.password_confirm}
                   onChange={(event) => setForm((current) => ({ ...current, password_confirm: event.target.value }))}
                 />

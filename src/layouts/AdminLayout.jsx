@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
 import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { getNavigationSections } from "../routes/routes";
+import { resourceService } from "../services/resourceService";
 
 function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
   return (
@@ -34,12 +35,15 @@ function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onCl
 
 export function AdminLayout({ children }) {
   const { user, logout } = useAuth();
+  const location = useLocation();
   const { filter, options, panelOpen, setPanelOpen, toggleFilterValue, updateFilter, clearFilter } = useDashboardFilter();
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
+  const [marketNewsCategories, setMarketNewsCategories] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState(() =>
     Object.fromEntries(navigationSections.map((section) => [section.label, false])),
   );
+  const [openItems, setOpenItems] = useState({});
   const filterSummary = useMemo(() => {
     const summarize = (values, source, labelKey, prefix) => {
       if (!values.length) return null;
@@ -79,6 +83,77 @@ export function AdminLayout({ children }) {
     });
   }, [navigationSections]);
 
+  useEffect(() => {
+    const hasBlogAccess = navigationSections.some((section) =>
+      section.items.some((item) => item.path === "/mercado/blog-news"),
+    );
+    if (!hasBlogAccess) {
+      setMarketNewsCategories([]);
+      return undefined;
+    }
+
+    let active = true;
+    const loadCategories = async (force = false) => {
+      try {
+        const items = await resourceService.listMarketNewsCategories({ force });
+        if (active) {
+          setMarketNewsCategories(Array.isArray(items) ? items : []);
+        }
+      } catch {
+        if (active) {
+          setMarketNewsCategories([]);
+        }
+      }
+    };
+
+    loadCategories();
+    const handleCategoriesChanged = () => loadCategories(true);
+    window.addEventListener("market-news-categories-changed", handleCategoriesChanged);
+    return () => {
+      active = false;
+      window.removeEventListener("market-news-categories-changed", handleCategoriesChanged);
+    };
+  }, [navigationSections]);
+
+  const navigationWithChildren = useMemo(
+    () =>
+      navigationSections.map((section) => ({
+        ...section,
+        items: section.items.map((item) =>
+          item.path === "/mercado/blog-news"
+            ? {
+                ...item,
+                children: marketNewsCategories.map((category) => ({
+                  path: `/mercado/blog-news?categoria=${encodeURIComponent(category)}`,
+                  label: category,
+                })),
+              }
+            : item,
+        ),
+      })),
+    [marketNewsCategories, navigationSections],
+  );
+
+  const isNavItemActive = (path) => {
+    const [pathname, search = ""] = String(path || "").split("?");
+    if (pathname === "/mercado/blog-news") {
+      const blogPathActive = location.pathname === pathname || location.pathname.startsWith("/mercado/blog-news/");
+      if (!blogPathActive) {
+        return false;
+      }
+      const currentSearch = location.search.startsWith("?") ? location.search.slice(1) : location.search;
+      return search ? currentSearch === search : true;
+    }
+    if (location.pathname !== pathname) {
+      return false;
+    }
+    const currentSearch = location.search.startsWith("?") ? location.search.slice(1) : location.search;
+    if (!search) {
+      return pathname === "/mercado/blog-news" ? !currentSearch : true;
+    }
+    return currentSearch === search;
+  };
+
   return (
     <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <button
@@ -95,7 +170,7 @@ export function AdminLayout({ children }) {
             <h1>Hedge Position</h1>
           </div>
           <nav className="sidebar-sections">
-            {navigationSections.map((section) => (
+            {navigationWithChildren.map((section) => (
               <div className="nav-section" key={section.label}>
                 <button
                   type="button"
@@ -113,13 +188,55 @@ export function AdminLayout({ children }) {
                 {openSections[section.label] ? (
                   <div className="nav-list">
                     {section.items.map((item) => (
-                      <NavLink
-                        key={item.path}
-                        to={item.path}
-                        className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
-                      >
-                        {item.label}
-                      </NavLink>
+                      <div className="nav-item-group" key={item.path}>
+                        {Array.isArray(item.children) && item.children.length ? (
+                          <>
+                            <div className={`nav-item nav-item-expandable${isNavItemActive(item.path) ? " active" : ""}`}>
+                              <NavLink
+                                to={item.path}
+                                className={() => "nav-item-link"}
+                                onClick={() =>
+                                  setOpenItems((current) => ({
+                                    ...current,
+                                    [item.path]: !current[item.path],
+                                  }))
+                                }
+                              >
+                                {item.label}
+                              </NavLink>
+                              <button
+                                type="button"
+                                className="nav-item-expand-toggle"
+                                onClick={() =>
+                                  setOpenItems((current) => ({
+                                    ...current,
+                                    [item.path]: !current[item.path],
+                                  }))
+                                }
+                              >
+                                {openItems[item.path] ? "−" : "+"}
+                              </button>
+                            </div>
+                            {openItems[item.path] ? (
+                              <div className="nav-sublist">
+                                {item.children.map((child) => (
+                                  <NavLink
+                                    key={child.path}
+                                    to={child.path}
+                                    className={() => `nav-item nav-item-subitem${isNavItemActive(child.path) ? " active" : ""}`}
+                                  >
+                                    {child.label}
+                                  </NavLink>
+                                ))}
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <NavLink to={item.path} className={() => `nav-item${isNavItemActive(item.path) ? " active" : ""}`}>
+                            {item.label}
+                          </NavLink>
+                        )}
+                      </div>
                     ))}
                   </div>
                 ) : null}
