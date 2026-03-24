@@ -17,7 +17,11 @@ const toFormData = (payload) => {
       return;
     }
     if (Array.isArray(value)) {
-      value.forEach((item) => formData.append(key, item));
+      if (value.some((item) => isFile(item))) {
+        value.forEach((item) => formData.append(key, item));
+        return;
+      }
+      formData.append(key, JSON.stringify(value));
       return;
     }
     formData.append(key, value);
