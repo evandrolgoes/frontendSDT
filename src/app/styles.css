@@ -3518,6 +3518,9 @@ th {
   margin: 0;
   font-size: 0.88rem;
   color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .market-news-detail {
