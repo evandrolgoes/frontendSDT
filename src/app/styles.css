@@ -7299,10 +7299,7 @@ th {
   min-width: 0;
   min-height: min(72vh, 760px);
   padding: 16px 18px;
-  border: 1px solid var(--border);
   border-radius: 16px;
-  background: #f8fafc;
-  color: #0f172a;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.95rem;
   line-height: 1.5;
@@ -7664,11 +7661,9 @@ th {
 }
 
 .derivative-bulk-import-row-count {
-  border: 1px solid #d7dce2;
-  border-radius: 3px;
-  padding: 4px 8px;
+  min-width: 112px;
+  padding: 8px 10px;
   font-size: 11px;
-  background: #fff;
   color: #334155;
 }
 
@@ -7816,16 +7811,22 @@ th {
   left: 0;
   z-index: 5;
   min-width: 100%;
-  background: #fff;
-  border: 1px solid #16a34a;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(22, 163, 74, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12);
 }
 
 .derivative-sheet-dropdown-select {
   width: 100%;
-  border: 0;
-  padding: 4px;
+  min-width: 220px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 8px 10px;
   font-size: 11px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.96);
+  color: #0f172a;
 }
 
 .derivative-sheet-dropdown-select:focus {

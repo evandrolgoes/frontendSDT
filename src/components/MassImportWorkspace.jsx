@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
 import { isBrazilianDate, parseBrazilianDate } from "../utils/date";
@@ -24,6 +25,7 @@ const normalizeDescriptionBase = (value) =>
 
 const isSelectLikeField = (field) => ["select", "relation", "contract", "boolean"].includes(field?.type);
 const generateRandomOperationCode = () => `DRV-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+const toDefinitionKey = (value) => String(value || "").replace(/-([a-z])/g, (_match, char) => char.toUpperCase());
 
 const buildRowDefaults = (resource, baseDefaults = {}) => ({
   ...baseDefaults,
@@ -86,7 +88,20 @@ const normalizeDateValue = (value) => {
 };
 
 const getOptionLabel = (field, option) =>
-  option?.[field.labelKey || "nome"] || option?.nome || option?.label || option?.obs || option?.subgrupo || option?.grupo || `#${option?.id ?? ""}`;
+  option?.[field.labelKey || "nome"] ||
+  option?.nome ||
+  option?.name ||
+  option?.title ||
+  option?.label ||
+  option?.username ||
+  option?.email ||
+  option?.obs ||
+  option?.descricao_estrategia ||
+  option?.subgrupo ||
+  option?.grupo ||
+  option?.safra ||
+  option?.ativo ||
+  `#${option?.id ?? ""}`;
 
 const getFieldOptions = (field, lookupOptions, tradingviewQuotes, row) => {
   if (field.type === "contract") {
@@ -104,10 +119,35 @@ const getFieldOptions = (field, lookupOptions, tradingviewQuotes, row) => {
 
   if (!field.resource) return [];
 
-  return (lookupOptions[field.resource] || []).map((option) => ({
-    value: String(option[field.valueKey || "id"] ?? option.id ?? ""),
-    label: getOptionLabel(field, option),
-  }));
+  return (lookupOptions[field.resource] || [])
+    .map((option) => ({
+      value: String(option[field.valueKey || "id"] ?? option.id ?? ""),
+      label: getOptionLabel(field, option),
+    }))
+    .filter((option) => String(option.value || "").trim() && String(option.label || "").trim());
+};
+
+const mergeMetadataFields = (resource, metadataFields) => {
+  const definition = resourceDefinitions[toDefinitionKey(resource)] || null;
+  const definitionFields = [...(definition?.fields || []), ...(definition?.editFields || []), ...(definition?.detailFields || [])];
+  const definitionColumns = definition?.columns || [];
+  const mappedDefinitionFields = Object.fromEntries(definitionFields.map((field) => [field.name, field]));
+  const mappedColumns = Object.fromEntries(definitionColumns.map((field) => [field.key, field]));
+
+  return (metadataFields || []).map((field) => {
+    const definitionField = mappedDefinitionFields[field.name] || mappedColumns[field.name] || {};
+    return {
+      ...field,
+      ...definitionField,
+      name: field.name,
+      label: definitionField.label || field.label,
+      type: definitionField.type || field.type,
+      resource: definitionField.resource || field.resource,
+      options: definitionField.options || field.options,
+      labelKey: definitionField.labelKey || field.labelKey,
+      valueKey: definitionField.valueKey || field.valueKey,
+    };
+  });
 };
 
 const findSelectValue = (field, rawValue, lookupOptions, tradingviewQuotes, row) => {
@@ -222,7 +262,7 @@ export function MassImportWorkspace() {
       setNotice("");
       try {
         const { data } = await api.get("/mass-import/metadata/", { params: { resource } });
-        const metadataFields = Array.isArray(data?.fields) ? data.fields : [];
+        const metadataFields = mergeMetadataFields(resource, Array.isArray(data?.fields) ? data.fields : []);
         const lookupResources = [...new Set(metadataFields.map((field) => field.resource).filter(Boolean))];
         const needsContracts = metadataFields.some((field) => field.type === "contract");
         const [lookupEntries, quoteItems] = await Promise.all([
@@ -231,7 +271,7 @@ export function MassImportWorkspace() {
         ]);
         if (!active) return;
         const defaults = buildRowDefaults(resource);
-        setFields(metadataFields.map((field) => ({ ...field, labelKey: field.labelKey, valueKey: field.valueKey })));
+        setFields(metadataFields);
         setResourceLabel(data?.label || resources.find((item) => item.value === resource)?.label || resource);
         setLookupOptions(Object.fromEntries(lookupEntries));
         setTradingviewQuotes(Array.isArray(quoteItems) ? quoteItems : []);
@@ -501,7 +541,7 @@ export function MassImportWorkspace() {
         <div className="mass-update-grid">
           <label className="form-field">
             <span>Base de dados</span>
-            <select value={resource} onChange={(event) => setResource(event.target.value)} disabled={loadingResources}>
+            <select className="form-control" value={resource} onChange={(event) => setResource(event.target.value)} disabled={loadingResources}>
               {resources.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -519,7 +559,7 @@ export function MassImportWorkspace() {
           </div>
           <div className="derivative-bulk-import-actions">
             <select
-              className="derivative-bulk-import-row-count"
+              className="form-control derivative-bulk-import-row-count"
               value={String(rowCount)}
               onChange={(event) => {
                 const nextCount = Number(event.target.value) || DEFAULT_VISIBLE_ROWS;

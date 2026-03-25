@@ -5,7 +5,7 @@ import { api } from "../services/api";
 export function JsonImportPage() {
   const mappingSectionRef = useRef(null);
   const [rawJson, setRawJson] = useState("");
-  const [databaseTarget, setDatabaseTarget] = useState("local");
+  const [databaseTarget, setDatabaseTarget] = useState("");
   const [databaseTargets, setDatabaseTargets] = useState([]);
   const [destination, setDestination] = useState("derivatives");
   const [destinationOptions, setDestinationOptions] = useState([]);
@@ -156,6 +156,7 @@ export function JsonImportPage() {
           <label className="form-field">
             <span>Banco de destino</span>
             <select
+              className="form-control"
               value={databaseTarget}
               onChange={(event) => setDatabaseTarget(event.target.value)}
               disabled={loadingMetadata}
@@ -171,6 +172,7 @@ export function JsonImportPage() {
           <label className="form-field">
             <span>Tabela de destino</span>
             <select
+              className="form-control"
               value={destination}
               onChange={(event) => {
                 setDestination(event.target.value);
@@ -192,7 +194,7 @@ export function JsonImportPage() {
         <label className="form-field json-import-raw-field">
           <span>JSON bruto</span>
           <textarea
-            className="json-import-textarea"
+            className="json-import-textarea form-control"
             value={rawJson}
             onChange={(event) => setRawJson(event.target.value)}
             rows={18}
@@ -250,6 +252,7 @@ export function JsonImportPage() {
                 <strong>{field.sourceField}</strong>
                 <code>{Array.isArray(field.sampleValue) ? JSON.stringify(field.sampleValue) : String(field.sampleValue ?? "")}</code>
                 <select
+                  className="form-control"
                   value={mapping[field.sourceField] || "ignore"}
                   onChange={(event) =>
                     setMapping((current) => ({
