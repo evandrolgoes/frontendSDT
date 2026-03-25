@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { formatBrazilianDate, isBrazilianDate, isIsoDate } from "../utils/date";
+import { formatBrazilianDate, formatBrazilianDateTime, isBrazilianDate, isIsoDate } from "../utils/date";
 
-const DEFAULT_FILTER = { values: [], min: "", max: "" };
+const DEFAULT_FILTER = { values: [], min: "", max: "", query: "" };
 const isBrDate = (value) => isBrazilianDate(value);
+
+const FILTER_ICON = (
+  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <path
+      d="M2 3.25C2 2.56 2.56 2 3.25 2h9.5C13.44 2 14 2.56 14 3.25c0 .3-.11.59-.31.82L10 8.2v3.05c0 .36-.19.69-.5.87l-2 1.14A1 1 0 0 1 6 12.39V8.2L2.31 4.07A1.25 1.25 0 0 1 2 3.25Z"
+      fill="currentColor"
+    />
+  </svg>
+);
 
 const normalizeLocalizedNumber = (value) => {
   if (value === null || value === undefined) {
@@ -118,7 +127,7 @@ const parseValue = (value, type) => {
   if (type === "number") {
     return toNumberLoose(value);
   }
-  if (type === "date") {
+  if (type === "date" || type === "datetime") {
     return parseDate(value);
   }
   if (type === "boolean") {
@@ -139,6 +148,7 @@ const formatNumber = (value, fixed = 4) => {
 };
 
 const formatDate = (value) => formatBrazilianDate(value, "—");
+const formatDateTime = (value) => formatBrazilianDateTime(value, "—");
 
 const formatPhone = (value) => {
   const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
@@ -197,6 +207,9 @@ const formatCellValue = (column, value, row) => {
   if (type === "date") {
     return formatDate(value);
   }
+  if (type === "datetime") {
+    return formatDateTime(value);
+  }
   if (column.key === "phone" || String(column.label || "").trim().toLowerCase() === "telefone") {
     return formatPhone(value);
   }
@@ -213,7 +226,6 @@ const formatCellValue = (column, value, row) => {
 };
 
 export function DataTable({
-  title,
   rows,
   columns,
   searchValue,
@@ -230,7 +242,6 @@ export function DataTable({
   getRowClassName,
   rowQuickActions = [],
   toolbarActions = [],
-  showTitleButton = true,
   showClearButton = true,
   tableHeight = null,
 }) {
@@ -303,17 +314,18 @@ export function DataTable({
         const rawValue = Array.isArray(row[key]) ? row[key].join(", ") : row[key];
         const type = column.detectedType;
 
-        if (type === "number" || type === "date") {
+        if (type === "number" || type === "date" || type === "datetime") {
           const current = parseValue(rawValue, type);
           const min = config.min !== "" ? parseValue(config.min, type) : -Infinity;
           const max = config.max !== "" ? parseValue(config.max, type) : Infinity;
           return current >= min && current <= max;
         }
 
-        if (!config.values?.length) {
-          return true;
-        }
-        return config.values.includes(String(rawValue ?? ""));
+        const normalizedValue = String(rawValue ?? "").toLowerCase();
+        const query = String(config.query ?? "").trim().toLowerCase();
+        const matchesQuery = !query || normalizedValue.includes(query);
+        const matchesSelection = !config.values?.length || config.values.includes(String(rawValue ?? ""));
+        return matchesQuery && matchesSelection;
       });
     });
 
@@ -377,6 +389,22 @@ export function DataTable({
     );
   }, [filteredRows, preparedColumns, selectedIds, weightKey]);
 
+  const hasActiveFilters = useMemo(() => {
+    if (String(searchValue || "").trim() !== "") {
+      return true;
+    }
+
+    return Object.values(columnFilters).some((config) =>
+      Boolean(
+        config &&
+          ((config.values && config.values.length > 0) ||
+            config.min !== "" ||
+            config.max !== "" ||
+            String(config.query || "").trim() !== ""),
+      ),
+    );
+  }, [columnFilters, searchValue]);
+
   const toggleSelection = (rowId) => {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -418,12 +446,7 @@ export function DataTable({
               {action.label}
             </button>
           ))}
-          {showTitleButton ? (
-            <button className="bubble-btn bubble-btn-light" type="button">
-              {title}
-            </button>
-          ) : null}
-          {showClearButton ? (
+          {showClearButton && hasActiveFilters ? (
             <button
               className="bubble-btn bubble-btn-danger"
               type="button"
@@ -485,11 +508,17 @@ export function DataTable({
                   onClick={(event) => {
                     event.stopPropagation();
                     const current = columnFilters[column.key] || DEFAULT_FILTER;
-                    setTempFilter({ values: [...(current.values || [])], min: current.min || "", max: current.max || "" });
+                    setTempFilter({
+                      values: [...(current.values || [])],
+                      min: current.min || "",
+                      max: current.max || "",
+                      query: current.query || "",
+                    });
                     setActivePopover((openKey) => (openKey === column.key ? null : column.key));
                   }}
+                  aria-label={`Filtrar coluna ${column.label}`}
                 >
-                  F
+                  <span className="bubble-filter-icon">{FILTER_ICON}</span>
                 </button>
                 {activePopover === column.key ? (
                   <div className="bubble-popover" onClick={(event) => event.stopPropagation()}>
@@ -512,25 +541,36 @@ export function DataTable({
                         />
                       </div>
                     ) : (
-                      <div className="bubble-filter-options custom-scrollbar">
-                        {getUniqueValues(rows, column.key).map((value) => (
-                          <label className="bubble-checkline" key={value}>
-                            <input
-                              type="checkbox"
-                              checked={tempFilter.values.includes(value)}
-                              onChange={(event) =>
-                                setTempFilter((current) => ({
-                                  ...current,
-                                  values: event.target.checked
-                                    ? [...current.values, value]
-                                    : current.values.filter((item) => item !== value),
-                                }))
-                              }
-                            />
-                            <span>{value || "Vazio"}</span>
-                          </label>
-                        ))}
-                      </div>
+                      <>
+                        <input
+                          className="bubble-filter-search"
+                          type="text"
+                          placeholder="Digite para filtrar"
+                          value={tempFilter.query}
+                          onChange={(event) => setTempFilter((current) => ({ ...current, query: event.target.value }))}
+                        />
+                        <div className="bubble-filter-options custom-scrollbar">
+                          {getUniqueValues(rows, column.key)
+                            .filter((value) => value.toLowerCase().includes(tempFilter.query.trim().toLowerCase()))
+                            .map((value) => (
+                              <label className="bubble-checkline" key={value}>
+                                <input
+                                  type="checkbox"
+                                  checked={tempFilter.values.includes(value)}
+                                  onChange={(event) =>
+                                    setTempFilter((current) => ({
+                                      ...current,
+                                      values: event.target.checked
+                                        ? [...current.values, value]
+                                        : current.values.filter((item) => item !== value),
+                                    }))
+                                  }
+                                />
+                                <span>{value || "Vazio"}</span>
+                              </label>
+                            ))}
+                        </div>
+                      </>
                     )}
                     <div className="bubble-popover-actions">
                       <button
@@ -551,11 +591,30 @@ export function DataTable({
                         className="bubble-btn bubble-btn-primary"
                         type="button"
                         onClick={() => {
-                          setColumnFilters((current) => ({ ...current, [column.key]: { ...tempFilter } }));
+                          const nextFilter = {
+                            values: [...(tempFilter.values || [])],
+                            min: tempFilter.min || "",
+                            max: tempFilter.max || "",
+                            query: tempFilter.query || "",
+                          };
+                          const hasActiveFilter =
+                            nextFilter.values.length > 0 ||
+                            nextFilter.min !== "" ||
+                            nextFilter.max !== "" ||
+                            nextFilter.query.trim() !== "";
+
+                          setColumnFilters((current) => {
+                            if (!hasActiveFilter) {
+                              const next = { ...current };
+                              delete next[column.key];
+                              return next;
+                            }
+                            return { ...current, [column.key]: nextFilter };
+                          });
                           setActivePopover(null);
                         }}
                       >
-                        QUERO UMA VAGA
+                        Aplicar
                       </button>
                     </div>
                   </div>

@@ -8,7 +8,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useResourceCrud } from "../hooks/useResourceCrud";
 import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
-import { formatBrazilianDate } from "../utils/date";
+import { formatBrazilianDate, formatBrazilianDateTime } from "../utils/date";
 
 const TRADINGVIEW_REFRESH_MS = 60000;
 
@@ -218,6 +218,22 @@ const formatSimpleTableValue = (column, value) => {
   if (column.type === "date") {
     return formatBrazilianDate(value, "—");
   }
+  if (column.type === "datetime") {
+    return formatBrazilianDateTime(value, "—");
+  }
+  return String(value);
+};
+
+const formatAuditChangeValue = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return "—";
+  }
+  if (Array.isArray(value)) {
+    return value.length ? value.join(", ") : "—";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
   return String(value);
 };
 
@@ -393,9 +409,12 @@ const openTradingviewPopupWindow = (url) => {
 
 export function ResourcePage({ definition }) {
   const { user, impersonate, refreshProfile } = useAuth();
-  const { rows, loading, load, save, remove, filters, setFilters, error, setError } = useResourceCrud(definition.resource, {
-    page: 1,
-  });
+  const isAuditLogResource = definition.resource === "audit-logs";
+  const { rows, loading, load, save, remove, upsertRows, removeRowsById, filters, setFilters, error, setError } = useResourceCrud(
+    definition.resource,
+    { page: 1 },
+    { autoload: !isAuditLogResource },
+  );
   const [current, setCurrent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [detailItem, setDetailItem] = useState(null);
@@ -413,6 +432,18 @@ export function ResourcePage({ definition }) {
   const [isMarqueeInteracting, setIsMarqueeInteracting] = useState(false);
   const [isMarqueeHovered, setIsMarqueeHovered] = useState(false);
   const [isPendingAccessOpen, setIsPendingAccessOpen] = useState(false);
+  const [lookupOptions, setLookupOptions] = useState({});
+  const [logFilters, setLogFilters] = useState({
+    tenant: "",
+    user: "",
+    action: "",
+    formulario: "",
+    objectId: "",
+    createdAtFrom: "",
+    createdAtTo: "",
+    search: "",
+  });
+  const [hasAppliedLogFilters, setHasAppliedLogFilters] = useState(false);
   const tableColumns = useMemo(() => buildTableColumns(definition), [definition]);
   const supportsAccessWorkflow = definition.resource === "groups" || definition.resource === "subgroups";
   const summaryCards = useMemo(() => {
@@ -666,7 +697,37 @@ export function ResourcePage({ definition }) {
     setPendingAccessRequests([]);
     setIsPendingAccessOpen(false);
     setError("");
+    setLogFilters({
+      tenant: "",
+      user: "",
+      action: "",
+      formulario: "",
+      objectId: "",
+      createdAtFrom: "",
+      createdAtTo: "",
+      search: "",
+    });
+    setHasAppliedLogFilters(false);
   }, [definition.resource, setError]);
+
+  const hasAnyLogFilter = useMemo(
+    () =>
+      Object.values(logFilters).some((value) => String(value || "").trim() !== ""),
+    [logFilters],
+  );
+
+  const buildAuditLogParams = () => {
+    const params = {};
+    if (logFilters.tenant) params.tenant = logFilters.tenant;
+    if (logFilters.user) params.user = logFilters.user;
+    if (logFilters.action) params.action = logFilters.action;
+    if (logFilters.formulario) params.formulario = logFilters.formulario;
+    if (logFilters.objectId) params.object_id = logFilters.objectId;
+    if (logFilters.createdAtFrom) params.created_at_from = logFilters.createdAtFrom;
+    if (logFilters.createdAtTo) params.created_at_to = logFilters.createdAtTo;
+    if (logFilters.search) params.search = logFilters.search;
+    return params;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -958,6 +1019,53 @@ export function ResourcePage({ definition }) {
   }, [definition.customForm, tableColumns, editingDerivativeStrike, editingDerivativeStrikeInput, definition.resource]);
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
   const useSimpleQuotesTable = definition.resource === "tradingview-watchlist-quotes";
+  const logActionOptions = [
+    { value: "", label: "Todas" },
+    { value: "criado", label: "Criado" },
+    { value: "alterado", label: "Alterado" },
+    { value: "excluido", label: "Excluido" },
+  ];
+  const logFormOptions = useMemo(() => {
+    const values = [...new Set(rows.map((item) => String(item?.formulario || "").trim()).filter(Boolean))].sort((left, right) =>
+      left.localeCompare(right, "pt-BR"),
+    );
+
+    if (logFilters.formulario && !values.includes(logFilters.formulario)) {
+      values.unshift(logFilters.formulario);
+    }
+
+    return [{ value: "", label: "Todos" }, ...values.map((value) => ({ value, label: value }))];
+  }, [logFilters.formulario, rows]);
+
+  useEffect(() => {
+    if (!isAuditLogResource) {
+      return;
+    }
+
+    let active = true;
+    const resourcesToLoad = user?.is_superuser ? ["users", "tenants"] : ["users"];
+
+    const loadLogLookups = async () => {
+      try {
+        const results = await Promise.all(
+          resourcesToLoad.map(async (resourceName) => [resourceName, await resourceService.listAll(resourceName)]),
+        );
+        if (active) {
+          setLookupOptions((currentState) => ({ ...currentState, ...Object.fromEntries(results) }));
+        }
+      } catch {
+        if (active) {
+          setLookupOptions((currentState) => ({ ...currentState, users: [], tenants: [] }));
+        }
+      }
+    };
+
+    loadLogLookups();
+    return () => {
+      active = false;
+    };
+  }, [isAuditLogResource, user?.is_superuser]);
+
   const rowQuickActions = useMemo(() => {
     if (definition.resource !== "users" || definition.enableRunActions === false) {
       return [];
@@ -1183,7 +1291,7 @@ export function ResourcePage({ definition }) {
       for (const item of items) {
         await resourceService.remove(definition.resource, item.id);
       }
-      await load();
+      removeRowsById(items.map((item) => item.id));
       await refreshProfile();
     } catch (requestError) {
       setError(requestError?.response?.data?.detail || "Nao foi possivel excluir as linhas selecionadas.");
@@ -1210,6 +1318,34 @@ export function ResourcePage({ definition }) {
       },
     ];
   }, [definition.requestAccessLabel, supportsAccessWorkflow]);
+
+  const handleApplyLogFilters = async () => {
+    if (!hasAnyLogFilter) {
+      setError("Aplique pelo menos um filtro antes de abrir a tabela de log.");
+      setHasAppliedLogFilters(false);
+      return;
+    }
+    setError("");
+    setHasAppliedLogFilters(true);
+    await load({ params: buildAuditLogParams(), force: true });
+  };
+
+  const handleClearLogFilters = () => {
+    setLogFilters({
+      tenant: "",
+      user: "",
+      action: "",
+      formulario: "",
+      objectId: "",
+      createdAtFrom: "",
+      createdAtTo: "",
+      search: "",
+    });
+    setHasAppliedLogFilters(false);
+    setFilters({ page: 1, search: "" });
+    setCurrent(null);
+    setError("");
+  };
 
   const handleSubmitAccessRequest = async () => {
     const names = accessRequestValues.map((item) => item.trim()).filter(Boolean);
@@ -1330,7 +1466,140 @@ export function ResourcePage({ definition }) {
           </div>
         </section>
       ) : null}
-      {useSimpleQuotesTable ? (
+      {isAuditLogResource ? (
+        <section className="audit-log-filters-card">
+          <div className="form-header audit-log-filters-head">
+            <div>
+              <h3>Filtros do Log</h3>
+              <div className="muted">A tabela so sera carregada depois que pelo menos um filtro for aplicado.</div>
+            </div>
+            <div className="audit-log-filters-actions">
+              <button type="button" className="bubble-btn bubble-btn-light" onClick={handleClearLogFilters}>
+                Limpar
+              </button>
+              <button
+                type="button"
+                className="bubble-btn bubble-btn-primary"
+                onClick={handleApplyLogFilters}
+                disabled={loading || !hasAnyLogFilter}
+              >
+                {loading ? "Filtrando..." : "Aplicar filtros"}
+              </button>
+            </div>
+          </div>
+          <div className="form-grid audit-log-filters-grid">
+            {user?.is_superuser ? (
+              <div className="field">
+                <label htmlFor="audit-log-tenant">Tenant</label>
+                <select
+                  id="audit-log-tenant"
+                  className="form-control"
+                  value={logFilters.tenant}
+                  onChange={(event) => setLogFilters((currentState) => ({ ...currentState, tenant: event.target.value }))}
+                >
+                  <option value="">Todos</option>
+                  {(lookupOptions.tenants || []).map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            <div className="field">
+              <label htmlFor="audit-log-user">Alterado por</label>
+              <select
+                id="audit-log-user"
+                className="form-control"
+                value={logFilters.user}
+                onChange={(event) => setLogFilters((currentState) => ({ ...currentState, user: event.target.value }))}
+              >
+                <option value="">Todos</option>
+                {(lookupOptions.users || []).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.full_name || item.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="audit-log-action">Acao</label>
+              <select
+                id="audit-log-action"
+                className="form-control"
+                value={logFilters.action}
+                onChange={(event) => setLogFilters((currentState) => ({ ...currentState, action: event.target.value }))}
+              >
+                {logActionOptions.map((item) => (
+                  <option key={item.value || "all"} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="audit-log-formulario">Formulario</label>
+              <select
+                id="audit-log-formulario"
+                className="form-control"
+                value={logFilters.formulario}
+                onChange={(event) => setLogFilters((currentState) => ({ ...currentState, formulario: event.target.value }))}
+              >
+                {logFormOptions.map((item) => (
+                  <option key={item.value || "all"} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="audit-log-object-id">ID alterado</label>
+              <input
+                id="audit-log-object-id"
+                className="form-control"
+                type="number"
+                min="1"
+                value={logFilters.objectId}
+                onChange={(event) => setLogFilters((currentState) => ({ ...currentState, objectId: event.target.value }))}
+                placeholder="Ex.: 15"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="audit-log-created-at-from">Data inicial</label>
+              <input
+                id="audit-log-created-at-from"
+                className="form-control"
+                type="date"
+                value={logFilters.createdAtFrom}
+                onChange={(event) => setLogFilters((currentState) => ({ ...currentState, createdAtFrom: event.target.value }))}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="audit-log-created-at-to">Data final</label>
+              <input
+                id="audit-log-created-at-to"
+                className="form-control"
+                type="date"
+                value={logFilters.createdAtTo}
+                onChange={(event) => setLogFilters((currentState) => ({ ...currentState, createdAtTo: event.target.value }))}
+              />
+            </div>
+            <div className="field field-full">
+              <label htmlFor="audit-log-search">Busca textual</label>
+              <input
+                id="audit-log-search"
+                className="form-control"
+                type="text"
+                value={logFilters.search}
+                onChange={(event) => setLogFilters((currentState) => ({ ...currentState, search: event.target.value }))}
+                placeholder="Descricao ou formulario"
+              />
+            </div>
+          </div>
+          {!hasAppliedLogFilters ? <div className="audit-log-filters-hint field-help">Nenhum registro sera exibido ate que voce aplique os filtros.</div> : null}
+        </section>
+      ) : null}
+      {isAuditLogResource && !hasAppliedLogFilters ? null : useSimpleQuotesTable ? (
         <SimpleQuotesTable
           title={loading ? `${definition.title} carregando...` : definition.title}
           columns={effectiveTableColumns}
@@ -1359,13 +1628,12 @@ export function ResourcePage({ definition }) {
           }}
           onEdit={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : handleEdit}
           onDuplicate={definition.readonly || definition.allowDuplicate === false ? undefined : handleDuplicate}
-          onDelete={definition.readonly || definition.allowDelete === false || !user?.is_superuser ? undefined : handleDelete}
-          onDeleteSelected={definition.readonly || definition.allowDelete === false || !user?.is_superuser ? undefined : handleDeleteSelected}
+          onDelete={definition.allowDelete === false || !user?.is_superuser || (definition.readonly && definition.allowDelete !== true) ? undefined : handleDelete}
+          onDeleteSelected={definition.allowDelete === false || !user?.is_superuser || (definition.readonly && definition.allowDelete !== true) ? undefined : handleDeleteSelected}
           onRowClick={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : undefined}
           selectedId={current?.id}
           rowQuickActions={rowQuickActions}
           toolbarActions={toolbarActions}
-          showTitleButton={definition.showTitleButton !== false}
           showClearButton={definition.showClearButton !== false}
           tableHeight={definition.tableHeight}
           getRowClassName={
@@ -1401,6 +1669,8 @@ export function ResourcePage({ definition }) {
             const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "attachments" && key !== "itens"));
             const itemPayloads = Array.isArray(payload.itens) ? payload.itens : [];
             let primaryRecord = null;
+            const savedRows = [];
+            const removedIds = [];
 
             if (current?.id) {
               const existingRows = siblingRows.length ? siblingRows : rows.filter((row) => row.cod_operacao_mae === current.cod_operacao_mae);
@@ -1426,12 +1696,14 @@ export function ResourcePage({ definition }) {
 
                 if (existingRow?.id) {
                   const updated = await resourceService.update(definition.resource, existingRow.id, rowPayload);
+                  savedRows.push(updated);
                   keepIds.push(updated.id);
                   if (!primaryRecord || updated.id === current.id) {
                     primaryRecord = updated;
                   }
                 } else {
                   const created = await resourceService.create(definition.resource, rowPayload);
+                  savedRows.push(created);
                   keepIds.push(created.id);
                   if (!primaryRecord) {
                     primaryRecord = created;
@@ -1442,6 +1714,7 @@ export function ResourcePage({ definition }) {
               const removableRows = existingRows.filter((row) => !keepIds.includes(row.id));
               for (const removableRow of removableRows) {
                 await resourceService.remove(definition.resource, removableRow.id);
+                removedIds.push(removableRow.id);
               }
             } else {
               for (let index = 0; index < itemPayloads.length; index += 1) {
@@ -1460,13 +1733,18 @@ export function ResourcePage({ definition }) {
                   volume: itemPayload.volume,
                   volume_financeiro_valor_moeda_original: itemPayload.volume_financeiro_valor_moeda_original,
                 });
+                savedRows.push(created);
                 if (!primaryRecord) {
                   primaryRecord = created;
                 }
               }
             }
-
-            await load();
+            if (savedRows.length) {
+              upsertRows(savedRows);
+            }
+            if (removedIds.length) {
+              removeRowsById(removedIds);
+            }
             await refreshProfile();
 
             if (primaryRecord) {
@@ -1637,11 +1915,39 @@ export function ResourcePage({ definition }) {
             </div>
             <div className="form-grid">
               {(definition.detailFields || []).map((field) => (
-                <div className={`field${field.type === "textarea" ? " field-full" : ""}`} key={field.name}>
+                <div
+                  className={`field${
+                    field.type === "textarea" || (definition.resource === "audit-logs" && field.name === "description") ? " field-full" : ""
+                  }`}
+                  key={field.name}
+                >
                   <label>{field.label}</label>
                   <div className="detail-value">
-                    {field.type === "date"
+                    {definition.resource === "audit-logs" && field.name === "description" && Array.isArray(detailItem.alteracoes) && detailItem.alteracoes.length ? (
+                      <div className="table-wrapper audit-log-detail-table">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Campo</th>
+                              <th>De</th>
+                              <th>Para</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detailItem.alteracoes.map((item, index) => (
+                              <tr key={`${item?.campo || "campo"}-${index}`}>
+                                <td>{formatAuditChangeValue(item?.campo)}</td>
+                                <td>{formatAuditChangeValue(item?.de)}</td>
+                                <td>{formatAuditChangeValue(item?.para)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : field.type === "date"
                       ? formatBrazilianDate(detailItem[field.name], "—")
+                      : field.type === "datetime"
+                        ? formatBrazilianDateTime(detailItem[field.name], "—")
                       : field.name === "phone" || String(field.label || "").trim().toLowerCase() === "telefone"
                         ? formatBrazilianPhone(detailItem[field.name])
                         : (detailItem[field.name] || "—")}

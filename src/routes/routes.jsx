@@ -1,6 +1,7 @@
 import { DashboardPage } from "../pages/DashboardPage";
 import { DerivativeOperationsPage } from "../pages/DerivativeOperationsPage";
 import { JsonImportPage } from "../pages/JsonImportPage";
+import { MassImportPage } from "../pages/MassImportPage";
 import { MassUpdatePage } from "../pages/MassUpdatePage";
 import { MercadoPage } from "../pages/MercadoPage";
 import { MarketNewsPage } from "../pages/MarketNewsPage";
@@ -63,12 +64,13 @@ const baseNavigationSections = [
       { path: "/usuarios", label: "Usuarios", module: "sys_users", allowedUserTypes: ["tenant_admin"] },
       { path: "/convites-e-acessos", label: "Convites e acessos", module: "sys_invites", allowedUserTypes: ["tenant_admin"] },
       { path: "/convites-admin", label: "Convites (Admin)", module: "sys_admin_invites", allowedUserTypes: ["invitation_tenants"] },
-      { path: "/logs", label: "Log", module: "sys_logs" },
     ],
   },
   {
     label: "Ferramentas",
     items: [
+      { path: "/logs", label: "Log", module: "sys_logs" },
+      { path: "/importacao-em-massa", label: "Importacao em Massa", module: "sys_mass_update", superuserOnly: true },
       { path: "/alteracao-em-massa", label: "Alteracao em Massa", module: "sys_mass_update", superuserOnly: true },
       { path: "/importador-json", label: "Importador JSON", module: "sys_json_import", superuserOnly: true },
     ],
@@ -165,6 +167,7 @@ export const appRoutes = [
     allowedUserTypes: ["invitation_tenants"],
   },
   { path: "/logs", element: <ResourcePage key="logs" definition={resourceDefinitions.logs} />, module: "sys_logs" },
+  { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true },
   { path: "/alteracao-em-massa", element: <MassUpdatePage />, module: "sys_mass_update", superuserOnly: true },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true },
 ];

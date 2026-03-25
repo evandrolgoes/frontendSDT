@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { DataTable } from "../components/DataTable";
-import { DerivativeBulkImportModal } from "../components/DerivativeBulkImportModal";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
 import { useAuth } from "../contexts/AuthContext";
@@ -122,14 +121,13 @@ function useLookupRows(columns, rows) {
 
 export function DerivativeOperationsPage() {
   const { user } = useAuth();
-  const { rows, loading, load, filters, setFilters, error, setError, remove } = useResourceCrud(definition.resource, { page: 1 });
+  const { rows, loading, filters, setFilters, error, setError, remove, upsertRows, removeRowsById } = useResourceCrud(definition.resource, { page: 1 });
   const [current, setCurrent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [derivativeQuotes, setDerivativeQuotes] = useState({});
   const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
   const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
-  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
 
   const nextDerivativeOperationCode = useMemo(() => {
     const highestNumber = rows.reduce((maxValue, row) => {
@@ -339,7 +337,7 @@ export function DerivativeOperationsPage() {
       for (const item of items) {
         await resourceService.remove(definition.resource, item.id);
       }
-      await load();
+      removeRowsById(items.map((item) => item.id));
     } catch {
       setError("Nao foi possivel excluir as linhas selecionadas.");
     }
@@ -352,16 +350,6 @@ export function DerivativeOperationsPage() {
         title={loading ? `${definition.title} carregando...` : definition.title}
         columns={columns}
         rows={displayRows}
-        toolbarActions={[
-          {
-            key: "bulk-import",
-            label: "Importar em massa",
-            onClick: () => {
-              setError("");
-              setIsBulkImportOpen(true);
-            },
-          },
-        ]}
         searchValue={filters.search || ""}
         searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
         onSearchChange={(value) => setFilters((currentFilters) => ({ ...currentFilters, search: value, page: 1 }))}
@@ -429,6 +417,8 @@ export function DerivativeOperationsPage() {
             const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "attachments" && key !== "itens"));
             const itemPayloads = Array.isArray(payload.itens) ? payload.itens : [];
             let primaryRecord = null;
+            const savedRows = [];
+            const removedIds = [];
 
             if (current?.id) {
               const existingRows = siblingRows.length ? siblingRows : rows.filter((row) => row.cod_operacao_mae === current.cod_operacao_mae);
@@ -454,10 +444,12 @@ export function DerivativeOperationsPage() {
 
                 if (existingRow?.id) {
                   const updated = await resourceService.update(definition.resource, existingRow.id, rowPayload);
+                  savedRows.push(updated);
                   keepIds.push(updated.id);
                   if (!primaryRecord || updated.id === current.id) primaryRecord = updated;
                 } else {
                   const created = await resourceService.create(definition.resource, rowPayload);
+                  savedRows.push(created);
                   keepIds.push(created.id);
                   if (!primaryRecord) primaryRecord = created;
                 }
@@ -466,6 +458,7 @@ export function DerivativeOperationsPage() {
               const removableRows = existingRows.filter((row) => !keepIds.includes(row.id));
               for (const removableRow of removableRows) {
                 await resourceService.remove(definition.resource, removableRow.id);
+                removedIds.push(removableRow.id);
               }
             } else {
               for (let index = 0; index < itemPayloads.length; index += 1) {
@@ -484,11 +477,16 @@ export function DerivativeOperationsPage() {
                   volume: itemPayload.volume,
                   volume_financeiro_valor_moeda_original: itemPayload.volume_financeiro_valor_moeda_original,
                 });
+                savedRows.push(created);
                 if (!primaryRecord) primaryRecord = created;
               }
             }
-
-            await load();
+            if (savedRows.length) {
+              upsertRows(savedRows);
+            }
+            if (removedIds.length) {
+              removeRowsById(removedIds);
+            }
 
             if (primaryRecord) {
               if (files.length) {
@@ -496,17 +494,6 @@ export function DerivativeOperationsPage() {
               }
               closeModal();
             }
-          }}
-        />
-      ) : null}
-
-      {isBulkImportOpen ? (
-        <DerivativeBulkImportModal
-          nextOperationCode={nextDerivativeOperationCode}
-          onClose={() => setIsBulkImportOpen(false)}
-          onImported={async () => {
-            await load({ force: true });
-            setIsBulkImportOpen(false);
           }}
         />
       ) : null}

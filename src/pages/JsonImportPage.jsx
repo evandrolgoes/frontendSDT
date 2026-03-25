@@ -151,7 +151,7 @@ export function JsonImportPage() {
         </div>
       </div>
 
-      <section className="json-import-card">
+      <section className="json-import-card json-import-card-primary">
         <div className="json-import-grid">
           <label className="form-field">
             <span>Banco de destino</span>
@@ -189,12 +189,15 @@ export function JsonImportPage() {
           </label>
         </div>
 
-        <label className="form-field">
+        <label className="form-field json-import-raw-field">
           <span>JSON bruto</span>
           <textarea
+            className="json-import-textarea"
             value={rawJson}
             onChange={(event) => setRawJson(event.target.value)}
             rows={18}
+            wrap="off"
+            spellCheck={false}
             placeholder='Cole aqui o JSON completo do Bubble, por exemplo: {"response":{"cursor":0,"results":[...]}}'
           />
         </label>
