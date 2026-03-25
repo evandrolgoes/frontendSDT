@@ -224,6 +224,7 @@ export function DataTable({
   onEdit,
   onDuplicate,
   onDelete,
+  onDeleteSelected,
   onRowClick,
   selectedId,
   getRowClassName,
@@ -237,6 +238,7 @@ export function DataTable({
   const canEdit = typeof onEdit === "function";
   const canDuplicate = typeof onDuplicate === "function";
   const canDelete = typeof onDelete === "function";
+  const canDeleteSelected = typeof onDeleteSelected === "function";
   const canRowClick = typeof onRowClick === "function";
   const visibleQuickActions = rowQuickActions.filter((action) => typeof action?.onClick === "function");
   const showActions = canEdit || canDuplicate || canDelete || visibleQuickActions.length > 0;
@@ -395,6 +397,8 @@ export function DataTable({
     toggleSelection(row.id);
   };
 
+  const selectedRows = useMemo(() => filteredRows.filter((row) => selectedIds.has(row.id)), [filteredRows, selectedIds]);
+
   return (
     <section className="bubble-table-shell">
       <div className="bubble-toolbar">
@@ -430,6 +434,15 @@ export function DataTable({
               }}
             >
               Limpar
+            </button>
+          ) : null}
+          {canDeleteSelected && selectedRows.length ? (
+            <button
+              className="bubble-btn bubble-btn-danger"
+              type="button"
+              onClick={() => onDeleteSelected(selectedRows)}
+            >
+              Apagar linhas ({selectedRows.length})
             </button>
           ) : null}
         </div>

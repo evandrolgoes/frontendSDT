@@ -4,15 +4,17 @@ import { api } from "../services/api";
 
 export function JsonImportPage() {
   const mappingSectionRef = useRef(null);
-  const [url, setUrl] = useState("");
   const [rawJson, setRawJson] = useState("");
   const [databaseTarget, setDatabaseTarget] = useState("local");
+  const [databaseTargets, setDatabaseTargets] = useState([]);
   const [destination, setDestination] = useState("derivatives");
+  const [destinationOptions, setDestinationOptions] = useState([]);
   const [targetFields, setTargetFields] = useState([]);
   const [sourceFields, setSourceFields] = useState([]);
   const [sampleRows, setSampleRows] = useState([]);
   const [rowsFound, setRowsFound] = useState(0);
   const [mapping, setMapping] = useState({});
+  const [loadingMetadata, setLoadingMetadata] = useState(true);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
@@ -32,6 +34,54 @@ export function JsonImportPage() {
     mappingSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [sourceFields]);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadTargets = async () => {
+      setLoadingMetadata(true);
+      try {
+        const { data } = await api.get("/import-tools/bubble/targets/");
+        if (!active) {
+          return;
+        }
+        const nextDatabaseTargets = data.databaseTargets || [];
+        const nextDestinationOptions = data.destinationOptions || [];
+        setDatabaseTargets(nextDatabaseTargets);
+        setDestinationOptions(nextDestinationOptions);
+
+        if (nextDatabaseTargets.length && !nextDatabaseTargets.some((item) => item.value === databaseTarget)) {
+          setDatabaseTarget(nextDatabaseTargets[0].value);
+        }
+        if (nextDestinationOptions.length && !nextDestinationOptions.some((item) => item.value === destination)) {
+          setDestination(nextDestinationOptions[0].value);
+        }
+      } catch (requestError) {
+        if (active) {
+          setError(requestError.response?.data?.detail || "Nao foi possivel carregar os destinos disponiveis.");
+        }
+      } finally {
+        if (active) {
+          setLoadingMetadata(false);
+        }
+      }
+    };
+
+    loadTargets();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const resetInspection = () => {
+    setTargetFields([]);
+    setSourceFields([]);
+    setSampleRows([]);
+    setRowsFound(0);
+    setMapping({});
+    setResult(null);
+    setUrlReturnedEmpty(false);
+  };
+
   const handleInspect = async () => {
     setLoading(true);
     setError("");
@@ -39,12 +89,17 @@ export function JsonImportPage() {
     setResult(null);
 
     try {
-      const { data } = await api.post("/import-tools/bubble/inspect/", { url, rawJson });
+      const { data } = await api.post("/import-tools/bubble/inspect/", {
+        rawJson,
+        destination,
+      });
       const nextMapping = {};
       (data.sourceFields || []).forEach((field) => {
         nextMapping[field.sourceField] = field.suggestedTargetField || "ignore";
       });
 
+      setDatabaseTargets(data.databaseTargets || []);
+      setDestinationOptions(data.destinationOptions || []);
       setTargetFields(data.targetFields || []);
       setSourceFields(data.sourceFields || []);
       setSampleRows(data.sampleRows || []);
@@ -53,8 +108,8 @@ export function JsonImportPage() {
       setUrlReturnedEmpty(Boolean(data.urlReturnedEmpty));
       if (data.rowsFound) {
         setNotice(`JSON reconhecido com sucesso. ${data.rowsFound || 0} registros encontrados.`);
-      } else if (data.urlReturnedEmpty && url.trim()) {
-        setNotice("A URL foi lida, mas retornou 0 registros para o backend. Cole o JSON bruto no campo abaixo para continuar.");
+      } else if (data.urlReturnedEmpty && rawJson.trim()) {
+        setNotice("JSON reconhecido, mas sem registros para importar.");
       } else {
         setNotice("JSON reconhecido com sucesso. 0 registros encontrados.");
       }
@@ -73,14 +128,13 @@ export function JsonImportPage() {
 
     try {
       const { data } = await api.post("/import-tools/bubble/derivatives/", {
-        url,
         rawJson,
         databaseTarget,
         destination,
         mapping,
       });
       setResult(data);
-      setNotice("Importacao concluida no banco local.");
+      setNotice(`Importacao concluida na tabela ${destinationOptions.find((item) => item.value === destination)?.label || destination}.`);
     } catch (requestError) {
       setError(requestError.response?.data?.detail || "Nao foi possivel importar os dados.");
     } finally {
@@ -93,44 +147,55 @@ export function JsonImportPage() {
       <div className="page-header">
         <div>
           <h2>Importador JSON</h2>
-          <p>Fluxo provisório para testar importação do Bubble no banco local.</p>
+          <p>Cole o JSON bruto do Bubble, escolha a tabela de destino e revise o mapeamento dos campos antes de importar.</p>
         </div>
       </div>
 
       <section className="json-import-card">
         <div className="json-import-grid">
           <label className="form-field">
-            <span>Link do JSON</span>
-            <input
-              type="url"
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              placeholder="https://sdtposition.com.br/version-test/api/1.1/obj/derivativos"
-            />
-          </label>
-
-          <label className="form-field">
             <span>Banco de destino</span>
-            <select value={databaseTarget} onChange={(event) => setDatabaseTarget(event.target.value)}>
-              <option value="local">Banco local (teste)</option>
+            <select
+              value={databaseTarget}
+              onChange={(event) => setDatabaseTarget(event.target.value)}
+              disabled={loadingMetadata}
+            >
+              {databaseTargets.map((option) => (
+                <option key={option.value} value={option.value} disabled={!option.enabled}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
 
           <label className="form-field">
             <span>Tabela de destino</span>
-            <select value={destination} onChange={(event) => setDestination(event.target.value)}>
-              <option value="derivatives">Derivativos</option>
+            <select
+              value={destination}
+              onChange={(event) => {
+                setDestination(event.target.value);
+                resetInspection();
+                setNotice("");
+                setError("");
+              }}
+              disabled={loadingMetadata}
+            >
+              {destinationOptions.map((option) => (
+                <option key={option.value} value={option.value} disabled={!option.enabled}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
         </div>
 
         <label className="form-field">
-          <span>Ou cole o JSON bruto</span>
+          <span>JSON bruto</span>
           <textarea
             value={rawJson}
             onChange={(event) => setRawJson(event.target.value)}
-            rows={10}
-            placeholder='Cole aqui o JSON completo, por exemplo: {"response":{"results":[...]}}'
+            rows={18}
+            placeholder='Cole aqui o JSON completo do Bubble, por exemplo: {"response":{"cursor":0,"results":[...]}}'
           />
         </label>
 
@@ -139,7 +204,7 @@ export function JsonImportPage() {
             type="button"
             className="btn btn-primary"
             onClick={handleInspect}
-            disabled={loading || (!url.trim() && !rawJson.trim())}
+            disabled={loading || loadingMetadata || !rawJson.trim() || !destination}
           >
             {loading ? "Lendo JSON..." : "Reconhecer Campos"}
           </button>
@@ -153,8 +218,7 @@ export function JsonImportPage() {
         {notice ? <div className="json-import-notice">{notice}</div> : null}
         {urlReturnedEmpty ? (
           <div className="json-import-warning-list">
-            <div>A URL retornou vazia para o backend. Isso normalmente acontece por regra de privacidade ou autenticação do Bubble.</div>
-            <div>Se no seu navegador os dados aparecem, cole o JSON bruto no campo acima e rode novamente.</div>
+            <div>O JSON foi lido corretamente, mas nao trouxe registros para importar.</div>
           </div>
         ) : null}
       </section>
@@ -163,19 +227,19 @@ export function JsonImportPage() {
         <section className="json-import-card" ref={mappingSectionRef}>
           <div className="json-import-section-head">
             <div>
-              <h3>Mapeamento automático</h3>
-              <p>Revise os campos reconhecidos e ajuste o destino antes de importar.</p>
+              <h3>Mapeamento dos campos</h3>
+              <p>Escolha para qual campo do sistema cada valor da API original deve ser enviado.</p>
             </div>
             <button type="button" className="btn btn-primary" onClick={handleImport} disabled={importing}>
-              {importing ? "Importando..." : "Importar no Banco Local"}
+              {importing ? "Importando..." : "Importar"}
             </button>
           </div>
 
           <div className="json-import-mapping-table">
             <div className="json-import-mapping-header">
-              <span>Campo do JSON</span>
+              <span>Campo da API original</span>
               <span>Exemplo</span>
-              <span>Campo no banco</span>
+              <span>Campo do sistema</span>
             </div>
 
             {sourceFields.map((field) => (
@@ -207,8 +271,8 @@ export function JsonImportPage() {
         <section className="json-import-card">
           <div className="json-import-section-head">
             <div>
-              <h3>Amostra do JSON</h3>
-              <p>Prévia dos primeiros registros lidos para validar rapidamente o payload.</p>
+              <h3>Amostra da API</h3>
+              <p>Prévia dos primeiros registros lidos para validar rapidamente o JSON colado.</p>
             </div>
           </div>
           <pre className="json-import-preview">{JSON.stringify(sampleRows, null, 2)}</pre>
@@ -220,7 +284,7 @@ export function JsonImportPage() {
           <div className="json-import-section-head">
             <div>
               <h3>Resultado da importação</h3>
-              <p>Resumo do que foi criado, atualizado e do que ainda precisa de ajuste fino.</p>
+              <p>Resumo do que foi criado e do que ainda precisa de ajuste fino.</p>
             </div>
           </div>
 
@@ -228,10 +292,6 @@ export function JsonImportPage() {
             <div>
               <strong>{result.created}</strong>
               <span>criados</span>
-            </div>
-            <div>
-              <strong>{result.updated}</strong>
-              <span>atualizados</span>
             </div>
             <div>
               <strong>{result.skipped}</strong>

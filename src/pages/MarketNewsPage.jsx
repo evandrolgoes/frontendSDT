@@ -800,6 +800,7 @@ export function MarketNewsPage() {
   const currentSearch = searchParams.toString();
   const backToListUrl = activeCategory ? `/mercado/blog-news?categoria=${encodeURIComponent(activeCategory)}` : "/mercado/blog-news";
   const canManagePosts = Boolean(user?.is_superuser || ["owner", "manager"].includes(user?.role));
+  const canDeletePosts = Boolean(user?.is_superuser);
 
   const loadPosts = async () => {
     setLoading(true);
@@ -908,16 +909,16 @@ export function MarketNewsPage() {
     }
   };
 
-  const handleDeletePost = async () => {
-    if (!selectedPost?.id) {
+  const handleDeletePost = async (post = selectedPost) => {
+    if (!post?.id || !canDeletePosts) {
       return;
     }
-    const confirmed = window.confirm(`Excluir o post "${selectedPost.titulo}"?`);
+    const confirmed = window.confirm(`Excluir o post "${post.titulo}"?`);
     if (!confirmed) {
       return;
     }
     try {
-      await resourceService.remove("market-news-posts", selectedPost.id);
+      await resourceService.remove("market-news-posts", post.id);
       resourceService.invalidateCache("market-news-posts");
       window.dispatchEvent(new Event("market-news-categories-changed"));
       navigate(backToListUrl, { replace: true });
@@ -980,7 +981,7 @@ export function MarketNewsPage() {
                 {selectedPost ? "Editar post" : "Novo post"}
               </button>
             ) : null}
-            {canManagePosts && selectedPost && !editorState ? (
+            {canDeletePosts && selectedPost && !editorState ? (
               <button className="btn btn-secondary" type="button" onClick={handleDeletePost}>
                 Excluir post
               </button>
@@ -1032,6 +1033,11 @@ export function MarketNewsPage() {
                       <button className="btn btn-secondary" type="button" onClick={() => handleDuplicatePost(post)}>
                         Duplicar
                       </button>
+                      {canDeletePosts ? (
+                        <button className="btn btn-secondary" type="button" onClick={() => handleDeletePost(post)}>
+                          Excluir
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </article>

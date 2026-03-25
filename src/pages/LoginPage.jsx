@@ -53,7 +53,7 @@ export function LoginPage() {
   const [accessState, setAccessState] = useState({ loading: false, error: "", success: "" });
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/dashboard/kpis-risco-comercial" replace />;
   }
 
   const handleSubmit = async (event) => {

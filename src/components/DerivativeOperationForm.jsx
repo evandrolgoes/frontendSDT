@@ -51,13 +51,13 @@ const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
   }
 
   if (normalized.includes("soybean")) {
-    return exchanges.find((item) => normalizeLookupValue(item.cultura) === "soja") || null;
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "soja") || null;
   }
   if (normalized.includes("corn") || normalized.includes("milho")) {
-    return exchanges.find((item) => normalizeLookupValue(item.cultura) === "milho") || null;
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "milho") || null;
   }
   if (normalized.includes("dollar") || normalized.includes("dolar") || normalized.includes("usd")) {
-    return exchanges.find((item) => normalizeLookupValue(item.cultura) === "dolar") || null;
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "dolar") || null;
   }
 
   return null;
@@ -383,7 +383,7 @@ export function DerivativeOperationForm({
     }
 
     const selectedCrop = (lookupOptions.crops || []).find((item) => String(item.id) === String(values.cultura));
-    const cropName = normalizeLookupValue(selectedCrop?.cultura);
+    const cropName = normalizeLookupValue(selectedCrop?.ativo || selectedCrop?.cultura);
 
     if (!cropName) {
       return baseOptions;
@@ -671,7 +671,7 @@ export function DerivativeOperationForm({
             {renderSelect(
               "cultura",
               values.cultura,
-              (lookupOptions.crops || []).map((option) => ({ value: option.id, label: option.cultura })),
+              (lookupOptions.crops || []).map((option) => ({ value: option.id, label: option.ativo || option.cultura })),
               (value) => updateValue("cultura", value),
             )}
           </div>
@@ -690,7 +690,7 @@ export function DerivativeOperationForm({
               {renderSelect(
                 "destino_cultura",
                 values.destino_cultura,
-                (lookupOptions.crops || []).map((option) => ({ value: option.id, label: option.cultura })),
+                (lookupOptions.crops || []).map((option) => ({ value: option.id, label: option.ativo || option.cultura })),
                 (value) => updateValue("destino_cultura", value),
               )}
             </div>

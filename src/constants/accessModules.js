@@ -30,7 +30,7 @@ export const moduleOptions = [
   { value: "ops_crop_boards", label: "Operações: Quadro Safra" },
   { value: "ops_physical_sales", label: "Operações: Vendas Físico" },
   { value: "sys_tenants", label: "Sistema: Tenants" },
-  { value: "sys_crops", label: "Sistema: Culturas" },
+  { value: "sys_crops", label: "Sistema: Ativos" },
   { value: "sys_currencies", label: "Sistema: Moedas" },
   { value: "sys_units", label: "Sistema: Unidades" },
   { value: "sys_price_units", label: "Sistema: Moeda/Unidade" },
@@ -42,6 +42,7 @@ export const moduleOptions = [
   { value: "sys_admin_invites", label: "Sistema: Convites Admin" },
   { value: "sys_logs", label: "Sistema: Logs" },
   { value: "sys_json_import", label: "Sistema: Importador JSON" },
+  { value: "sys_mass_update", label: "Sistema: Alteracao em Massa" },
 ];
 
 export const allModuleCodes = moduleOptions.map((option) => option.value);

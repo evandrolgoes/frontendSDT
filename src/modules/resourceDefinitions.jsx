@@ -45,7 +45,7 @@ const moedaCmdtyeOptions = [
 const commonRelationFields = {
   grupo: { type: "relation", resource: "groups", labelKey: "grupo" },
   subgrupo: { type: "relation", resource: "subgroups", labelKey: "subgrupo" },
-  cultura: { type: "relation", resource: "crops", labelKey: "cultura" },
+  cultura: { type: "relation", resource: "crops", labelKey: "ativo" },
   safra: { type: "relation", resource: "seasons", labelKey: "safra" },
   contraparte: { type: "relation", resource: "counterparties", labelKey: "obs" },
 };
@@ -172,17 +172,17 @@ const baseResourceDefinitions = {
   },
   crops: {
     resource: "crops",
-    title: "Cultura",
-    description: "Culturas base do sistema.",
-    searchPlaceholder: "Buscar cultura...",
+    title: "Ativo",
+    description: "Ativos base do sistema.",
+    searchPlaceholder: "Buscar ativo...",
     columns: [
-      { key: "cultura", label: "Cultura" },
+      { key: "ativo", label: "Ativo" },
       { key: "bolsa_ref", label: "Bolsa de ref", type: "select-multi" },
       { key: "unidade_fisico", label: "Unidade fisico", type: "multirelation", resource: "units", labelKey: "nome" },
       { key: "id", label: "ID" },
     ],
     fields: [
-      { name: "cultura", label: "Cultura" },
+      { name: "ativo", label: "Ativo" },
       {
         name: "bolsa_ref",
         label: "Bolsa de ref",
@@ -228,7 +228,7 @@ const baseResourceDefinitions = {
     searchPlaceholder: "Buscar bolsa...",
     columns: [
       { key: "nome", label: "Bolsa" },
-      { key: "cultura", label: "Cultura" },
+      { key: "ativo", label: "Ativo" },
       { key: "moeda_bolsa", label: "Moeda da bolsa" },
       { key: "volume_padrao_contrato", label: "Volume padrao do contrato", type: "number" },
       { key: "unidade_bolsa", label: "Unidade da bolsa" },
@@ -238,7 +238,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "nome", label: "Bolsa" },
-      { name: "cultura", label: "Cultura", type: "select", resource: "crops", labelKey: "cultura", valueKey: "cultura" },
+      { name: "ativo", label: "Ativo", type: "select", resource: "crops", labelKey: "ativo", valueKey: "ativo" },
       { name: "moeda_bolsa", label: "Moeda da bolsa", ...catalogSelectFields.moeda },
       { name: "volume_padrao_contrato", label: "Volume padrao do contrato", type: "number" },
       { name: "unidade_bolsa", label: "Unidade da bolsa", ...catalogSelectFields.unidade },
@@ -288,7 +288,7 @@ const baseResourceDefinitions = {
     description: "Cotacoes fisicas com moeda/unidade, data de pagamento e report.",
     searchPlaceholder: "Buscar cotacao, cultura ou localidade...",
     columns: [
-      { key: "cultura_texto", label: "Cultura" },
+      { key: "cultura_texto", label: "Ativo" },
       { key: "cotacao", label: "Cotacao", type: "number" },
       { key: "moeda_unidade", label: "Moeda/Unidade" },
       { key: "data_report", label: "Data report", type: "date" },
@@ -296,7 +296,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "cotacao", label: "Cotacao", type: "number" },
-      { name: "cultura_texto", label: "Cultura", type: "select", resource: "crops", labelKey: "cultura", valueKey: "cultura" },
+      { name: "cultura_texto", label: "Ativo", type: "select", resource: "crops", labelKey: "ativo", valueKey: "ativo" },
       { name: "data_pgto", label: "Data pgto", type: "date" },
       { name: "data_report", label: "Data report", type: "date" },
       {
@@ -387,7 +387,7 @@ const baseResourceDefinitions = {
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
       { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
-      { name: "cultura", label: "Cultura", ...commonRelationFields.cultura, optional: true },
+      { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "considerar_na_politica_de_hedge", label: "Considerar na politica de hedge", type: "select", options: yesNoOptions },
       { name: "grupo_despesa", label: "Grupo despesa" },
@@ -411,7 +411,7 @@ const baseResourceDefinitions = {
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
       { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
-      { name: "cultura", label: "Cultura", ...commonRelationFields.cultura, optional: true },
+      { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       {
         name: "grupo_despesa",
@@ -481,7 +481,7 @@ const baseResourceDefinitions = {
     columns: [
       { key: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "cultura", label: "Cultura", type: "relation", ...commonRelationFields.cultura },
+      { key: "cultura", label: "Ativo", type: "relation", ...commonRelationFields.cultura },
       { key: "contrato_bolsa", label: "Contrato bolsa" },
       { key: "tipo_fis_der", label: "Tipo" },
       { key: "status_gatilho", label: "Status gatilho" },
@@ -491,7 +491,7 @@ const baseResourceDefinitions = {
       { name: "estrategia", label: "Estrategia", type: "relation", resource: "strategies", labelKey: "descricao_estrategia", optional: true },
       { name: "acima_abaixo", label: "Acima/Abaixo" },
       { name: "contrato_bolsa", label: "Contrato bolsa" },
-      { name: "cultura", label: "Cultura", ...commonRelationFields.cultura, optional: true },
+      { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "codigo_derivativo", label: "Codigo derivativo" },
       { name: "codigos_estrategia", label: "Codigos da estrategia", type: "json-list", helpText: "Separe por virgula." },
       { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
@@ -515,13 +515,13 @@ const baseResourceDefinitions = {
     columns: [
       { key: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "cultura", label: "Cultura", type: "relation", ...commonRelationFields.cultura },
+      { key: "cultura", label: "Ativo", type: "relation", ...commonRelationFields.cultura },
       { key: "safra", label: "Safra", type: "relation", ...commonRelationFields.safra },
       { key: "mes_ano", label: "Mes/Ano", type: "date" },
       { key: "margem_alvo_minimo", label: "Margem alvo minimo", type: "number" },
     ],
     fields: [
-      { name: "cultura", label: "Cultura", ...commonRelationFields.cultura, optional: true },
+      { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
       { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
@@ -544,7 +544,7 @@ const baseResourceDefinitions = {
     columns: [
       { key: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "cultura", label: "Cultura", type: "relation", ...commonRelationFields.cultura },
+      { key: "cultura", label: "Ativo", type: "relation", ...commonRelationFields.cultura },
       { key: "safra", label: "Safra", type: "relation", ...commonRelationFields.safra },
       { key: "localidade", label: "Locais de producao" },
       { key: "area", label: "Area", type: "number" },
@@ -552,7 +552,7 @@ const baseResourceDefinitions = {
       { key: "monitorar_vc", label: "Monitorar VC?", type: "boolean" },
     ],
     fields: [
-      { name: "cultura", label: "Cultura", ...commonRelationFields.cultura, optional: true },
+      { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", single: true, optional: true },
       { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", single: true, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
@@ -575,7 +575,7 @@ const baseResourceDefinitions = {
     columns: [
       { key: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "cultura", label: "Cultura", type: "relation", ...commonRelationFields.cultura },
+      { key: "cultura", label: "Ativo", type: "relation", ...commonRelationFields.cultura },
       { key: "safra", label: "Safra", type: "relation", ...commonRelationFields.safra },
       { key: "compra_venda", label: "Compra/Venda" },
       { key: "preco", label: "Preco", type: "number" },
@@ -601,7 +601,7 @@ const baseResourceDefinitions = {
         },
       },
       { name: "cotacao_bolsa_ref", label: "Cotacao bolsa ref", type: "number" },
-      { name: "cultura_produto", label: "Cultura/Produto", type: "select", resource: "crops", labelKey: "cultura", valueKey: "cultura" },
+      { name: "cultura_produto", label: "Ativo/Produto", type: "select", resource: "crops", labelKey: "ativo", valueKey: "ativo" },
       { name: "data_entrega", label: "Data entrega", type: "date" },
       { name: "data_negociacao", label: "Data negociacao", type: "date" },
       { name: "data_pagamento", label: "Data pagamento", type: "date" },

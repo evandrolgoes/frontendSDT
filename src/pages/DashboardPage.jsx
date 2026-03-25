@@ -323,7 +323,7 @@ function DashboardQuickFilters() {
         onClear={() => updateFilter("subgrupo", [])}
       />
       <FilterChipGroup
-        title="Culturas"
+        title="Ativos"
         items={options.cropBoardCrops || []}
         selectedValues={filter.cultura}
         labelKey="cultura"
@@ -462,7 +462,7 @@ function CommercialRiskLongShortChart({ rows, cultureButtons = [], selectedCultu
               className={`dashboard-chip${isActive ? " active" : ""}`}
               onClick={() => onToggleCulture?.(String(item.id))}
             >
-              {item.cultura}
+              {item.ativo || item.cultura}
             </button>
           );
         })}
@@ -2376,10 +2376,10 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
 }
 
 const readCultureLabel = (value) => {
-  if (!value) return "Sem cultura";
+  if (!value) return "Sem ativo";
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return readCultureLabel(value[0]);
-  return value.cultura || value.nome || value.label || value.descricao || "Sem cultura";
+  return value.ativo || value.cultura || value.nome || value.label || value.descricao || "Sem ativo";
 };
 
 function CommercialRiskDashboard({ dashboardFilter }) {
@@ -2480,19 +2480,19 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     const map = new Map();
     [...(options.crops || []), ...(options.cropBoardCrops || [])].forEach((item) => {
       if (item?.id != null) {
-        map.set(String(item.id), item.cultura || item.nome || item.label || item.descricao || String(item.id));
+        map.set(String(item.id), item.ativo || item.cultura || item.nome || item.label || item.descricao || String(item.id));
       }
     });
     return map;
   }, [options.crops, options.cropBoardCrops]);
   const resolveCultureLabel = (value) => {
-    if (!value) return "Sem cultura";
+    if (!value) return "Sem ativo";
     if (Array.isArray(value)) return resolveCultureLabel(value[0]);
     if (typeof value === "string" || typeof value === "number") {
       return cultureLabelById.get(String(value)) || String(value);
     }
     const nestedId = value.id != null ? cultureLabelById.get(String(value.id)) : null;
-    return nestedId || value.cultura || value.nome || value.label || value.descricao || "Sem cultura";
+    return nestedId || value.ativo || value.cultura || value.nome || value.label || value.descricao || "Sem ativo";
   };
 
   const productionTotal = useMemo(
@@ -3049,7 +3049,7 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
     const selectedIds = new Set((dashboardFilter?.cultura || []).map(String));
     return (filterOptions?.crops || [])
       .filter((item) => selectedIds.has(String(item.id)))
-      .map((item) => item.cultura);
+      .map((item) => item.ativo || item.cultura);
   }, [dashboardFilter?.cultura, filterOptions?.crops]);
 
   const filteredQuotes = useMemo(
@@ -4537,7 +4537,7 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
     const selectedIds = new Set((dashboardFilter?.cultura || []).map(String));
     return (filterOptions?.crops || [])
       .filter((item) => selectedIds.has(String(item.id)))
-      .map((item) => normalizeText(item.cultura));
+      .map((item) => normalizeText(item.ativo || item.cultura));
   }, [dashboardFilter?.cultura, filterOptions?.crops]);
 
   const selectedCultureValue = Array.isArray(filter?.cultura) && filter.cultura.length ? String(filter.cultura[0]) : "";
@@ -5055,12 +5055,12 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
     <section className="currency-hedge-shell">
       <div className="currency-hedge-filterbar">
         <label className="currency-hedge-filterfield">
-          <span>Cultura</span>
+          <span>Ativo</span>
           <select className="form-select" value={selectedCultureValue} onChange={(event) => updateFilter("cultura", event.target.value ? [event.target.value] : [])}>
             <option value="">Todas</option>
             {(filterOptions?.cropBoardCrops || filterOptions?.crops || []).map((item) => (
               <option key={`currency-crop-${item.id}`} value={String(item.id)}>
-                {item.cultura || item.nome || item.label}
+                {item.ativo || item.cultura || item.nome || item.label}
               </option>
             ))}
           </select>
@@ -5077,6 +5077,70 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
           </select>
         </label>
       </div>
+
+      <div className="currency-hedge-chart card">
+        <div className="currency-hedge-plot">
+          <div className="currency-hedge-axis-zero" style={{ left: `${axis.zeroPercent}%` }} />
+          {chartRows.map((row) => {
+            let positiveCursor = axis.zeroPercent;
+            let negativeCursor = axis.zeroPercent;
+            return (
+              <div key={row.label} className="currency-hedge-row">
+                <div className="currency-hedge-row-label">{row.label}</div>
+                <div className="currency-hedge-row-track">
+                  <div className="currency-hedge-row-grid" />
+                  {row.segments.map((segment) => {
+                    const range = Math.max(axis.maxValue - axis.minValue, 1);
+                    const size = (Math.abs(segment.value) / range) * 100;
+                    const left =
+                      segment.value >= 0
+                        ? positiveCursor
+                        : negativeCursor - size;
+                    if (segment.value >= 0) {
+                      positiveCursor += size;
+                    } else {
+                      negativeCursor -= size;
+                    }
+                    return (
+                      <button
+                        key={segment.key}
+                        type="button"
+                        className={`currency-hedge-segment${segment.onClick ? " is-clickable" : ""}`}
+                        style={{ left: `${left}%`, width: `${size}%`, background: segment.color }}
+                        onClick={segment.onClick || undefined}
+                        onMouseEnter={(event) => showSegmentTooltip(event, segment)}
+                        onMouseLeave={() => setSegmentTooltip(null)}
+                        onFocus={(event) => showSegmentTooltip(event, segment)}
+                        onBlur={() => setSegmentTooltip(null)}
+                      >
+                        <span>{segment.text}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <div className="currency-hedge-ticks">
+            {axis.ticks.map((tick, index) => (
+              <span key={`${tick.value}-${index}`} style={{ left: tick.left }}>
+                {formatMi3(tick.value)}
+              </span>
+            ))}
+          </div>
+          {segmentTooltip ? (
+            <div
+              className="currency-hedge-tooltip"
+              style={{ left: `${segmentTooltip.left}px`, top: `${segmentTooltip.top}px` }}
+            >
+              <strong>{segmentTooltip.title}</strong>
+              <span>{segmentTooltip.value}</span>
+              <small>{segmentTooltip.hint}</small>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
       <div className="currency-hedge-controls">
         <article className="currency-hedge-col currency-hedge-col--exposure">
           <div className="currency-hedge-col-title">Produção Líquida Total (scs)</div>
@@ -5212,69 +5276,6 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
             />
           </div>
         </article>
-      </div>
-
-      <div className="currency-hedge-chart card">
-        <div className="currency-hedge-plot">
-          <div className="currency-hedge-axis-zero" style={{ left: `${axis.zeroPercent}%` }} />
-          {chartRows.map((row) => {
-            let positiveCursor = axis.zeroPercent;
-            let negativeCursor = axis.zeroPercent;
-            return (
-              <div key={row.label} className="currency-hedge-row">
-                <div className="currency-hedge-row-label">{row.label}</div>
-                <div className="currency-hedge-row-track">
-                  <div className="currency-hedge-row-grid" />
-                  {row.segments.map((segment) => {
-                    const range = Math.max(axis.maxValue - axis.minValue, 1);
-                    const size = (Math.abs(segment.value) / range) * 100;
-                    const left =
-                      segment.value >= 0
-                        ? positiveCursor
-                        : negativeCursor - size;
-                    if (segment.value >= 0) {
-                      positiveCursor += size;
-                    } else {
-                      negativeCursor -= size;
-                    }
-                    return (
-                      <button
-                        key={segment.key}
-                        type="button"
-                        className={`currency-hedge-segment${segment.onClick ? " is-clickable" : ""}`}
-                        style={{ left: `${left}%`, width: `${size}%`, background: segment.color }}
-                        onClick={segment.onClick || undefined}
-                        onMouseEnter={(event) => showSegmentTooltip(event, segment)}
-                        onMouseLeave={() => setSegmentTooltip(null)}
-                        onFocus={(event) => showSegmentTooltip(event, segment)}
-                        onBlur={() => setSegmentTooltip(null)}
-                      >
-                        <span>{segment.text}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-          <div className="currency-hedge-ticks">
-            {axis.ticks.map((tick, index) => (
-              <span key={`${tick.value}-${index}`} style={{ left: tick.left }}>
-                {formatMi3(tick.value)}
-              </span>
-            ))}
-          </div>
-          {segmentTooltip ? (
-            <div
-              className="currency-hedge-tooltip"
-              style={{ left: `${segmentTooltip.left}px`, top: `${segmentTooltip.top}px` }}
-            >
-              <strong>{segmentTooltip.title}</strong>
-              <span>{segmentTooltip.value}</span>
-              <small>{segmentTooltip.hint}</small>
-            </div>
-          ) : null}
-        </div>
       </div>
 
       {popupContent ? (
@@ -6425,7 +6426,7 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
           <strong>{formatNumber0(activeTriggers)}</strong>
         </article>
         <article className="card stat-card">
-          <span>Culturas monitoradas</span>
+          <span>Ativos monitorados</span>
           <strong>{formatNumber0(monitoredCrops)}</strong>
         </article>
       </section>

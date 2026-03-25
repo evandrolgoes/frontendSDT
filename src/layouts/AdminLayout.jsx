@@ -62,7 +62,7 @@ export function AdminLayout({ children }) {
     const parts = [
       summarize(filter.grupo, options.groups, "grupo", "Grupo"),
       summarize(filter.subgrupo, options.subgroups, "subgrupo", "Subgrupo"),
-      summarize(filter.cultura, options.crops, "cultura", "Cultura"),
+      summarize(filter.cultura, options.crops, "ativo", "Ativo"),
       summarize(filter.safra, options.seasons, "safra", "Safra"),
       summarize(filter.localidade, options.localities, "label", "Localidade"),
     ].filter(Boolean);
@@ -310,7 +310,7 @@ export function AdminLayout({ children }) {
             <div className="sidebar-filter-panel modal dashboard-filter-popup-grid">
               <PopupChipGroup title="Grupos" items={options.groups} selectedValues={filter.grupo} labelKey="grupo" onToggle={(value) => toggleFilterValue("grupo", value)} onClear={() => updateFilter("grupo", [])} />
               <PopupChipGroup title="Subgrupos" items={options.subgroups} selectedValues={filter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleFilterValue("subgrupo", value)} onClear={() => updateFilter("subgrupo", [])} />
-              <PopupChipGroup title="Culturas" items={options.cropBoardCrops || []} selectedValues={filter.cultura} labelKey="cultura" onToggle={(value) => toggleFilterValue("cultura", value)} onClear={() => updateFilter("cultura", [])} />
+              <PopupChipGroup title="Ativos" items={options.cropBoardCrops || []} selectedValues={filter.cultura} labelKey="ativo" onToggle={(value) => toggleFilterValue("cultura", value)} onClear={() => updateFilter("cultura", [])} />
               <PopupChipGroup title="Safras" items={options.cropBoardSeasons || []} selectedValues={filter.safra} labelKey="safra" onToggle={(value) => toggleFilterValue("safra", value)} onClear={() => updateFilter("safra", [])} />
               <PopupChipGroup title="Localidade de Referência" items={options.localities} selectedValues={filter.localidade} labelKey="label" onToggle={(value) => toggleFilterValue("localidade", value)} onClear={() => updateFilter("localidade", [])} />
             </div>

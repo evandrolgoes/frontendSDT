@@ -15,7 +15,7 @@ const TRADINGVIEW_REFRESH_MS = 60000;
 const relationResourceLabels = {
   groups: "grupo",
   subgroups: "subgrupo",
-  crops: "cultura",
+  crops: "ativo",
   seasons: "safra",
   counterparties: "obs",
   strategies: "descricao_estrategia",
@@ -543,6 +543,15 @@ export function ResourcePage({ definition }) {
     setFilters((currentFilters) => ({ ...currentFilters, search, page: 1 }));
   };
 
+  const beginMarqueeInteraction = (clientX, scrollLeft) => {
+    marqueeDragStateRef.current = {
+      active: true,
+      moved: false,
+      startX: clientX,
+      startScrollLeft: scrollLeft,
+    };
+  };
+
   const handleMarqueeMouseDown = (event) => {
     const container = marqueeRef.current;
     if (!container || filterCards.length <= 1) {
@@ -552,12 +561,7 @@ export function ResourcePage({ definition }) {
       return;
     }
 
-    marqueeDragStateRef.current = {
-      active: true,
-      moved: false,
-      startX: event.clientX,
-      startScrollLeft: container.scrollLeft,
-    };
+    beginMarqueeInteraction(event.clientX, container.scrollLeft);
   };
 
   const handleMarqueeMouseMove = (event) => {
@@ -594,6 +598,45 @@ export function ResourcePage({ definition }) {
   const handleMarqueeMouseLeave = () => {
     stopMarqueeInteraction();
     setIsMarqueeHovered(false);
+  };
+
+  const handleMarqueeTouchStart = (event) => {
+    const container = marqueeRef.current;
+    const touch = event.touches?.[0];
+    if (!container || !touch || filterCards.length <= 1) {
+      return;
+    }
+
+    beginMarqueeInteraction(touch.clientX, container.scrollLeft);
+  };
+
+  const handleMarqueeTouchMove = (event) => {
+    const container = marqueeRef.current;
+    const touch = event.touches?.[0];
+    const drag = marqueeDragStateRef.current;
+    if (!container || !touch || !drag.active) {
+      return;
+    }
+
+    const deltaX = touch.clientX - drag.startX;
+    if (!drag.moved && Math.abs(deltaX) < 6) {
+      return;
+    }
+
+    if (!drag.moved) {
+      marqueeDragStateRef.current = {
+        ...drag,
+        moved: true,
+      };
+      setIsMarqueeInteracting(true);
+    }
+
+    container.scrollLeft = drag.startScrollLeft - deltaX;
+    normalizeMarqueeScroll();
+  };
+
+  const handleMarqueeTouchEnd = () => {
+    stopMarqueeInteraction();
   };
   const nextDerivativeOperationCode = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
@@ -822,7 +865,7 @@ export function ResourcePage({ definition }) {
     return [
       { key: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "cultura", label: "Cultura" },
+      { key: "cultura", label: "Ativo" },
       { key: "safra", label: "Safra" },
       { key: "cod_operacao_mae", label: "Cod operacao mae" },
       { key: "nome_da_operacao", label: "Operacao" },
@@ -1128,6 +1171,25 @@ export function ResourcePage({ definition }) {
     }
   };
 
+  const handleDeleteSelected = async (items) => {
+    if (!Array.isArray(items) || !items.length) {
+      return;
+    }
+    const confirmed = window.confirm(`Excluir ${items.length} linha(s) de ${definition.title}?`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      for (const item of items) {
+        await resourceService.remove(definition.resource, item.id);
+      }
+      await load();
+      await refreshProfile();
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "Nao foi possivel excluir as linhas selecionadas.");
+    }
+  };
+
   const handleReadonlyOpen = (item) => {
     setDetailItem(item);
   };
@@ -1219,6 +1281,10 @@ export function ResourcePage({ definition }) {
             onMouseUp={stopMarqueeInteraction}
             onMouseEnter={() => setIsMarqueeHovered(true)}
             onMouseLeave={handleMarqueeMouseLeave}
+            onTouchStart={handleMarqueeTouchStart}
+            onTouchMove={handleMarqueeTouchMove}
+            onTouchEnd={handleMarqueeTouchEnd}
+            onTouchCancel={handleMarqueeTouchEnd}
             onScroll={normalizeMarqueeScroll}
           >
             <div ref={marqueeTrackRef} className="resource-filter-track">
@@ -1293,7 +1359,8 @@ export function ResourcePage({ definition }) {
           }}
           onEdit={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : handleEdit}
           onDuplicate={definition.readonly || definition.allowDuplicate === false ? undefined : handleDuplicate}
-          onDelete={definition.readonly || definition.allowDelete === false ? undefined : handleDelete}
+          onDelete={definition.readonly || definition.allowDelete === false || !user?.is_superuser ? undefined : handleDelete}
+          onDeleteSelected={definition.readonly || definition.allowDelete === false || !user?.is_superuser ? undefined : handleDeleteSelected}
           onRowClick={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : undefined}
           selectedId={current?.id}
           rowQuickActions={rowQuickActions}
@@ -1453,7 +1520,7 @@ export function ResourcePage({ definition }) {
 
             if (definition.resource === "physical-sales" && cleanPayload.cultura_produto) {
               const crops = await resourceService.listAll("crops");
-              const selectedCrop = crops.find((item) => item.cultura === cleanPayload.cultura_produto);
+              const selectedCrop = crops.find((item) => (item.ativo || item.cultura) === cleanPayload.cultura_produto);
               if (selectedCrop) {
                 cleanPayload.cultura = selectedCrop.id;
               }

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { DataTable } from "../components/DataTable";
+import { DerivativeBulkImportModal } from "../components/DerivativeBulkImportModal";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
+import { useAuth } from "../contexts/AuthContext";
 import { useResourceCrud } from "../hooks/useResourceCrud";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
@@ -119,6 +121,7 @@ function useLookupRows(columns, rows) {
 }
 
 export function DerivativeOperationsPage() {
+  const { user } = useAuth();
   const { rows, loading, load, filters, setFilters, error, setError, remove } = useResourceCrud(definition.resource, { page: 1 });
   const [current, setCurrent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -126,6 +129,7 @@ export function DerivativeOperationsPage() {
   const [derivativeQuotes, setDerivativeQuotes] = useState({});
   const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
   const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
 
   const nextDerivativeOperationCode = useMemo(() => {
     const highestNumber = rows.reduce((maxValue, row) => {
@@ -221,7 +225,7 @@ export function DerivativeOperationsPage() {
     () => [
       { key: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "cultura", label: "Cultura" },
+      { key: "cultura", label: "Ativo" },
       { key: "safra", label: "Safra" },
       { key: "cod_operacao_mae", label: "Cod operacao mae" },
       { key: "nome_da_operacao", label: "Operacao" },
@@ -323,6 +327,24 @@ export function DerivativeOperationsPage() {
     setError("");
   };
 
+  const handleDeleteSelected = async (items) => {
+    if (!Array.isArray(items) || !items.length) {
+      return;
+    }
+    const confirmed = window.confirm(`Excluir ${items.length} linha(s) de ${definition.title}?`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      for (const item of items) {
+        await resourceService.remove(definition.resource, item.id);
+      }
+      await load();
+    } catch {
+      setError("Nao foi possivel excluir as linhas selecionadas.");
+    }
+  };
+
   return (
     <div className="resource-page">
       <PageHeader title={definition.title} description={definition.description} />
@@ -330,6 +352,16 @@ export function DerivativeOperationsPage() {
         title={loading ? `${definition.title} carregando...` : definition.title}
         columns={columns}
         rows={displayRows}
+        toolbarActions={[
+          {
+            key: "bulk-import",
+            label: "Importar em massa",
+            onClick: () => {
+              setError("");
+              setIsBulkImportOpen(true);
+            },
+          },
+        ]}
         searchValue={filters.search || ""}
         searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
         onSearchChange={(value) => setFilters((currentFilters) => ({ ...currentFilters, search: value, page: 1 }))}
@@ -364,10 +396,15 @@ export function DerivativeOperationsPage() {
           setError("");
           setIsModalOpen(true);
         }}
-        onDelete={async (item) => {
-          if (!window.confirm(`Excluir este registro de ${definition.title}?`)) return;
-          await remove(item);
-        }}
+        onDelete={
+          user?.is_superuser
+            ? async (item) => {
+                if (!window.confirm(`Excluir este registro de ${definition.title}?`)) return;
+                await remove(item);
+              }
+            : undefined
+        }
+        onDeleteSelected={user?.is_superuser ? handleDeleteSelected : undefined}
         selectedId={current?.id}
         getRowClassName={(row) => (String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "")}
       />
@@ -459,6 +496,17 @@ export function DerivativeOperationsPage() {
               }
               closeModal();
             }
+          }}
+        />
+      ) : null}
+
+      {isBulkImportOpen ? (
+        <DerivativeBulkImportModal
+          nextOperationCode={nextDerivativeOperationCode}
+          onClose={() => setIsBulkImportOpen(false)}
+          onImported={async () => {
+            await load({ force: true });
+            setIsBulkImportOpen(false);
           }}
         />
       ) : null}
