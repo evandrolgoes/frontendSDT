@@ -953,7 +953,7 @@ export function MarketNewsPage() {
     <div className="resource-page dashboard-page market-news-page">
       <PageHeader
         title="Blog/News"
-        description={activeCategory ? `Categoria selecionada: ${activeCategory}` : "Notícias e análises de mercado em formato editorial."}
+        description=""
         tag="Mercado"
       />
 

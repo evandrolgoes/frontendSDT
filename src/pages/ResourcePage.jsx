@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { DataTable } from "../components/DataTable";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
@@ -408,6 +409,8 @@ const openTradingviewPopupWindow = (url) => {
 };
 
 export function ResourcePage({ definition }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user, impersonate, refreshProfile } = useAuth();
   const isAuditLogResource = definition.resource === "audit-logs";
   const { rows, loading, load, save, remove, upsertRows, removeRowsById, filters, setFilters, error, setError } = useResourceCrud(
@@ -444,6 +447,10 @@ export function ResourcePage({ definition }) {
     search: "",
   });
   const [hasAppliedLogFilters, setHasAppliedLogFilters] = useState(false);
+  const requestedOpenId = useMemo(() => {
+    const value = new URLSearchParams(location.search).get("open");
+    return value ? String(value) : "";
+  }, [location.search]);
   const tableColumns = useMemo(() => buildTableColumns(definition), [definition]);
   const supportsAccessWorkflow = definition.resource === "groups" || definition.resource === "subgroups";
   const summaryCards = useMemo(() => {
@@ -519,6 +526,7 @@ export function ResourcePage({ definition }) {
     }
     return filterCards.find((item) => item.search === currentSearch)?.key || "";
   }, [filterCards, filters.search]);
+
   const latestSyncLabel = useMemo(() => {
     if (definition.resource !== "tradingview-watchlist-quotes" || !rows.length) {
       return "";
@@ -1018,6 +1026,32 @@ export function ResourcePage({ definition }) {
     ];
   }, [definition.customForm, tableColumns, editingDerivativeStrike, editingDerivativeStrikeInput, definition.resource]);
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
+  const clearOpenQuery = () => {
+    if (!requestedOpenId) {
+      return;
+    }
+    navigate(location.pathname, { replace: true });
+  };
+
+  useEffect(() => {
+    if (!requestedOpenId || loading || definition.readonly) {
+      return;
+    }
+    if (isModalOpen && String(current?.id || "") === requestedOpenId) {
+      return;
+    }
+
+    const sourceRows = definition.customForm === "derivative-operation" ? normalizedRows : rows;
+    const match = sourceRows.find((item) => String(item?.id || "") === requestedOpenId);
+    if (!match) {
+      return;
+    }
+
+    setCurrent(match);
+    setError("");
+    setIsModalOpen(true);
+  }, [current?.id, definition.customForm, definition.readonly, isModalOpen, loading, normalizedRows, requestedOpenId, rows, setError]);
+
   const useSimpleQuotesTable = definition.resource === "tradingview-watchlist-quotes";
   const logActionOptions = [
     { value: "", label: "Todas" },
@@ -1662,6 +1696,7 @@ export function ResourcePage({ definition }) {
             setCurrent(null);
             setAttachments([]);
             setError("");
+            clearOpenQuery();
           }}
           onSubmit={async (payload, rawValues) => {
             const files = Array.isArray(rawValues.attachments) ? rawValues.attachments : [];
@@ -1755,6 +1790,7 @@ export function ResourcePage({ definition }) {
               setCurrent(null);
               setAttachments([]);
               setError("");
+              clearOpenQuery();
             }
           }}
         />
@@ -1780,6 +1816,7 @@ export function ResourcePage({ definition }) {
             setCurrent(null);
             setAttachments([]);
             setError("");
+            clearOpenQuery();
           }}
           onSubmit={async (payload, rawValues) => {
             const formFields = activeFormFields;
@@ -1814,6 +1851,7 @@ export function ResourcePage({ definition }) {
               setCurrent(null);
               setAttachments([]);
               setError("");
+              clearOpenQuery();
             }
           }}
         />

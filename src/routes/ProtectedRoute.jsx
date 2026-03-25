@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Navigate, useLocation, useOutlet } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
@@ -6,45 +5,10 @@ import { AdminLayout } from "../layouts/AdminLayout";
 import { hasModuleAccess, hasUserTypeAccess } from "../constants/accessModules";
 import { getAccessibleRoutePath, getRouteDefinition } from "./routes";
 
-function KeepAliveOutlet() {
-  const location = useLocation();
-  const outlet = useOutlet();
-  const cacheKey = `${location.pathname}${location.search}`;
-  const [cachedOutlets, setCachedOutlets] = useState(() => [{ key: cacheKey, element: outlet }]);
-
-  useEffect(() => {
-    setCachedOutlets((current) => {
-      if (current.some((entry) => entry.key === cacheKey)) {
-        return current;
-      }
-
-      return [...current, { key: cacheKey, element: outlet }];
-    });
-  }, [cacheKey, outlet]);
-
-  const renderedOutlets = cachedOutlets.some((entry) => entry.key === cacheKey)
-    ? cachedOutlets
-    : [...cachedOutlets, { key: cacheKey, element: outlet }];
-
-  return renderedOutlets.map((entry) => {
-    const isActive = entry.key === cacheKey;
-
-    return (
-      <div
-        key={entry.key}
-        className="route-content"
-        style={{ display: isActive ? "block" : "none" }}
-        aria-hidden={isActive ? undefined : "true"}
-      >
-        {entry.element}
-      </div>
-    );
-  });
-}
-
 export function ProtectedRoute() {
   const { user, isAuthenticated, loading } = useAuth();
   const location = useLocation();
+  const outlet = useOutlet();
 
   if (loading) {
     return <div className="login-page muted">Carregando...</div>;
@@ -75,7 +39,7 @@ export function ProtectedRoute() {
 
   return (
     <AdminLayout>
-      <KeepAliveOutlet />
+      <div className="route-content">{outlet}</div>
     </AdminLayout>
   );
 }

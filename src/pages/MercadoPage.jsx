@@ -4,7 +4,7 @@ import { FundPositionChart } from "../components/FundPositionChart";
 const mercadoPageContent = {
   fundPositions: {
     title: "Posicao de Fundos",
-    description: "Area inicial para consolidar a visao de posicoes de fundos dentro do modulo Mercado.",
+    description: "",
   },
   quotes: {
     title: "Cotacoes",
@@ -70,7 +70,7 @@ export function MercadoPage({ kind = "fundPositions" }) {
       <div className="resource-page dashboard-page">
         <PageHeader
           title={content.title}
-          description="Painel com os graficos de milho e soja CBOT para acompanhar a posicao dos fundos na CFTC."
+          description=""
           tag="Mercado"
         />
 

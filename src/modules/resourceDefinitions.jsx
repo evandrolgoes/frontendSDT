@@ -315,7 +315,7 @@ const baseResourceDefinitions = {
   tradingviewWatchlistQuotes: {
     resource: "tradingview-watchlist-quotes",
     title: "Cotacoes",
-    description: "Painel de cotacoes de mercado alimentado automaticamente pela watchlist publica do TradingView.",
+    description: "",
     searchPlaceholder: "Buscar simbolo, secao ou descricao...",
     readonly: true,
     allowCreate: false,
@@ -341,7 +341,7 @@ const baseResourceDefinitions = {
   marketNewsPosts: {
     resource: "market-news-posts",
     title: "Blog/News",
-    description: "Posts editoriais de mercado em formato de blog.",
+    description: "",
     searchPlaceholder: "Buscar titulo ou categoria...",
     columns: [
       { key: "data_publicacao", label: "Data publicacao", type: "date" },

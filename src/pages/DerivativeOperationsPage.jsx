@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { DataTable } from "../components/DataTable";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
@@ -120,6 +121,8 @@ function useLookupRows(columns, rows) {
 }
 
 export function DerivativeOperationsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { rows, loading, filters, setFilters, error, setError, remove, upsertRows, removeRowsById } = useResourceCrud(definition.resource, { page: 1 });
   const [current, setCurrent] = useState(null);
@@ -128,6 +131,10 @@ export function DerivativeOperationsPage() {
   const [derivativeQuotes, setDerivativeQuotes] = useState({});
   const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
   const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
+  const requestedOpenId = useMemo(() => {
+    const value = new URLSearchParams(location.search).get("open");
+    return value ? String(value) : "";
+  }, [location.search]);
 
   const nextDerivativeOperationCode = useMemo(() => {
     const highestNumber = rows.reduce((maxValue, row) => {
@@ -323,7 +330,28 @@ export function DerivativeOperationsPage() {
     setCurrent(null);
     setAttachments([]);
     setError("");
+    if (requestedOpenId) {
+      navigate(location.pathname, { replace: true });
+    }
   };
+
+  useEffect(() => {
+    if (!requestedOpenId || loading) {
+      return;
+    }
+    if (isModalOpen && String(current?.id || "") === requestedOpenId) {
+      return;
+    }
+
+    const match = normalizedRows.find((item) => String(item?.id || "") === requestedOpenId);
+    if (!match) {
+      return;
+    }
+
+    setCurrent(match);
+    setError("");
+    setIsModalOpen(true);
+  }, [current?.id, isModalOpen, loading, normalizedRows, requestedOpenId]);
 
   const handleDeleteSelected = async (items) => {
     if (!Array.isArray(items) || !items.length) {

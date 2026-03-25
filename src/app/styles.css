@@ -1401,7 +1401,228 @@ textarea {
 
 .risk-kpi-grid {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: start;
 }
+
+.risk-kpi-grid > .stat-card {
+  min-height: 252px;
+}
+
+.risk-kpi-link-card {
+  width: 100%;
+  text-align: left;
+}
+
+.risk-kpi-link-card-empty {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 20px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.risk-kpi-quotes-strip {
+  margin-bottom: 2px;
+  min-height: 54px;
+  height: 54px;
+  max-height: 54px;
+  overflow: hidden;
+}
+
+.risk-kpi-quotes-strip-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.risk-kpi-quotes-strip-head h3 {
+  margin: 0 0 2px;
+  font-size: 1rem;
+}
+
+.risk-kpi-quotes-strip-head p {
+  margin: 0;
+}
+
+.risk-kpi-quotes-strip-marquee {
+  height: 100%;
+  cursor: auto;
+  touch-action: pan-x;
+}
+
+.risk-kpi-quotes-strip-card {
+  min-height: auto;
+}
+
+.risk-kpi-quotes-strip .resource-filter-track,
+.risk-kpi-quotes-strip .resource-filter-sequence {
+  height: 100%;
+}
+
+.risk-kpi-quotes-strip .resource-filter-card {
+  align-content: center;
+  gap: 2px;
+  padding: 5px 9px;
+  border-radius: 10px;
+}
+
+.risk-kpi-quotes-strip .risk-kpi-link-card-empty {
+  min-height: 54px;
+  height: 54px;
+  max-height: 54px;
+}
+
+.risk-kpi-quotes-strip .resource-filter-card-label {
+  font-size: 0.62rem;
+}
+
+.risk-kpi-quotes-strip .resource-filter-card strong {
+  font-size: 0.86rem;
+}
+
+.risk-kpi-quotes-strip .resource-filter-card-variation {
+  font-size: 0.68rem;
+}
+
+.risk-kpi-news-stat-card {
+  display: grid;
+  gap: 8px;
+  min-height: 252px;
+  height: 252px;
+  max-height: 252px;
+  align-content: start;
+  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.risk-kpi-news-stat-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(37, 99, 235, 0.22);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.1);
+}
+
+.risk-kpi-news-stat-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.risk-kpi-news-stat-item {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.risk-kpi-news-date {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  padding: 6px 6px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(14, 165, 233, 0.12));
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.risk-kpi-news-stat-content {
+  min-width: 0;
+}
+
+.risk-kpi-news-stat-content strong {
+  display: block;
+  margin-top: 0;
+  margin-bottom: 0;
+  color: #0f172a;
+  font-size: 0.88rem;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-kpi-maturity-card {
+  display: grid;
+  gap: 8px;
+  min-height: 252px;
+  height: 252px;
+  max-height: 252px;
+  align-content: start;
+  overflow: hidden;
+}
+
+.risk-kpi-maturity-list {
+  display: grid;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.risk-kpi-maturity-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.risk-kpi-maturity-item:hover,
+.risk-kpi-maturity-item:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(255, 102, 0, 0.28);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+  outline: none;
+}
+
+.risk-kpi-maturity-topline,
+.risk-kpi-maturity-bottomline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.risk-kpi-maturity-topline strong,
+.risk-kpi-maturity-bottomline b {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.86rem;
+  line-height: 1.1;
+}
+
+.risk-kpi-maturity-topline span,
+.risk-kpi-maturity-bottomline span {
+  min-width: 0;
+  color: #64748b;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.risk-kpi-maturity-bottomline b {
+  flex-shrink: 0;
+  color: #ea580c;
+}
+
 
 .risk-kpi-content {
   align-items: start;

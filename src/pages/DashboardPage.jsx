@@ -18,8 +18,11 @@ import ReactECharts from "echarts-for-react";
 import { useNavigate } from "react-router-dom";
 
 import { DatePickerField } from "../components/DatePickerField";
+import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
+import { ResourceForm } from "../components/ResourceForm";
 import { rowMatchesDashboardFilter, useDashboardFilter } from "../contexts/DashboardFilterContext";
+import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate } from "../utils/date";
 
@@ -40,6 +43,402 @@ Chart.register(
 
 const formatNumber = (value, suffix = "") => `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}${suffix}`;
 const COMMERCIAL_RISK_DERIVATIVE_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c3aed", "#dc2626", "#0891b2", "#65a30d", "#d97706"];
+
+const formatCompactPostDate = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
+};
+
+const stripHtml = (value) =>
+  String(value || "")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildCompactExcerpt = (value, maxLength = 96) => {
+  const excerpt = stripHtml(value);
+  if (!excerpt) return "Sem conteúdo publicado ainda.";
+  return excerpt.length > maxLength ? `${excerpt.slice(0, maxLength - 3)}...` : excerpt;
+};
+
+const formatQuoteNumber = (value, digits = 2) =>
+  Number(value || 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+
+const formatSignedQuoteNumber = (value, digits = 2) => {
+  const parsed = Number(value || 0);
+  const signal = parsed > 0 ? "+" : parsed < 0 ? "-" : "";
+  return `${signal}${Math.abs(parsed).toLocaleString("pt-BR", {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+};
+
+const parseLocalizedNumber = (value) => {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const raw = String(value).trim().replace(/\s+/g, "");
+  if (!raw) return 0;
+  const hasComma = raw.includes(",");
+  const hasDot = raw.includes(".");
+  let normalized = raw;
+  if (hasComma && hasDot) normalized = raw.replace(/\./g, "").replace(/,/g, ".");
+  else if (hasComma) normalized = raw.replace(/,/g, ".");
+  else if (hasDot) normalized = raw.split(".").length === 2 ? raw : raw.replace(/\./g, "");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
+  const marqueeRef = useRef(null);
+  const marqueeTrackRef = useRef(null);
+  const marqueeSequenceRef = useRef(null);
+  const marqueeDragStateRef = useRef({ active: false, moved: false, startX: 0, startScrollLeft: 0 });
+  const [isMarqueeInteracting, setIsMarqueeInteracting] = useState(false);
+  const [isMarqueeHovered, setIsMarqueeHovered] = useState(false);
+  const carouselRows = useMemo(() => {
+    const sectionStats = (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
+      const label = String(row?.section_name || "Sem secao").trim() || "Sem secao";
+      const normalizedLabel = label.toLowerCase();
+      if (!row?.ticker || row?.price === null || row?.price === undefined) {
+        return acc;
+      }
+      if (!normalizedLabel || ["indices", "índices", "soja b3", "sem secao"].includes(normalizedLabel)) {
+        return acc;
+      }
+      if (!acc[label]) {
+        acc[label] = { label, firstRow: row };
+        return acc;
+      }
+      const currentFirstOrder = Number(acc[label].firstRow?.sort_order || Number.MAX_SAFE_INTEGER);
+      const nextOrder = Number(row?.sort_order || Number.MAX_SAFE_INTEGER);
+      if (nextOrder < currentFirstOrder) {
+        acc[label].firstRow = row;
+      }
+      return acc;
+    }, {});
+
+    return Object.values(sectionStats).map((item) => ({
+      key: item.label,
+      label: item.label,
+      search: item.label,
+      firstRow: item.firstRow,
+    }));
+  }, [rows]);
+  const marqueeRows = carouselRows.length > 1 ? [carouselRows, carouselRows, carouselRows] : [carouselRows];
+
+  const getMarqueeLoopWidth = () => {
+    const track = marqueeTrackRef.current;
+    const sequence = marqueeSequenceRef.current;
+    if (!track || !sequence || typeof window === "undefined") {
+      return 0;
+    }
+
+    const styles = window.getComputedStyle(track);
+    const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
+    return sequence.offsetWidth + gap;
+  };
+
+  const normalizeMarqueeScroll = () => {
+    const container = marqueeRef.current;
+    const loopWidth = getMarqueeLoopWidth();
+    if (!container || !loopWidth) {
+      return;
+    }
+
+    while (container.scrollLeft >= loopWidth * 2) {
+      container.scrollLeft -= loopWidth;
+    }
+
+    while (container.scrollLeft < loopWidth) {
+      container.scrollLeft += loopWidth;
+    }
+  };
+
+  const beginMarqueeInteraction = (clientX, scrollLeft) => {
+    marqueeDragStateRef.current = {
+      active: true,
+      moved: false,
+      startX: clientX,
+      startScrollLeft: scrollLeft,
+    };
+  };
+
+  const handleMarqueeMouseDown = (event) => {
+    const container = marqueeRef.current;
+    if (!container || carouselRows.length <= 1 || event.button !== 0) {
+      return;
+    }
+    beginMarqueeInteraction(event.clientX, container.scrollLeft);
+  };
+
+  const handleMarqueeMouseMove = (event) => {
+    const container = marqueeRef.current;
+    const drag = marqueeDragStateRef.current;
+    if (!container || !drag.active) {
+      return;
+    }
+    const deltaX = event.clientX - drag.startX;
+    if (!drag.moved && Math.abs(deltaX) < 6) {
+      return;
+    }
+    if (!drag.moved) {
+      marqueeDragStateRef.current = { ...drag, moved: true };
+      setIsMarqueeInteracting(true);
+    }
+    container.scrollLeft = drag.startScrollLeft - deltaX;
+    normalizeMarqueeScroll();
+  };
+
+  const stopMarqueeInteraction = () => {
+    marqueeDragStateRef.current = {
+      active: false,
+      moved: false,
+      startX: 0,
+      startScrollLeft: marqueeRef.current?.scrollLeft || 0,
+    };
+    setIsMarqueeInteracting(false);
+  };
+
+  const handleMarqueeMouseLeave = () => {
+    stopMarqueeInteraction();
+    setIsMarqueeHovered(false);
+  };
+
+  const handleMarqueeTouchStart = (event) => {
+    const container = marqueeRef.current;
+    const touch = event.touches?.[0];
+    if (!container || !touch || carouselRows.length <= 1) {
+      return;
+    }
+    beginMarqueeInteraction(touch.clientX, container.scrollLeft);
+  };
+
+  const handleMarqueeTouchMove = (event) => {
+    const container = marqueeRef.current;
+    const touch = event.touches?.[0];
+    const drag = marqueeDragStateRef.current;
+    if (!container || !touch || !drag.active) {
+      return;
+    }
+    const deltaX = touch.clientX - drag.startX;
+    if (!drag.moved && Math.abs(deltaX) < 6) {
+      return;
+    }
+    if (!drag.moved) {
+      marqueeDragStateRef.current = { ...drag, moved: true };
+      setIsMarqueeInteracting(true);
+    }
+    container.scrollLeft = drag.startScrollLeft - deltaX;
+    normalizeMarqueeScroll();
+  };
+
+  const handleMarqueeTouchEnd = () => {
+    stopMarqueeInteraction();
+  };
+
+  useEffect(() => {
+    if (carouselRows.length <= 1) {
+      const container = marqueeRef.current;
+      if (container) {
+        container.scrollLeft = 0;
+      }
+      return undefined;
+    }
+
+    const container = marqueeRef.current;
+    if (!container || typeof window === "undefined") {
+      return undefined;
+    }
+
+    let animationFrameId = 0;
+    let lastTimestamp = 0;
+    const speedPxPerSecond = 28;
+
+    const step = (timestamp) => {
+      if (!container) {
+        return;
+      }
+
+      if (!lastTimestamp) {
+        lastTimestamp = timestamp;
+      }
+
+      const delta = timestamp - lastTimestamp;
+      lastTimestamp = timestamp;
+
+      if (!marqueeDragStateRef.current.active && !isMarqueeHovered) {
+        container.scrollLeft += (delta * speedPxPerSecond) / 1000;
+        normalizeMarqueeScroll();
+      }
+
+      animationFrameId = window.requestAnimationFrame(step);
+    };
+
+    const handleResize = () => {
+      normalizeMarqueeScroll();
+    };
+
+    const loopWidth = getMarqueeLoopWidth();
+    if (loopWidth && container.scrollLeft < loopWidth) {
+      container.scrollLeft = loopWidth;
+    }
+    normalizeMarqueeScroll();
+    animationFrameId = window.requestAnimationFrame(step);
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [carouselRows.length, isMarqueeHovered]);
+
+  return (
+    <section className="resource-filter-panel risk-kpi-quotes-strip">
+      {carouselRows.length ? (
+        <div
+          ref={marqueeRef}
+          className={`resource-filter-marquee risk-kpi-quotes-strip-marquee${isMarqueeInteracting ? " is-interacting" : ""}`}
+          onMouseDown={handleMarqueeMouseDown}
+          onMouseMove={handleMarqueeMouseMove}
+          onMouseUp={stopMarqueeInteraction}
+          onMouseEnter={() => setIsMarqueeHovered(true)}
+          onMouseLeave={handleMarqueeMouseLeave}
+          onTouchStart={handleMarqueeTouchStart}
+          onTouchMove={handleMarqueeTouchMove}
+          onTouchEnd={handleMarqueeTouchEnd}
+          onTouchCancel={handleMarqueeTouchEnd}
+          onScroll={normalizeMarqueeScroll}
+        >
+          <div ref={marqueeTrackRef} className="resource-filter-track">
+            {marqueeRows.map((sequence, sequenceIndex) => (
+              <div
+                key={`risk-kpi-quotes-sequence-${sequenceIndex}`}
+                ref={sequenceIndex === 0 ? marqueeSequenceRef : undefined}
+                className="resource-filter-sequence"
+                aria-hidden={sequenceIndex > 0 ? "true" : undefined}
+              >
+                {sequence.map((item) => {
+                  const changeValue = parseLocaleNumber(item.firstRow?.change_value);
+                  const toneClass = changeValue > 0 ? " is-positive" : changeValue < 0 ? " is-negative" : "";
+                  return (
+                    <button
+                      type="button"
+                      className="resource-filter-card risk-kpi-quotes-strip-card"
+                      key={`${item.key || item.label}-${sequenceIndex}`}
+                      onClick={onOpen}
+                    >
+                      <span className="resource-filter-card-label">{item.label}</span>
+                      <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatQuoteNumber(item.firstRow.price, 2) : "—"}</strong>
+                      <span className={`resource-filter-card-variation${toneClass}`}>
+                        {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
+                          ? `${formatSignedQuoteNumber(item.firstRow.change_value, 2)} (${formatSignedQuoteNumber(item.firstRow.change_percent, 2)}%)`
+                          : "Sem variacao"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="risk-kpi-link-card-empty">Nenhuma cotação disponível no momento.</div>
+      )}
+    </section>
+  );
+}
+
+function CommercialRiskNewsSummaryCard({ rows, onOpen }) {
+  const latestPosts = useMemo(() => {
+    const published = (Array.isArray(rows) ? rows : []).filter((item) => item?.status_artigo !== "draft");
+    const source = published.length ? published : (Array.isArray(rows) ? rows : []);
+    return [...source]
+      .sort((left, right) => new Date(right?.data_publicacao || right?.created_at || 0) - new Date(left?.data_publicacao || left?.created_at || 0))
+      .slice(0, 12);
+  }, [rows]);
+
+  return (
+    <div
+      className="card stat-card risk-kpi-news-stat-card"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <span className="stat-card-primary-title">Blog/News</span>
+      <div className="risk-kpi-news-stat-list">
+        {latestPosts.length ? (
+          latestPosts.map((post) => (
+            <article className="risk-kpi-news-stat-item" key={post.id}>
+              <div className="risk-kpi-news-date">{formatCompactPostDate(post.data_publicacao || post.created_at) || "Sem data"}</div>
+              <div className="risk-kpi-news-stat-content">
+                <strong>{post.titulo || "Sem título"}</strong>
+              </div>
+            </article>
+          ))
+        ) : (
+          <div className="risk-kpi-link-card-empty">Nenhum post disponível no momento.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UpcomingMaturitiesCard({ rows, onOpenItem }) {
+  return (
+    <article className="card stat-card risk-kpi-maturity-card">
+      <span className="stat-card-primary-title">Proximos vencimentos</span>
+      <div className="risk-kpi-maturity-list">
+        {rows.length ? (
+          rows.map((item, index) => (
+            <article
+              className="risk-kpi-maturity-item"
+              key={`${item.app}-${item.dateKey}-${index}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                if (item.recordId && onOpenItem) {
+                  onOpenItem(item);
+                }
+              }}
+              onKeyDown={(event) => {
+                if ((event.key === "Enter" || event.key === " ") && item.recordId && onOpenItem) {
+                  event.preventDefault();
+                  onOpenItem(item);
+                }
+              }}
+            >
+              <div className="risk-kpi-maturity-topline">
+                <strong>{item.dateText} - {item.app}</strong>
+              </div>
+              <div className="risk-kpi-maturity-bottomline">
+                <span>{item.summaryLabel || item.title}</span>
+                <b>{item.valueLabel}</b>
+              </div>
+            </article>
+          ))
+        ) : (
+          <div className="risk-kpi-link-card-empty">Nenhum vencimento futuro encontrado.</div>
+        )}
+      </div>
+    </article>
+  );
+}
 
 function MiniLegend({ items }) {
   return (
@@ -2393,19 +2792,37 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [budgetCosts, setBudgetCosts] = useState([]);
   const [physicalPayments, setPhysicalPayments] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
+  const [marketQuotes, setMarketQuotes] = useState([]);
+  const [marketNewsPosts, setMarketNewsPosts] = useState([]);
+  const [editingMaturityItem, setEditingMaturityItem] = useState(null);
+  const [maturityAttachments, setMaturityAttachments] = useState([]);
+  const [maturityFormError, setMaturityFormError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
     Promise.all([
-      resourceService.listAll("physical-sales"),
-      resourceService.listAll("derivative-operations"),
-      resourceService.listAll("crop-boards"),
-      resourceService.listAll("physical-quotes"),
-      resourceService.listAll("hedge-policies"),
-      resourceService.listAll("budget-costs"),
-      resourceService.listAll("physical-payments"),
-      resourceService.listAll("cash-payments"),
-    ]).then(([salesResponse, derivativeResponse, cropBoardResponse, quotesResponse, policiesResponse, budgetResponse, physicalPaymentsResponse, cashPaymentsResponse]) => {
+      resourceService.listAll("physical-sales").catch(() => []),
+      resourceService.listAll("derivative-operations").catch(() => []),
+      resourceService.listAll("crop-boards").catch(() => []),
+      resourceService.listAll("physical-quotes").catch(() => []),
+      resourceService.listAll("hedge-policies").catch(() => []),
+      resourceService.listAll("budget-costs").catch(() => []),
+      resourceService.listAll("physical-payments").catch(() => []),
+      resourceService.listAll("cash-payments").catch(() => []),
+      resourceService.listTradingviewQuotes({ force: true }).catch(() => []),
+      resourceService.listAll("market-news-posts").catch(() => []),
+    ]).then(([
+      salesResponse,
+      derivativeResponse,
+      cropBoardResponse,
+      quotesResponse,
+      policiesResponse,
+      budgetResponse,
+      physicalPaymentsResponse,
+      cashPaymentsResponse,
+      marketQuotesResponse,
+      marketNewsPostsResponse,
+    ]) => {
       if (!isMounted) return;
       setPhysicalSales(salesResponse || []);
       setDerivatives(derivativeResponse || []);
@@ -2415,6 +2832,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       setBudgetCosts(budgetResponse || []);
       setPhysicalPayments(physicalPaymentsResponse || []);
       setCashPayments(cashPaymentsResponse || []);
+      setMarketQuotes(marketQuotesResponse || []);
+      setMarketNewsPosts(marketNewsPostsResponse || []);
     });
     return () => {
       isMounted = false;
@@ -2494,6 +2913,91 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     const nestedId = value.id != null ? cultureLabelById.get(String(value.id)) : null;
     return nestedId || value.ativo || value.cultura || value.nome || value.label || value.descricao || "Sem ativo";
   };
+
+  const maturityFormDefinition = useMemo(() => {
+    if (!editingMaturityItem?.resourceKey) return null;
+    if (editingMaturityItem.resourceKey === "derivative-operations") {
+      return resourceDefinitions.derivativeOperations;
+    }
+    if (editingMaturityItem.resourceKey === "physical-sales") {
+      return resourceDefinitions.physicalSales;
+    }
+    if (editingMaturityItem.resourceKey === "physical-payments") {
+      return resourceDefinitions.physicalPayments;
+    }
+    if (editingMaturityItem.resourceKey === "cash-payments") {
+      return resourceDefinitions.cashPayments;
+    }
+    return null;
+  }, [editingMaturityItem?.resourceKey]);
+
+  const maturityFormFields = useMemo(() => {
+    if (!maturityFormDefinition) return [];
+    return editingMaturityItem ? maturityFormDefinition.editFields || maturityFormDefinition.fields || [] : maturityFormDefinition.fields || [];
+  }, [editingMaturityItem, maturityFormDefinition]);
+
+  const closeMaturityModal = () => {
+    setEditingMaturityItem(null);
+    setMaturityAttachments([]);
+    setMaturityFormError("");
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    const attachmentField = maturityFormFields.find((field) => field.type === "file-multi") || maturityFormDefinition?.attachmentField;
+
+    if (!editingMaturityItem?.id || !maturityFormDefinition?.resource || !attachmentField) {
+      setMaturityAttachments([]);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    resourceService.listAttachments(maturityFormDefinition.resource, editingMaturityItem.id).then((items) => {
+      if (isMounted) {
+        setMaturityAttachments(items);
+      }
+    }).catch(() => {
+      if (isMounted) {
+        setMaturityAttachments([]);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [editingMaturityItem?.id, maturityFormDefinition?.resource, maturityFormFields]);
+
+  const openMaturityForm = (item) => {
+    if (!item?.recordId || !item?.resourceKey) return;
+
+    if (item.resourceKey === "derivative-operations") {
+      const current = derivatives.find((row) => String(row.id) === String(item.recordId));
+      if (!current) return;
+      setEditingMaturityItem({
+        ...current,
+        resourceKey: item.resourceKey,
+        siblingRows: derivatives
+          .filter((candidate) => candidate.cod_operacao_mae === current.cod_operacao_mae)
+          .sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id),
+      });
+      setMaturityFormError("");
+      return;
+    }
+
+    const sourceRows =
+      item.resourceKey === "physical-sales"
+        ? physicalSales
+        : item.resourceKey === "physical-payments"
+          ? physicalPayments
+          : cashPayments;
+    const current = sourceRows.find((row) => String(row.id) === String(item.recordId));
+    if (!current) return;
+    setEditingMaturityItem({ ...current, resourceKey: item.resourceKey });
+    setMaturityFormError("");
+  };
+
+  const replaceRowById = (items, updated) => items.map((row) => (String(row.id) === String(updated.id) ? updated : row));
 
   const productionTotal = useMemo(
     () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.producao_total || 0)), 0),
@@ -2798,8 +3302,155 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       .slice(0, 6);
   }, [bolsaDerivatives, filteredCropBoards, filteredSales, cultureLabelById]);
 
+  const upcomingMaturityRows = useMemo(() => {
+    const today = startOfDashboardDay(new Date());
+    if (!today) return [];
+
+    const formatValueLabel = (value, unitLabel = "") => {
+      const amount = Number(value || 0);
+      const unit = String(unitLabel || "").trim();
+      if (!Number.isFinite(amount) || amount === 0) {
+        return unit || "—";
+      }
+      if (isUsdCurrency(unit)) {
+        return `U$ ${formatCurrency2(amount)}`;
+      }
+      if (isEuroCurrency(unit)) {
+        return `€ ${formatCurrency2(amount)}`;
+      }
+      if (isBrlCurrency(unit)) {
+        return `R$ ${formatCurrency2(amount)}`;
+      }
+      return `${formatNumber0(amount)}${unit ? ` ${unit}` : ""}`;
+    };
+
+    const formatStrikeLabel = (value, unitLabel = "") => {
+      const strike = Number(value || 0);
+      if (!Number.isFinite(strike) || strike === 0) return "";
+      const unit = String(unitLabel || "").trim();
+      if (isUsdCurrency(unit)) {
+        return `Strike ${formatCurrency2(strike)} U$`;
+      }
+      if (isEuroCurrency(unit)) {
+        return `Strike ${formatCurrency2(strike)} €`;
+      }
+      if (isBrlCurrency(unit)) {
+        return `Strike ${formatCurrency2(strike)} R$`;
+      }
+      return `Strike ${formatCurrency2(strike)}${unit ? ` ${unit}` : ""}`;
+    };
+
+    const salesRows = filteredSales
+      .map((item) => {
+        const dueDate = startOfDashboardDay(item.data_pagamento);
+        if (!dueDate || dueDate < today) return null;
+        return {
+          recordId: item.id,
+          resourceKey: "physical-sales",
+          app: "Vendas Fisico",
+          title: item.cultura_produto || resolveCultureLabel(item.cultura || item.cultura_texto) || "Contrato fisico",
+          summaryLabel: item.cultura_produto || resolveCultureLabel(item.cultura || item.cultura_texto) || "Contrato fisico",
+          dateLabel: "Pagamento",
+          dateText: formatBrazilianDate(dueDate, "—"),
+          dateKey: toIsoDate(dueDate),
+          date: dueDate,
+          valueLabel: formatValueLabel(
+            Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0),
+            item.moeda_contrato || "",
+          ),
+        };
+      })
+      .filter(Boolean);
+
+    const physicalPaymentRows = filteredPhysicalPayments
+      .map((item) => {
+        const dueDate = startOfDashboardDay(item.data_pagamento);
+        if (!dueDate || dueDate < today) return null;
+        return {
+          recordId: item.id,
+          resourceKey: "physical-payments",
+          app: "Pgtos Fisico",
+          title: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento fisico",
+          summaryLabel: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento fisico",
+          dateLabel: "Pagamento",
+          dateText: formatBrazilianDate(dueDate, "—"),
+          dateKey: toIsoDate(dueDate),
+          date: dueDate,
+          valueLabel: formatValueLabel(item.volume, item.unidade || ""),
+        };
+      })
+      .filter(Boolean);
+
+    const cashPaymentRows = filteredCashPayments
+      .map((item) => {
+        const dueDate = startOfDashboardDay(item.data_pagamento);
+        if (!dueDate || dueDate < today) return null;
+        return {
+          recordId: item.id,
+          resourceKey: "cash-payments",
+          app: "Pgtos Caixa",
+          title: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento caixa",
+          summaryLabel: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento caixa",
+          dateLabel: "Pagamento",
+          dateText: formatBrazilianDate(dueDate, "—"),
+          dateKey: toIsoDate(dueDate),
+          date: dueDate,
+          valueLabel: formatValueLabel(item.volume, item.moeda || ""),
+        };
+      })
+      .filter(Boolean);
+
+    const derivativeRows = filteredDerivatives
+      .map((item) => {
+        const dueDate = startOfDashboardDay(item.data_liquidacao);
+        if (!dueDate || dueDate < today) return null;
+        const operationLabel = item.nome_da_operacao || item.contrato_derivativo || item.cod_operacao_mae || "Operacao derivativa";
+        const strikeLabel = formatStrikeLabel(
+          item.strike_montagem || item.strike_liquidacao,
+          item.volume_financeiro_moeda || item.moeda_unidade || "",
+        );
+        const institutionLabel =
+          item.bolsa_ref ||
+          item.ctrbolsa ||
+          item.instituicao ||
+          item.bolsa?.nome ||
+          item.bolsa ||
+          "";
+        return {
+          recordId: item.id,
+          resourceKey: "derivative-operations",
+          app: "Derivativos",
+          title: operationLabel,
+          summaryLabel: [operationLabel, institutionLabel, strikeLabel].filter(Boolean).join(" - "),
+          dateLabel: "Liquidacao",
+          dateText: formatBrazilianDate(dueDate, "—"),
+          dateKey: toIsoDate(dueDate),
+          date: dueDate,
+          valueLabel: formatValueLabel(
+            item.volume_financeiro_valor || item.volume_financeiro_valor_moeda_original || item.volume_fisico_valor || item.numero_lotes,
+            item.volume_financeiro_moeda || item.volume_fisico_unidade || item.moeda_unidade || "",
+          ),
+        };
+      })
+      .filter(Boolean);
+
+    return [...salesRows, ...physicalPaymentRows, ...cashPaymentRows, ...derivativeRows]
+      .sort((left, right) => left.date - right.date)
+      .slice(0, 8);
+  }, [filteredCashPayments, filteredDerivatives, filteredPhysicalPayments, filteredSales]);
+
+  const openQuotesPage = () => {
+    window.location.href = "/mercado/cotacoes";
+  };
+
+  const openBlogNewsPage = () => {
+    window.location.href = "/mercado/blog-news";
+  };
+
   return (
     <section className="risk-kpi-shell">
+      <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
+
       <section className="stats-grid risk-kpi-grid">
         <article className="card stat-card">
           <span className="stat-card-primary-title">Produção líquida</span>
@@ -2838,6 +3489,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
               : `${formatNumber0(derivativeCommodityVolume)} sc`}
           </strong>
         </article>
+        <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} />
+        <CommercialRiskNewsSummaryCard rows={marketNewsPosts} onOpen={openBlogNewsPage} />
       </section>
 
       <CommercialRiskGaugePanel
@@ -2935,6 +3588,151 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           </div>
         </article>
       </section>
+
+      {editingMaturityItem && maturityFormDefinition?.customForm === "derivative-operation" ? (
+        <DerivativeOperationForm
+          title={`Editar ${maturityFormDefinition.title}`}
+          initialValues={editingMaturityItem}
+          existingAttachments={maturityAttachments}
+          error={maturityFormError}
+          onDeleteAttachment={async (attachment) => {
+            await resourceService.remove("attachments", attachment.id);
+            if (editingMaturityItem?.id) {
+              const items = await resourceService.listAttachments(maturityFormDefinition.resource, editingMaturityItem.id);
+              setMaturityAttachments(items);
+            }
+          }}
+          onClose={closeMaturityModal}
+          onSubmit={async (payload, rawValues) => {
+            try {
+              const files = Array.isArray(rawValues.attachments) ? rawValues.attachments : [];
+              const siblingRows = Array.isArray(editingMaturityItem?.siblingRows) ? editingMaturityItem.siblingRows : [];
+              const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "attachments" && key !== "itens"));
+              const itemPayloads = Array.isArray(payload.itens) ? payload.itens : [];
+              let primaryRecord = null;
+              const savedRows = [];
+              const removedIds = [];
+              const existingRows = siblingRows.length ? siblingRows : derivatives.filter((row) => row.cod_operacao_mae === editingMaturityItem.cod_operacao_mae);
+              const keepIds = [];
+
+              for (let index = 0; index < itemPayloads.length; index += 1) {
+                const itemPayload = itemPayloads[index];
+                const existingRow = existingRows[index];
+                const rowPayload = {
+                  ...cleanPayload,
+                  grupo_montagem: itemPayload.grupo_montagem || "",
+                  tipo_derivativo: itemPayload.tipo_derivativo || "",
+                  numero_lotes: itemPayload.numero_lotes,
+                  strike_montagem: itemPayload.strike_montagem,
+                  custo_total_montagem_brl: itemPayload.custo_total_montagem_brl,
+                  strike_liquidacao: itemPayload.strike_liquidacao,
+                  ajustes_totais_brl: itemPayload.ajustes_totais_brl,
+                  ajustes_totais_usd: itemPayload.ajustes_totais_usd,
+                  ordem: index + 1,
+                  volume: itemPayload.volume,
+                  volume_financeiro_valor_moeda_original: itemPayload.volume_financeiro_valor_moeda_original,
+                };
+
+                if (existingRow?.id) {
+                  const updated = await resourceService.update(maturityFormDefinition.resource, existingRow.id, rowPayload);
+                  savedRows.push(updated);
+                  keepIds.push(updated.id);
+                  if (!primaryRecord || String(updated.id) === String(editingMaturityItem.id)) primaryRecord = updated;
+                } else {
+                  const created = await resourceService.create(maturityFormDefinition.resource, rowPayload);
+                  savedRows.push(created);
+                  keepIds.push(created.id);
+                  if (!primaryRecord) primaryRecord = created;
+                }
+              }
+
+              const removableRows = existingRows.filter((row) => !keepIds.includes(row.id));
+              for (const removableRow of removableRows) {
+                await resourceService.remove(maturityFormDefinition.resource, removableRow.id);
+                removedIds.push(removableRow.id);
+              }
+
+              if (savedRows.length) {
+                setDerivatives((currentRows) => {
+                  const survivors = currentRows.filter((row) => !removedIds.includes(row.id));
+                  const nextRows = [...survivors];
+                  savedRows.forEach((savedRow) => {
+                    const index = nextRows.findIndex((row) => String(row.id) === String(savedRow.id));
+                    if (index >= 0) nextRows[index] = savedRow;
+                    else nextRows.push(savedRow);
+                  });
+                  return nextRows;
+                });
+              }
+
+              if (primaryRecord && files.length) {
+                await resourceService.uploadAttachments(maturityFormDefinition.resource, primaryRecord.id, files);
+              }
+
+              closeMaturityModal();
+            } catch (requestError) {
+              setMaturityFormError(requestError?.response?.data?.detail || "Nao foi possivel salvar o derivativo.");
+            }
+          }}
+        />
+      ) : null}
+
+      {editingMaturityItem && maturityFormDefinition && maturityFormDefinition.customForm !== "derivative-operation" ? (
+        <ResourceForm
+          title={`Editar ${maturityFormDefinition.title}`}
+          fields={maturityFormFields}
+          initialValues={editingMaturityItem}
+          submitLabel={maturityFormDefinition.submitLabel || "Salvar"}
+          existingAttachments={maturityAttachments}
+          error={maturityFormError}
+          onDeleteAttachment={async (attachment) => {
+            await resourceService.remove("attachments", attachment.id);
+            if (editingMaturityItem?.id) {
+              const items = await resourceService.listAttachments(maturityFormDefinition.resource, editingMaturityItem.id);
+              setMaturityAttachments(items);
+            }
+          }}
+          onClose={closeMaturityModal}
+          onSubmit={async (payload, rawValues) => {
+            try {
+              const attachmentField = maturityFormFields.find((field) => field.type === "file-multi");
+              const files = attachmentField && Array.isArray(rawValues[attachmentField.name]) ? rawValues[attachmentField.name] : [];
+              let cleanPayload = attachmentField
+                ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== attachmentField.name))
+                : payload;
+
+              if (maturityFormDefinition.resource === "physical-sales" && cleanPayload.cultura_produto) {
+                const crops = await resourceService.listAll("crops");
+                const selectedCrop = crops.find((item) => (item.ativo || item.cultura) === cleanPayload.cultura_produto);
+                if (selectedCrop) {
+                  cleanPayload = {
+                    ...cleanPayload,
+                    cultura: selectedCrop.id,
+                  };
+                }
+              }
+
+              const saved = await resourceService.update(maturityFormDefinition.resource, editingMaturityItem.id, cleanPayload);
+
+              if (files.length) {
+                await resourceService.uploadAttachments(maturityFormDefinition.resource, saved.id, files);
+              }
+
+              if (maturityFormDefinition.resource === "physical-sales") {
+                setPhysicalSales((currentRows) => replaceRowById(currentRows, saved));
+              } else if (maturityFormDefinition.resource === "physical-payments") {
+                setPhysicalPayments((currentRows) => replaceRowById(currentRows, saved));
+              } else if (maturityFormDefinition.resource === "cash-payments") {
+                setCashPayments((currentRows) => replaceRowById(currentRows, saved));
+              }
+
+              closeMaturityModal();
+            } catch (requestError) {
+              setMaturityFormError(requestError?.response?.data?.detail || "Nao foi possivel salvar o registro.");
+            }
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -6598,7 +7396,7 @@ const dashboardContent = {
   },
   commercialRisk: {
     title: "Resumo",
-    description: "Indicadores executivos para gestão de risco, comercialização, hedge e disciplina operacional.",
+    description: "",
   },
   strategiesTriggers: {
     title: "Estratégias e Gatilhos",
