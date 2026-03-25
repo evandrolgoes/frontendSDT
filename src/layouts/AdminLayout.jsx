@@ -39,7 +39,11 @@ export function AdminLayout({ children }) {
   const { filter, options, panelOpen, setPanelOpen, toggleFilterValue, updateFilter, clearFilter } = useDashboardFilter();
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
   const [marketNewsCategories, setMarketNewsCategories] = useState([]);
+  const [isMobileSidebar, setIsMobileSidebar] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false,
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [openSections, setOpenSections] = useState(() =>
     Object.fromEntries(navigationSections.map((section) => [section.label, false])),
   );
@@ -66,7 +70,29 @@ export function AdminLayout({ children }) {
     return parts.length ? parts : ["Consolidado geral"];
   }, [filter, options]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    const syncViewport = () => {
+      const nextIsMobile = window.innerWidth <= 768;
+      setIsMobileSidebar(nextIsMobile);
+      if (!nextIsMobile) {
+        setMobileSidebarOpen(false);
+      }
+    };
+
+    syncViewport();
+    window.addEventListener("resize", syncViewport);
+    return () => window.removeEventListener("resize", syncViewport);
+  }, []);
+
   const handleSidebarToggle = () => {
+    if (isMobileSidebar) {
+      setMobileSidebarOpen((current) => !current);
+      return;
+    }
     setSidebarCollapsed((current) => {
       const next = !current;
       if (next) {
@@ -74,6 +100,12 @@ export function AdminLayout({ children }) {
       }
       return next;
     });
+  };
+
+  const closeSidebarForMobile = () => {
+    if (isMobileSidebar) {
+      setMobileSidebarOpen(false);
+    }
   };
 
   useEffect(() => {
@@ -155,15 +187,20 @@ export function AdminLayout({ children }) {
   };
 
   return (
-    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+    <div
+      className={`app-shell${!isMobileSidebar && sidebarCollapsed ? " sidebar-collapsed" : ""}${isMobileSidebar ? " mobile-shell" : ""}${
+        mobileSidebarOpen ? " mobile-sidebar-open" : ""
+      }`}
+    >
       <button
         type="button"
-        className={`sidebar-collapse-fab${sidebarCollapsed ? " collapsed" : ""}`}
+        className={`sidebar-collapse-fab${!isMobileSidebar && sidebarCollapsed ? " collapsed" : ""}`}
         onClick={handleSidebarToggle}
-        aria-label={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
+        aria-label={isMobileSidebar ? (mobileSidebarOpen ? "Fechar menu" : "Abrir menu") : sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
       >
-        {sidebarCollapsed ? "›" : "‹"}
+        {isMobileSidebar ? (mobileSidebarOpen ? "×" : "☰") : sidebarCollapsed ? "›" : "‹"}
       </button>
+      {isMobileSidebar && mobileSidebarOpen ? <button type="button" className="sidebar-mobile-backdrop" onClick={closeSidebarForMobile} aria-label="Fechar menu" /> : null}
       <aside className="sidebar">
         <div className="sidebar-content">
           <div className="brand">
@@ -195,12 +232,13 @@ export function AdminLayout({ children }) {
                               <NavLink
                                 to={item.path}
                                 className={() => "nav-item-link"}
-                                onClick={() =>
+                                onClick={() => {
                                   setOpenItems((current) => ({
                                     ...current,
                                     [item.path]: !current[item.path],
-                                  }))
-                                }
+                                  }));
+                                  closeSidebarForMobile();
+                                }}
                               >
                                 {item.label}
                               </NavLink>
@@ -223,6 +261,7 @@ export function AdminLayout({ children }) {
                                   <NavLink
                                     key={child.path}
                                     to={child.path}
+                                    onClick={closeSidebarForMobile}
                                     className={() => `nav-item nav-item-subitem${isNavItemActive(child.path) ? " active" : ""}`}
                                   >
                                     {child.label}
@@ -232,7 +271,7 @@ export function AdminLayout({ children }) {
                             ) : null}
                           </>
                         ) : (
-                          <NavLink to={item.path} className={() => `nav-item${isNavItemActive(item.path) ? " active" : ""}`}>
+                          <NavLink to={item.path} onClick={closeSidebarForMobile} className={() => `nav-item${isNavItemActive(item.path) ? " active" : ""}`}>
                             {item.label}
                           </NavLink>
                         )}

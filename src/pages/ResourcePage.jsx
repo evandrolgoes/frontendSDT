@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DataTable } from "../components/DataTable";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
@@ -323,6 +323,49 @@ function SimpleQuotesTable({
           </tbody>
         </table>
       </div>
+
+      <div className="simple-quotes-mobile-list">
+        {filteredRows.length ? (
+          filteredRows.map((row) => {
+            const changeValue = parseLocalizedNumber(row?.change_value);
+            const variationClass = changeValue > 0 ? " is-positive" : changeValue < 0 ? " is-negative" : "";
+            const tickerLabel = formatSimpleTableValue({ key: "ticker" }, row?.ticker);
+            const descriptionLabel = formatSimpleTableValue({ key: "description" }, row?.description);
+            const priceLabel = formatBrazilianNumber(row?.price, 2);
+            const variationLabel =
+              row?.change_value !== null && row?.change_value !== undefined
+                ? `${formatSignedBrazilianNumber(row?.change_value, 2)} (${formatSignedBrazilianNumber(row?.change_percent, 2)}%)`
+                : "Sem variacao";
+
+            return (
+              <article className="simple-quotes-mobile-card" key={`mobile-${row.id}`}>
+                <div className="simple-quotes-mobile-symbol">
+                  {typeof onTickerClick === "function" ? (
+                    <button
+                      type="button"
+                      className="simple-quotes-mobile-ticker"
+                      onClick={() => onTickerClick(row)}
+                      title={`Abrir grafico de ${row?.symbol || row?.ticker || ""}`}
+                    >
+                      {tickerLabel}
+                    </button>
+                  ) : (
+                    <strong className="simple-quotes-mobile-ticker-text">{tickerLabel}</strong>
+                  )}
+                  <span className="simple-quotes-mobile-description">{descriptionLabel}</span>
+                </div>
+
+                <div className="simple-quotes-mobile-price-block">
+                  <strong className="simple-quotes-mobile-price">{priceLabel}</strong>
+                  <span className={`simple-quotes-mobile-variation${variationClass}`}>{variationLabel}</span>
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <div className="simple-quotes-mobile-empty">Nenhum registro encontrado.</div>
+        )}
+      </div>
     </section>
   );
 }
@@ -363,6 +406,12 @@ export function ResourcePage({ definition }) {
   const [accessRequestValues, setAccessRequestValues] = useState([""]);
   const [isAccessRequestOpen, setIsAccessRequestOpen] = useState(false);
   const [pendingAccessRequests, setPendingAccessRequests] = useState([]);
+  const marqueeRef = useRef(null);
+  const marqueeTrackRef = useRef(null);
+  const marqueeSequenceRef = useRef(null);
+  const marqueeDragStateRef = useRef({ active: false, moved: false, startX: 0, startScrollLeft: 0 });
+  const [isMarqueeInteracting, setIsMarqueeInteracting] = useState(false);
+  const [isMarqueeHovered, setIsMarqueeHovered] = useState(false);
   const [isPendingAccessOpen, setIsPendingAccessOpen] = useState(false);
   const tableColumns = useMemo(() => buildTableColumns(definition), [definition]);
   const supportsAccessWorkflow = definition.resource === "groups" || definition.resource === "subgroups";
@@ -462,12 +511,90 @@ export function ResourcePage({ definition }) {
     return `Ultima atualizacao: ${timeLabel} de ${dateLabel}`;
   }, [definition.resource, rows]);
 
-  const marqueeFilterCards = useMemo(() => {
-    if (filterCards.length <= 1) {
-      return filterCards;
+  const getMarqueeLoopWidth = () => {
+    const track = marqueeTrackRef.current;
+    const sequence = marqueeSequenceRef.current;
+    if (!track || !sequence || typeof window === "undefined") {
+      return 0;
     }
-    return [...filterCards, ...filterCards];
-  }, [filterCards]);
+
+    const styles = window.getComputedStyle(track);
+    const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
+    return sequence.offsetWidth + gap;
+  };
+
+  const normalizeMarqueeScroll = () => {
+    const container = marqueeRef.current;
+    const loopWidth = getMarqueeLoopWidth();
+    if (!container || !loopWidth) {
+      return;
+    }
+
+    while (container.scrollLeft >= loopWidth) {
+      container.scrollLeft -= loopWidth;
+    }
+
+    while (container.scrollLeft < 0) {
+      container.scrollLeft += loopWidth;
+    }
+  };
+
+  const applyFilterCardSearch = (search) => {
+    setFilters((currentFilters) => ({ ...currentFilters, search, page: 1 }));
+  };
+
+  const handleMarqueeMouseDown = (event) => {
+    const container = marqueeRef.current;
+    if (!container || filterCards.length <= 1) {
+      return;
+    }
+    if (event.button !== 0) {
+      return;
+    }
+
+    marqueeDragStateRef.current = {
+      active: true,
+      moved: false,
+      startX: event.clientX,
+      startScrollLeft: container.scrollLeft,
+    };
+  };
+
+  const handleMarqueeMouseMove = (event) => {
+    const container = marqueeRef.current;
+    const drag = marqueeDragStateRef.current;
+    if (!container || !drag.active) {
+      return;
+    }
+    const deltaX = event.clientX - drag.startX;
+    if (!drag.moved && Math.abs(deltaX) < 6) {
+      return;
+    }
+    if (!drag.moved) {
+      marqueeDragStateRef.current = {
+        ...drag,
+        moved: true,
+      };
+      setIsMarqueeInteracting(true);
+    }
+    container.scrollLeft = drag.startScrollLeft - deltaX;
+    normalizeMarqueeScroll();
+  };
+
+  const stopMarqueeInteraction = () => {
+    marqueeDragStateRef.current = {
+      active: false,
+      moved: false,
+      startX: 0,
+      startScrollLeft: marqueeRef.current?.scrollLeft || 0,
+    };
+    setIsMarqueeInteracting(false);
+  };
+
+  const handleMarqueeMouseLeave = () => {
+    stopMarqueeInteraction();
+    setIsMarqueeHovered(false);
+  };
   const nextDerivativeOperationCode = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
       return "";
@@ -605,6 +732,58 @@ export function ResourcePage({ definition }) {
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
   }, [definition.autoRefreshIntervalMs, load]);
+
+  useEffect(() => {
+    if (definition.resource !== "tradingview-watchlist-quotes" || filterCards.length <= 1) {
+      const container = marqueeRef.current;
+      if (container) {
+        container.scrollLeft = 0;
+      }
+      return undefined;
+    }
+
+    const container = marqueeRef.current;
+    if (!container || typeof window === "undefined") {
+      return undefined;
+    }
+
+    let animationFrameId = 0;
+    let lastTimestamp = 0;
+    const speedPxPerSecond = 28;
+
+    const step = (timestamp) => {
+      if (!container) {
+        return;
+      }
+
+      if (!lastTimestamp) {
+        lastTimestamp = timestamp;
+      }
+
+      const delta = timestamp - lastTimestamp;
+      lastTimestamp = timestamp;
+
+      if (!marqueeDragStateRef.current.active && !isMarqueeHovered) {
+        container.scrollLeft += (delta * speedPxPerSecond) / 1000;
+        normalizeMarqueeScroll();
+      }
+
+      animationFrameId = window.requestAnimationFrame(step);
+    };
+
+    const handleResize = () => {
+      normalizeMarqueeScroll();
+    };
+
+    normalizeMarqueeScroll();
+    animationFrameId = window.requestAnimationFrame(step);
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [definition.resource, filterCards, isMarqueeHovered]);
 
   const normalizedRows = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
@@ -1032,32 +1211,55 @@ export function ResourcePage({ definition }) {
       ) : null}
       {filterCards.length ? (
         <section className="resource-filter-panel">
-          <div className="resource-filter-marquee">
-            <div className={`resource-filter-track${filterCards.length > 1 ? " is-animated" : ""}`}>
-            {marqueeFilterCards.map((item, index) => (
-              <button
-                key={`${item.key}-${index}`}
-                type="button"
-                className={`resource-filter-card${activeFilterCardKey === item.key ? " is-active" : ""}`}
-                onClick={() => setFilters((currentFilters) => ({ ...currentFilters, search: item.search, page: 1 }))}
-              >
-                <span className="resource-filter-card-label">{item.label}</span>
-                <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatBrazilianNumber(item.firstRow.price, 2) : "—"}</strong>
-                <span
-                  className={`resource-filter-card-variation${
-                    parseLocalizedNumber(item.firstRow?.change_value) > 0
-                      ? " is-positive"
-                      : parseLocalizedNumber(item.firstRow?.change_value) < 0
-                        ? " is-negative"
-                        : ""
-                  }`}
+          <div
+            ref={marqueeRef}
+            className={`resource-filter-marquee${isMarqueeInteracting ? " is-interacting" : ""}`}
+            onMouseDown={handleMarqueeMouseDown}
+            onMouseMove={handleMarqueeMouseMove}
+            onMouseUp={stopMarqueeInteraction}
+            onMouseEnter={() => setIsMarqueeHovered(true)}
+            onMouseLeave={handleMarqueeMouseLeave}
+            onScroll={normalizeMarqueeScroll}
+          >
+            <div ref={marqueeTrackRef} className="resource-filter-track">
+              {[filterCards, ...(filterCards.length > 1 ? [filterCards] : [])].map((sequence, sequenceIndex) => (
+                <div
+                  key={`resource-filter-sequence-${sequenceIndex}`}
+                  ref={sequenceIndex === 0 ? marqueeSequenceRef : undefined}
+                  className="resource-filter-sequence"
+                  aria-hidden={sequenceIndex > 0 ? "true" : undefined}
                 >
-                  {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
-                    ? `${formatSignedBrazilianNumber(item.firstRow.change_value, 2)} (${formatSignedBrazilianNumber(item.firstRow.change_percent, 2)}%)`
-                    : "Sem variacao"}
-                </span>
-              </button>
-            ))}
+                  {sequence.map((item) => (
+                    <button
+                      key={`${item.key}-${sequenceIndex}`}
+                      type="button"
+                      className={`resource-filter-card${activeFilterCardKey === item.key ? " is-active" : ""}`}
+                      onClick={() => applyFilterCardSearch(item.search)}
+                      onMouseUp={() => {
+                        if (!marqueeDragStateRef.current.moved) {
+                          applyFilterCardSearch(item.search);
+                        }
+                      }}
+                    >
+                      <span className="resource-filter-card-label">{item.label}</span>
+                      <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatBrazilianNumber(item.firstRow.price, 2) : "—"}</strong>
+                      <span
+                        className={`resource-filter-card-variation${
+                          parseLocalizedNumber(item.firstRow?.change_value) > 0
+                            ? " is-positive"
+                            : parseLocalizedNumber(item.firstRow?.change_value) < 0
+                              ? " is-negative"
+                              : ""
+                        }`}
+                      >
+                        {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
+                          ? `${formatSignedBrazilianNumber(item.firstRow.change_value, 2)} (${formatSignedBrazilianNumber(item.firstRow.change_percent, 2)}%)`
+                          : "Sem variacao"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ))}
             </div>
           </div>
         </section>
