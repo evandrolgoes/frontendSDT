@@ -1,16 +1,108 @@
-import { DashboardPage } from "../pages/DashboardPage";
-import { DerivativeOperationsPage } from "../pages/DerivativeOperationsPage";
-import { AnotacoesPage } from "../pages/AnotacoesPage";
-import { JsonImportPage } from "../pages/JsonImportPage";
-import { MassImportPage } from "../pages/MassImportPage";
-import { MassUpdatePage } from "../pages/MassUpdatePage";
-import { MercadoPage } from "../pages/MercadoPage";
-import { MarketNewsPage } from "../pages/MarketNewsPage";
-import { PriceCompositionNovoPage } from "../pages/PriceCompositionNovoPage";
-import { ResourcePage } from "../pages/ResourcePage";
-import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
+import { lazy } from "react";
 import { hasModuleAccess, hasUserTypeAccess } from "../constants/accessModules";
 import { matchPath } from "react-router-dom";
+import { resourceService } from "../services/resourceService";
+
+const loadDashboardPageModule = () => import("../pages/DashboardPage");
+const loadDerivativeOperationsPageModule = () => import("../pages/DerivativeOperationsPage");
+const loadAnotacoesPageModule = () => import("../pages/AnotacoesPage");
+const loadJsonImportPageModule = () => import("../pages/JsonImportPage");
+const loadMassImportPageModule = () => import("../pages/MassImportPage");
+const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
+const loadMercadoPageModule = () => import("../pages/MercadoPage");
+const loadMarketNewsPageModule = () => import("../pages/MarketNewsPage");
+const loadPriceCompositionNovoPageModule = () => import("../pages/PriceCompositionNovoPage");
+const loadResourcePageModule = () => import("../pages/ResourcePage");
+const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
+
+const lazyNamedExport = (loader, exportName) =>
+  lazy(() => loader().then((module) => ({ default: module[exportName] })));
+
+const lazyResourcePage = (definitionKey) =>
+  lazy(() =>
+    Promise.all([loadResourcePageModule(), loadResourceDefinitionsModule()]).then(([pageModule, definitionsModule]) => ({
+      default: function LazyResourcePage(props) {
+        return <pageModule.ResourcePage {...props} definition={definitionsModule.resourceDefinitions[definitionKey]} />;
+      },
+    })),
+  );
+
+const DashboardPage = lazyNamedExport(loadDashboardPageModule, "DashboardPage");
+const DerivativeOperationsPage = lazyNamedExport(loadDerivativeOperationsPageModule, "DerivativeOperationsPage");
+const AnotacoesPage = lazyNamedExport(loadAnotacoesPageModule, "AnotacoesPage");
+const JsonImportPage = lazyNamedExport(loadJsonImportPageModule, "JsonImportPage");
+const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage");
+const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage");
+const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
+const MarketNewsPage = lazyNamedExport(loadMarketNewsPageModule, "MarketNewsPage");
+const PriceCompositionNovoPage = lazyNamedExport(loadPriceCompositionNovoPageModule, "PriceCompositionNovoPage");
+
+const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
+const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
+const warmMarketNewsCategories = () => resourceService.listMarketNewsCategories().catch(() => []);
+const SHEETY_QUOTES_URL = "https://api.sheety.co/90083751cf0794f44c9730c96a94cedf/apiCotacoesSpotGetBubble/planilha1";
+
+const warmDashboardKind = (kind) => {
+  switch (kind) {
+    case "cashflow":
+      return warmResources("physical-sales", "cash-payments", "derivative-operations", "counterparties");
+    case "componentSales":
+      return warmResources("physical-sales", "derivative-operations", "counterparties");
+    case "commercialRisk":
+      return Promise.all([
+        warmResources(
+          "physical-sales",
+          "derivative-operations",
+          "crop-boards",
+          "physical-quotes",
+          "hedge-policies",
+          "budget-costs",
+          "physical-payments",
+          "cash-payments",
+          "market-news-posts",
+        ),
+        warmTradingviewQuotes(),
+      ]);
+    case "strategiesTriggers":
+      return warmResources("strategies", "strategy-triggers");
+    case "simulations":
+      return Promise.all([
+        warmResources("physical-quotes", "physical-sales", "hedge-policies", "budget-costs", "derivative-operations"),
+        warmTradingviewQuotes(),
+      ]);
+    case "hedgePolicy":
+      return Promise.all([
+        warmResources("hedge-policies", "physical-sales", "physical-payments", "derivative-operations", "budget-costs", "crop-boards"),
+        resourceService.fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL).catch(() => ({ planilha1: [] })),
+      ]);
+    case "currencyExposure":
+      return warmResources("crop-boards", "physical-payments", "cash-payments", "physical-sales", "derivative-operations", "physical-quotes");
+    case "priceComposition":
+      return warmResources("physical-sales", "derivative-operations", "crop-boards", "physical-quotes");
+    default:
+      return Promise.resolve();
+  }
+};
+
+const dashboardRoute = (path, kind, module, extra = {}) => ({
+  path,
+  element: <DashboardPage kind={kind} />,
+  module,
+  preload: loadDashboardPageModule,
+  warmup: () => warmDashboardKind(kind),
+  ...extra,
+});
+
+const resourceRoute = (path, definitionKey, resource, extra = {}) => {
+  const ResourceComponent = lazyResourcePage(definitionKey);
+  return {
+    path,
+    element: <ResourceComponent />,
+    preload: () => Promise.all([loadResourcePageModule(), loadResourceDefinitionsModule()]),
+    warmup: resource ? () => resourceService.listAll(resource).catch(() => []) : undefined,
+    ...extra,
+  };
+};
 
 const baseNavigationSections = [
   {
@@ -110,78 +202,92 @@ export function getNavigationSections(user) {
 }
 
 export const appRoutes = [
-  { path: "/dashboard", element: <DashboardPage kind="commercialRisk" />, module: "dashboard_summary", title: "Resumo" },
-  { path: "/dashboard/fluxo-caixa", element: <DashboardPage kind="cashflow" />, module: "dashboard_cashflow" },
-  { path: "/dashboard/kpis-risco-comercial", element: <DashboardPage kind="commercialRisk" />, module: "dashboard_summary" },
-  { path: "/dashboard/estrategias-gatilhos", element: <DashboardPage kind="strategiesTriggers" />, module: "dashboard_strategies_triggers" },
-  { path: "/dashboard/politica-hedge", element: <DashboardPage kind="hedgePolicy" />, module: "dashboard_hedge_policy" },
-  { path: "/dashboard/composicao-precos", element: <PriceCompositionNovoPage />, module: "dashboard_price_composition" },
-  { path: "/dashboard/venda-componentes", element: <DashboardPage kind="componentSales" />, module: "dashboard_component_sales" },
-  { path: "/dashboard/exposicao-hedge-cambial", element: <DashboardPage kind="currencyExposure" />, module: "dashboard_currency_exposure" },
-  { path: "/dashboard/simulacoes", element: <DashboardPage kind="simulations" />, module: "dashboard_simulations" },
-  { path: "/dashboard/mtm", element: <DashboardPage kind="mtm" />, module: "dashboard_mtm" },
-  { path: "/mercado", element: <MercadoPage kind="fundPositions" />, module: "market_fund_positions", title: "Posicao de Fundos" },
-  { path: "/mercado/posicao-de-fundos", element: <MercadoPage kind="fundPositions" />, module: "market_fund_positions" },
-  { path: "/mercado/cotacoes", element: <ResourcePage key="market-quotes" definition={resourceDefinitions.tradingviewWatchlistQuotes} />, module: "market_quotes" },
-  { path: "/mercado/blog-news", element: <MarketNewsPage />, module: "market_blog_news" },
-  { path: "/mercado/blog-news/:postId", element: <MarketNewsPage />, module: "market_blog_news", title: "Blog/News" },
-  { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports" },
-  { path: "/mercado/basis", element: <MercadoPage kind="basis" />, module: "market_basis" },
-  { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates" },
-  { path: "/mercado/outros", element: <MercadoPage kind="others" />, module: "market_others" },
-  { path: "/tenants", element: <ResourcePage key="tenants" definition={resourceDefinitions.tenants} />, module: "sys_tenants", superuserOnly: true },
-  { path: "/grupos", element: <ResourcePage key="groups" definition={resourceDefinitions.groups} />, module: "cad_groups" },
-  { path: "/subgrupos", element: <ResourcePage key="subgroups" definition={resourceDefinitions.subgroups} />, module: "cad_subgroups" },
-  { path: "/culturas", element: <ResourcePage key="crops" definition={resourceDefinitions.crops} />, module: "sys_crops", superuserOnly: true },
-  { path: "/moedas", element: <ResourcePage key="currencies" definition={resourceDefinitions.currencies} />, module: "sys_currencies", superuserOnly: true },
-  { path: "/unidades", element: <ResourcePage key="units" definition={resourceDefinitions.units} />, module: "sys_units", superuserOnly: true },
-  { path: "/moeda-unidade", element: <ResourcePage key="price-units" definition={resourceDefinitions.priceUnits} />, module: "sys_price_units", superuserOnly: true },
-  { path: "/bolsas", element: <ResourcePage key="exchanges" definition={resourceDefinitions.exchanges} />, module: "sys_exchanges", superuserOnly: true },
-  { path: "/nomes-operacoes-derivativos", element: <ResourcePage key="derivative-operation-names" definition={resourceDefinitions.derivativeOperationNames} />, module: "sys_derivative_operation_names", superuserOnly: true },
-  { path: "/safras", element: <ResourcePage key="seasons" definition={resourceDefinitions.seasons} />, module: "sys_seasons", superuserOnly: true },
-  { path: "/entradas-recebimentos", element: <ResourcePage key="receipt-entries" definition={resourceDefinitions.receiptEntries} />, module: "sys_receipt_entries", superuserOnly: true },
-  { path: "/contrapartes", element: <ResourcePage key="counterparties" definition={resourceDefinitions.counterparties} />, module: "cad_counterparties" },
-  { path: "/anotacoes", element: <AnotacoesPage />, module: "cad_anotacoes" },
-  { path: "/anotacoes/:postId", element: <AnotacoesPage />, module: "cad_anotacoes", title: "Anotacoes" },
-  { path: "/cotacoes-fisico", element: <ResourcePage key="physical-quotes" definition={resourceDefinitions.physicalQuotes} />, module: "ops_physical_quotes" },
-  { path: "/tradingview-experimental", element: <ResourcePage key="tradingview-watchlist-quotes" definition={resourceDefinitions.tradingviewWatchlistQuotes} /> },
-  { path: "/custo-orcamento", element: <ResourcePage key="budget-costs" definition={resourceDefinitions.budgetCosts} />, module: "ops_budget_costs" },
-  { path: "/custo-realizado", element: <ResourcePage key="actual-costs" definition={resourceDefinitions.actualCosts} />, module: "ops_actual_costs" },
-  { path: "/pgtos-fisico", element: <ResourcePage key="physical-payments" definition={resourceDefinitions.physicalPayments} />, module: "ops_physical_payments" },
-  { path: "/pgtos-caixa", element: <ResourcePage key="cash-payments" definition={resourceDefinitions.cashPayments} />, module: "ops_cash_payments" },
-  { path: "/derivativos", element: <DerivativeOperationsPage />, module: "ops_derivatives" },
-  { path: "/estrategias", element: <ResourcePage key="strategies" definition={resourceDefinitions.strategies} />, module: "ops_strategies" },
-  { path: "/gatilhos", element: <ResourcePage key="strategy-triggers" definition={resourceDefinitions.strategyTriggers} />, module: "ops_triggers" },
-  { path: "/politica-hedge", element: <ResourcePage key="hedge-policies" definition={resourceDefinitions.hedgePolicies} />, module: "ops_hedge_policies" },
-  { path: "/quadro-safra", element: <ResourcePage key="crop-boards" definition={resourceDefinitions.cropBoards} />, module: "ops_crop_boards" },
-  { path: "/vendas-fisico", element: <ResourcePage key="physical-sales" definition={resourceDefinitions.physicalSales} />, module: "ops_physical_sales" },
+  dashboardRoute("/dashboard", "commercialRisk", "dashboard_summary", { title: "Resumo" }),
+  dashboardRoute("/dashboard/fluxo-caixa", "cashflow", "dashboard_cashflow"),
+  dashboardRoute("/dashboard/kpis-risco-comercial", "commercialRisk", "dashboard_summary"),
+  dashboardRoute("/dashboard/estrategias-gatilhos", "strategiesTriggers", "dashboard_strategies_triggers"),
+  dashboardRoute("/dashboard/politica-hedge", "hedgePolicy", "dashboard_hedge_policy"),
   {
-    path: "/usuarios",
-    element: <ResourcePage key="users" definition={resourceDefinitions.users} />,
+    path: "/dashboard/composicao-precos",
+    element: <PriceCompositionNovoPage />,
+    module: "dashboard_price_composition",
+    preload: loadPriceCompositionNovoPageModule,
+    warmup: () => warmDashboardKind("priceComposition"),
+  },
+  dashboardRoute("/dashboard/venda-componentes", "componentSales", "dashboard_component_sales"),
+  dashboardRoute("/dashboard/exposicao-hedge-cambial", "currencyExposure", "dashboard_currency_exposure"),
+  dashboardRoute("/dashboard/simulacoes", "simulations", "dashboard_simulations"),
+  dashboardRoute("/dashboard/mtm", "mtm", "dashboard_mtm"),
+  {
+    path: "/mercado",
+    element: <MercadoPage kind="fundPositions" />,
+    module: "market_fund_positions",
+    title: "Posicao de Fundos",
+    preload: loadMercadoPageModule,
+  },
+  { path: "/mercado/posicao-de-fundos", element: <MercadoPage kind="fundPositions" />, module: "market_fund_positions", preload: loadMercadoPageModule },
+  { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes" },
+  { path: "/mercado/blog-news", element: <MarketNewsPage />, module: "market_blog_news", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
+  { path: "/mercado/blog-news/:postId", element: <MarketNewsPage />, module: "market_blog_news", title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
+  { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", preload: loadMercadoPageModule },
+  { path: "/mercado/basis", element: <MercadoPage kind="basis" />, module: "market_basis", preload: loadMercadoPageModule },
+  { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates", preload: loadMercadoPageModule },
+  { path: "/mercado/outros", element: <MercadoPage kind="others" />, module: "market_others", preload: loadMercadoPageModule },
+  { ...resourceRoute("/tenants", "tenants", "tenants"), module: "sys_tenants", superuserOnly: true },
+  { ...resourceRoute("/grupos", "groups", "groups"), module: "cad_groups" },
+  { ...resourceRoute("/subgrupos", "subgroups", "subgroups"), module: "cad_subgroups" },
+  { ...resourceRoute("/culturas", "crops", "crops"), module: "sys_crops", superuserOnly: true },
+  { ...resourceRoute("/moedas", "currencies", "currencies"), module: "sys_currencies", superuserOnly: true },
+  { ...resourceRoute("/unidades", "units", "units"), module: "sys_units", superuserOnly: true },
+  { ...resourceRoute("/moeda-unidade", "priceUnits", "price-units"), module: "sys_price_units", superuserOnly: true },
+  { ...resourceRoute("/bolsas", "exchanges", "exchanges"), module: "sys_exchanges", superuserOnly: true },
+  { ...resourceRoute("/nomes-operacoes-derivativos", "derivativeOperationNames", "derivative-operation-names"), module: "sys_derivative_operation_names", superuserOnly: true },
+  { ...resourceRoute("/safras", "seasons", "seasons"), module: "sys_seasons", superuserOnly: true },
+  { ...resourceRoute("/entradas-recebimentos", "receiptEntries", "receipt-entries"), module: "sys_receipt_entries", superuserOnly: true },
+  { ...resourceRoute("/contrapartes", "counterparties", "counterparties"), module: "cad_counterparties" },
+  { path: "/anotacoes", element: <AnotacoesPage />, module: "cad_anotacoes", preload: loadAnotacoesPageModule },
+  { path: "/anotacoes/:postId", element: <AnotacoesPage />, module: "cad_anotacoes", title: "Anotacoes", preload: loadAnotacoesPageModule },
+  { ...resourceRoute("/cotacoes-fisico", "physicalQuotes", "physical-quotes"), module: "ops_physical_quotes" },
+  resourceRoute("/tradingview-experimental", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"),
+  { ...resourceRoute("/custo-orcamento", "budgetCosts", "budget-costs"), module: "ops_budget_costs" },
+  { ...resourceRoute("/custo-realizado", "actualCosts", "actual-costs"), module: "ops_actual_costs" },
+  { ...resourceRoute("/pgtos-fisico", "physicalPayments", "physical-payments"), module: "ops_physical_payments" },
+  { ...resourceRoute("/pgtos-caixa", "cashPayments", "cash-payments"), module: "ops_cash_payments" },
+  {
+    path: "/derivativos",
+    element: <DerivativeOperationsPage />,
+    module: "ops_derivatives",
+    preload: loadDerivativeOperationsPageModule,
+    warmup: () => Promise.all([warmResources("derivative-operations", "groups", "subgroups"), warmTradingviewQuotes()]),
+  },
+  { ...resourceRoute("/estrategias", "strategies", "strategies"), module: "ops_strategies" },
+  { ...resourceRoute("/gatilhos", "strategyTriggers", "strategy-triggers"), module: "ops_triggers" },
+  { ...resourceRoute("/politica-hedge", "hedgePolicies", "hedge-policies"), module: "ops_hedge_policies" },
+  { ...resourceRoute("/quadro-safra", "cropBoards", "crop-boards"), module: "ops_crop_boards" },
+  { ...resourceRoute("/vendas-fisico", "physicalSales", "physical-sales"), module: "ops_physical_sales" },
+  {
+    ...resourceRoute("/usuarios", "users", "users"),
     module: "sys_users",
     allowedUserTypes: ["tenant_admin"],
   },
   {
-    path: "/convites-e-acessos",
-    element: <ResourcePage key="invite-access" definition={resourceDefinitions.inviteAccess} />,
+    ...resourceRoute("/convites-e-acessos", "inviteAccess", "invite-access"),
     module: "sys_invites",
     allowedUserTypes: ["tenant_admin"],
   },
   {
-    path: "/convites-admin",
-    element: <ResourcePage key="admin-invitations" definition={resourceDefinitions.adminInvitations} />,
+    ...resourceRoute("/convites-admin", "adminInvitations", "admin-invitations"),
     module: "sys_admin_invites",
     allowedUserTypes: ["invitation_tenants"],
   },
   {
-    path: "/contas-a-pagar",
-    element: <ResourcePage key="accounts-payable" definition={resourceDefinitions.accountsPayable} />,
+    ...resourceRoute("/contas-a-pagar", "accountsPayable", "accounts-payable"),
     module: "sys_accounts_payable",
   },
-  { path: "/logs", element: <ResourcePage key="logs" definition={resourceDefinitions.logs} />, module: "sys_logs" },
-  { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true },
-  { path: "/alteracao-em-massa", element: <MassUpdatePage />, module: "sys_mass_update", superuserOnly: true },
-  { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true },
+  { ...resourceRoute("/logs", "logs", "logs"), module: "sys_logs" },
+  { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassImportPageModule },
+  { path: "/alteracao-em-massa", element: <MassUpdatePage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassUpdatePageModule },
+  { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true, preload: loadJsonImportPageModule },
 ];
 
 export function getAccessibleRoutePath(user) {

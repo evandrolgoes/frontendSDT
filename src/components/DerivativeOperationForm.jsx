@@ -293,9 +293,9 @@ export function DerivativeOperationForm({
   useEffect(() => {
     let isMounted = true;
 
-    const loadTradingviewQuotes = async () => {
+    const loadTradingviewQuotes = async (force = false) => {
       try {
-        const items = await resourceService.listTradingviewQuotes({ force: true });
+        const items = await resourceService.listTradingviewQuotes(force ? { force: true } : {});
         if (isMounted) {
           setTradingviewQuotes(Array.isArray(items) ? items : []);
         }
@@ -308,10 +308,10 @@ export function DerivativeOperationForm({
 
     loadTradingviewQuotes();
 
-    const intervalId = window.setInterval(loadTradingviewQuotes, TRADINGVIEW_REFRESH_MS);
+    const intervalId = window.setInterval(() => loadTradingviewQuotes(true), TRADINGVIEW_REFRESH_MS);
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === "visible") {
-        loadTradingviewQuotes();
+        loadTradingviewQuotes(true);
       }
     };
 

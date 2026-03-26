@@ -147,9 +147,9 @@ export function DerivativeOperationsPage() {
   useEffect(() => {
     let isMounted = true;
 
-    const loadDerivativeQuotes = async () => {
+    const loadDerivativeQuotes = async (force = false) => {
       try {
-        const sourceRows = await resourceService.listTradingviewQuotes({ force: true });
+        const sourceRows = await resourceService.listTradingviewQuotes(force ? { force: true } : {});
         const nextQuotes = sourceRows.reduce((acc, item) => {
           const key = String(item?.ticker || "").trim();
           if (key) acc[key] = parseLocalizedNumber(item?.price);
@@ -162,10 +162,10 @@ export function DerivativeOperationsPage() {
     };
 
     loadDerivativeQuotes();
-    const intervalId = window.setInterval(loadDerivativeQuotes, TRADINGVIEW_REFRESH_MS);
+    const intervalId = window.setInterval(() => loadDerivativeQuotes(true), TRADINGVIEW_REFRESH_MS);
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === "visible") {
-        loadDerivativeQuotes();
+        loadDerivativeQuotes(true);
       }
     };
 

@@ -299,7 +299,7 @@ export function MassImportWorkspace() {
         const needsContracts = metadataFields.some((field) => field.type === "contract");
         const [lookupEntries, quoteItems] = await Promise.all([
           Promise.all(lookupResources.map(async (resourceName) => [resourceName, await resourceService.listAll(resourceName)])),
-          needsContracts ? resourceService.listTradingviewQuotes({ force: true }) : Promise.resolve([]),
+          needsContracts ? resourceService.listTradingviewQuotes() : Promise.resolve([]),
         ]);
         if (!active) return;
         const defaults = buildRowDefaults(resource);

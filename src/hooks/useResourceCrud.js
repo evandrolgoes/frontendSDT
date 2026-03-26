@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { resourceService } from "../services/resourceService";
 
+const RESOURCE_VIEW_CACHE_TTL_MS = 60000;
+const resourceViewStateCache = new Map();
+
 const toMessage = (value) => {
   if (Array.isArray(value)) {
     return value.join(" ");
@@ -43,9 +46,20 @@ const extractApiError = (error) => {
 export function useResourceCrud(resource, initialFilters = {}, options = {}) {
   const storageKey = `sdt_filters_${resource}`;
   const autoload = options.autoload !== false;
-  const [rows, setRows] = useState([]);
-  const [pagination, setPagination] = useState({ count: 0, next: null, previous: null, page: 1 });
-  const [queryParams, setQueryParams] = useState({});
+  const readCachedView = useCallback(() => resourceViewStateCache.get(resource) || null, [resource]);
+  const cacheView = useCallback(
+    (snapshot) => {
+      resourceViewStateCache.set(resource, {
+        ...snapshot,
+        updatedAt: Date.now(),
+      });
+    },
+    [resource],
+  );
+  const initialCachedView = readCachedView();
+  const [rows, setRows] = useState(() => initialCachedView?.rows || []);
+  const [pagination, setPagination] = useState(() => initialCachedView?.pagination || { count: 0, next: null, previous: null, page: 1 });
+  const [queryParams, setQueryParams] = useState(() => initialCachedView?.queryParams || {});
   const [filters, setFilters] = useState(() => {
     try {
       const saved = window.sessionStorage.getItem(storageKey);
@@ -54,7 +68,7 @@ export function useResourceCrud(resource, initialFilters = {}, options = {}) {
       return initialFilters;
     }
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => (autoload ? !initialCachedView : false));
   const [error, setError] = useState("");
 
   const syncPaginationCount = useCallback((nextCount) => {
@@ -62,7 +76,17 @@ export function useResourceCrud(resource, initialFilters = {}, options = {}) {
       ...current,
       count: nextCount,
     }));
-  }, []);
+    const cachedView = readCachedView();
+    if (cachedView) {
+      cacheView({
+        ...cachedView,
+        pagination: {
+          ...(cachedView.pagination || {}),
+          count: nextCount,
+        },
+      });
+    }
+  }, [cacheView, readCachedView]);
 
   const upsertRows = useCallback(
     (items) => {
@@ -89,10 +113,18 @@ export function useResourceCrud(resource, initialFilters = {}, options = {}) {
         });
 
         syncPaginationCount(nextRows.length);
+        cacheView({
+          rows: nextRows,
+          pagination: {
+            ...pagination,
+            count: nextRows.length,
+          },
+          queryParams,
+        });
         return nextRows;
       });
     },
-    [syncPaginationCount],
+    [cacheView, pagination, queryParams, syncPaginationCount],
   );
 
   const removeRowsById = useCallback(
@@ -105,33 +137,53 @@ export function useResourceCrud(resource, initialFilters = {}, options = {}) {
       setRows((currentRows) => {
         const nextRows = currentRows.filter((row) => !validIds.has(String(row?.id)));
         syncPaginationCount(nextRows.length);
+        cacheView({
+          rows: nextRows,
+          pagination: {
+            ...pagination,
+            count: nextRows.length,
+          },
+          queryParams,
+        });
         return nextRows;
       });
     },
-    [syncPaginationCount],
+    [cacheView, pagination, queryParams, syncPaginationCount],
   );
 
   const load = useCallback(async (requestOptions = {}) => {
-    setLoading(true);
-    setError("");
+    if (!requestOptions.silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const params = requestOptions.params || queryParams;
       const response = await resourceService.listAll(resource, params, requestOptions);
-      setQueryParams(params);
-      setRows(response);
-      setPagination({
+      const nextPagination = {
         count: Array.isArray(response) ? response.length : 0,
         next: null,
         previous: null,
         page: 1,
+      };
+      setQueryParams(params);
+      setRows(response);
+      setPagination(nextPagination);
+      cacheView({
+        rows: response,
+        pagination: nextPagination,
+        queryParams: params,
       });
     } catch (loadError) {
-      setError(extractApiError(loadError));
+      if (!requestOptions.silent) {
+        setError(extractApiError(loadError));
+      }
       return null;
     } finally {
-      setLoading(false);
+      if (!requestOptions.silent) {
+        setLoading(false);
+      }
     }
-  }, [queryParams, resource]);
+  }, [cacheView, queryParams, resource]);
 
   const save = useCallback(async (payload, current) => {
     setError("");
@@ -164,12 +216,25 @@ export function useResourceCrud(resource, initialFilters = {}, options = {}) {
 
   useEffect(() => {
     if (autoload) {
+      const cachedView = readCachedView();
+      if (cachedView) {
+        setRows(cachedView.rows || []);
+        setPagination(cachedView.pagination || { count: 0, next: null, previous: null, page: 1 });
+        setQueryParams(cachedView.queryParams || {});
+        setLoading(false);
+
+        if (Date.now() - (cachedView.updatedAt || 0) > RESOURCE_VIEW_CACHE_TTL_MS) {
+          load({ params: cachedView.queryParams || {}, force: true, silent: true });
+        }
+        return;
+      }
+
       load();
       return;
     }
     setRows([]);
     setLoading(false);
-  }, [autoload, resource]);
+  }, [autoload, load, readCachedView, resource]);
 
   useEffect(() => {
     try {

@@ -67,40 +67,6 @@ const getSelectableOptions = (field, lookupOptions) => {
 };
 
 function ValueInput({ field, value, onChange, lookupOptions, disabled = false, placeholder = "Selecione" }) {
-  if (!field) {
-    return (
-      <input
-        type="text"
-        className="mass-update-input"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-      />
-    );
-  }
-
-  if (field.type === "select" || field.type === "relation" || field.type === "boolean") {
-    const options = getSelectableOptions(field, lookupOptions);
-    return (
-      <select className="mass-update-input" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={`${field.name}-${String(option.value)}`} value={String(option.value)}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  if (field.type === "date") {
-    return <input type="date" className="mass-update-input" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
-  }
-
-  if (field.type === "number") {
-    return <input type="text" className="mass-update-input" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
-  }
-
   return <input type="text" className="mass-update-input" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
 }
 
@@ -199,7 +165,21 @@ export function MassUpdatePage() {
     const mappedDefinitionFields = Object.fromEntries(definitionFields.map((field) => [field.name, field]));
     const mappedColumns = Object.fromEntries((definition?.columns || []).map((field) => [field.key, field]));
 
-    const mergeField = (field) => {
+    const mergeFilterField = (field) => {
+      const definitionField = mappedDefinitionFields[field.name] || mappedColumns[field.name] || {};
+      return {
+        ...field,
+        name: field.name,
+        label: definitionField.label || field.label,
+        type: field.type,
+        resource: field.relatedResource || field.resource,
+        options: field.options,
+        labelKey: field.labelKey,
+        valueKey: field.valueKey,
+      };
+    };
+
+    const mergeUpdateField = (field) => {
       const definitionField = mappedDefinitionFields[field.name] || mappedColumns[field.name] || {};
       return {
         ...field,
@@ -215,8 +195,8 @@ export function MassUpdatePage() {
     };
 
     return {
-      filters: (metadata?.filters || []).map(mergeField),
-      updateFields: (metadata?.updateFields || []).map(mergeField),
+      filters: (metadata?.filters || []).map(mergeFilterField),
+      updateFields: (metadata?.updateFields || []).map(mergeUpdateField),
     };
   }, [metadata, resource]);
 

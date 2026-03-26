@@ -3149,9 +3149,27 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => averageOf(filteredSales.map((item) => item.basis_valor)) ?? 0,
     [filteredSales],
   );
+  const hedgeSummaryToday = useMemo(() => startOfDashboardDay(new Date()), []);
+  const activePhysicalSales = useMemo(
+    () =>
+      filteredSales.filter((item) => {
+        const saleDate = startOfDashboardDay(item.data_negociacao || item.created_at);
+        return saleDate && hedgeSummaryToday && saleDate <= hedgeSummaryToday;
+      }),
+    [filteredSales, hedgeSummaryToday],
+  );
+  const activeBolsaDerivatives = useMemo(
+    () =>
+      bolsaDerivatives.filter((item) => {
+        const startDate = startOfDashboardDay(item.data_contratacao || item.created_at);
+        const endDate = startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at);
+        return startDate && endDate && hedgeSummaryToday && startDate <= hedgeSummaryToday && hedgeSummaryToday < endDate;
+      }),
+    [bolsaDerivatives, hedgeSummaryToday],
+  );
   const physicalPriceLines = useMemo(() => {
     const groups = new Map();
-    filteredSales.forEach((item) => {
+    activePhysicalSales.forEach((item) => {
       const volume = Math.abs(Number(item.volume_fisico || 0));
       const price = Number(item.preco || 0);
       if (!volume || !price) return;
@@ -3170,10 +3188,10 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         averagePrice: item.volume > 0 ? item.weightedPrice / item.volume : 0,
       }))
       .sort((left, right) => right.volume - left.volume);
-  }, [filteredSales]);
+  }, [activePhysicalSales]);
   const derivativePriceLines = useMemo(() => {
     const groups = new Map();
-    bolsaDerivatives.forEach((item) => {
+    activeBolsaDerivatives.forEach((item) => {
       const volume = derivativeStandardVolumeGetter(item);
       const strike = Number(item.strike_montagem || item.strike_liquidacao || 0);
       if (!volume || !strike) return;
@@ -3190,7 +3208,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         averageStrike: item.volume > 0 ? item.weightedStrike / item.volume : 0,
       }))
       .sort((left, right) => right.volume - left.volume);
-  }, [bolsaDerivatives, derivativeStandardVolumeGetter]);
+  }, [activeBolsaDerivatives, derivativeStandardVolumeGetter]);
   const quoteAverage = useMemo(
     () => averageOf(filteredQuotes.map((item) => item.cotacao)) ?? 0,
     [filteredQuotes],
@@ -3204,7 +3222,28 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => getNetProductionValue(filteredCropBoards, filteredPhysicalPayments, (item) => item.producao_total, (item) => item.volume),
     [filteredCropBoards, filteredPhysicalPayments],
   );
-  const commercializationCoverage = netProductionBase > 0 ? (physicalSoldVolume + derivativeCommodityVolume) / netProductionBase : 0;
+  const hedgeSummaryChartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit: "SC",
+        frequency: "monthly",
+        baseValue: netProductionBase,
+        physicalRows: filteredSales,
+        derivativeRows: bolsaDerivatives,
+        policies: filteredPolicies,
+        physicalValueGetter: getPhysicalVolumeValue,
+        derivativeValueGetter: derivativeStandardVolumeGetter,
+      }),
+    [bolsaDerivatives, derivativeStandardVolumeGetter, filteredPolicies, filteredSales, netProductionBase],
+  );
+  const hedgeSummaryTodayIndex = useMemo(
+    () => getHedgeTodayIndex(hedgeSummaryChartState.points),
+    [hedgeSummaryChartState.points],
+  );
+  const hedgeSummaryActivePoint =
+    hedgeSummaryChartState.points[hedgeSummaryTodayIndex] || hedgeSummaryChartState.points.at(-1) || null;
+  const hedgeCardCommercializedVolume = hedgeSummaryActivePoint?.total || 0;
+  const commercializationCoverage = netProductionBase > 0 ? hedgeCardCommercializedVolume / netProductionBase : 0;
 
   const derivativeOperationsByExchange = useMemo(() => {
     const exchangeMap = new Map();
@@ -3592,7 +3631,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           <span className="stat-card-primary-title">Hedge</span>
           <strong>
             {formatPercent1(commercializationCoverage)}
-            <span className="stat-card-primary-meta">({formatNumber0(totalCommercializedVolume)} sc)</span>
+            <span className="stat-card-primary-meta">({formatNumber0(hedgeCardCommercializedVolume)} sc)</span>
           </strong>
           <span className="stat-card-secondary-label">Venda física</span>
           <strong className="stat-card-secondary-value">
@@ -3603,7 +3642,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
                     {item.unitLabel ? ` ${item.unitLabel}` : ""}
                   </span>
                 ))
-              : `${formatNumber0(physicalSoldVolume)} sc`}
+              : `${formatNumber0(hedgeSummaryActivePoint?.physicalRaw || 0)} sc`}
           </strong>
           <span className="stat-card-secondary-label">Hedge em bolsa</span>
           <strong className="stat-card-secondary-value">
@@ -3614,7 +3653,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
                     {item.unitLabel ? ` ${item.unitLabel}` : ""}
                   </span>
                 ))
-              : `${formatNumber0(derivativeCommodityVolume)} sc`}
+              : `${formatNumber0(hedgeSummaryActivePoint?.derivativeRaw || 0)} sc`}
           </strong>
         </article>
         <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} />
