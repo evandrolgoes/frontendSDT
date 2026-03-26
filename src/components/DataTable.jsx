@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatBrazilianDate, formatBrazilianDateTime, isBrazilianDate, isIsoDate } from "../utils/date";
 
@@ -259,6 +259,9 @@ export function DataTable({
   const [activePopover, setActivePopover] = useState(null);
   const [tempFilter, setTempFilter] = useState(DEFAULT_FILTER);
   const [actionRowId, setActionRowId] = useState(null);
+  const [selectionAnchorId, setSelectionAnchorId] = useState(null);
+  const [autoTableShellHeight, setAutoTableShellHeight] = useState(null);
+  const shellRef = useRef(null);
 
   useEffect(() => {
   }, [searchValue, columnFilters]);
@@ -271,6 +274,16 @@ export function DataTable({
   }, [rows]);
 
   useEffect(() => {
+    if (!selectionAnchorId) {
+      return;
+    }
+    const validIds = new Set(rows.map((row) => row.id));
+    if (!validIds.has(selectionAnchorId)) {
+      setSelectionAnchorId(null);
+    }
+  }, [rows, selectionAnchorId]);
+
+  useEffect(() => {
     const handleEscape = (event) => {
       if (event.key === "Escape") {
         setActionRowId(null);
@@ -280,6 +293,61 @@ export function DataTable({
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, []);
+
+  useEffect(() => {
+    if (tableHeight || typeof window === "undefined") {
+      setAutoTableHeight(null);
+      return undefined;
+    }
+
+    let frameId = null;
+
+    const syncTableHeight = () => {
+      const shell = shellRef.current;
+      if (!shell) {
+        return;
+      }
+
+      const rect = shell.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const bottomGap = 18;
+      const nextHeight = Math.max(280, Math.floor(viewportHeight - rect.top - bottomGap));
+
+      setAutoTableShellHeight((current) => (current === nextHeight ? current : nextHeight));
+    };
+
+    const scheduleSync = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        syncTableHeight();
+      });
+    };
+
+    scheduleSync();
+    window.addEventListener("resize", scheduleSync);
+
+    const observers = [];
+    if (typeof ResizeObserver !== "undefined") {
+      [shellRef.current].filter(Boolean).forEach((element) => {
+        const observer = new ResizeObserver(() => {
+          scheduleSync();
+        });
+        observer.observe(element);
+        observers.push(observer);
+      });
+    }
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener("resize", scheduleSync);
+      observers.forEach((observer) => observer.disconnect());
+    };
+  }, [columnFilters, rows.length, searchValue, selectedIds.size, tableHeight, toolbarActions.length]);
 
   const preparedColumns = useMemo(
     () =>
@@ -417,18 +485,58 @@ export function DataTable({
     });
   };
 
-  const handleRowClick = (row) => {
+  const selectRange = (rowId) => {
+    if (!selectionAnchorId) {
+      toggleSelection(rowId);
+      setSelectionAnchorId(rowId);
+      return;
+    }
+
+    const anchorIndex = filteredRows.findIndex((item) => item.id === selectionAnchorId);
+    const currentIndex = filteredRows.findIndex((item) => item.id === rowId);
+    if (anchorIndex === -1 || currentIndex === -1) {
+      toggleSelection(rowId);
+      setSelectionAnchorId(rowId);
+      return;
+    }
+
+    const [start, end] = anchorIndex < currentIndex ? [anchorIndex, currentIndex] : [currentIndex, anchorIndex];
+    const rangeIds = filteredRows.slice(start, end + 1).map((item) => item.id);
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      rangeIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const handleRowClick = (row, event) => {
+    if (event?.shiftKey) {
+      selectRange(row.id);
+      return;
+    }
+
     if (canRowClick) {
       onRowClick(row);
       return;
     }
     toggleSelection(row.id);
+    setSelectionAnchorId(row.id);
   };
 
   const selectedRows = useMemo(() => filteredRows.filter((row) => selectedIds.has(row.id)), [filteredRows, selectedIds]);
 
   return (
-    <section className="bubble-table-shell">
+    <section
+      className="bubble-table-shell"
+      ref={shellRef}
+      style={
+        tableHeight
+          ? { height: tableHeight, maxHeight: tableHeight }
+          : autoTableShellHeight
+            ? { height: `${autoTableShellHeight}px`, maxHeight: `${autoTableShellHeight}px` }
+            : undefined
+      }
+    >
       <div className="bubble-toolbar">
         <div className="bubble-toolbar-left">
           {canCreate ? (
@@ -446,19 +554,6 @@ export function DataTable({
               {action.label}
             </button>
           ))}
-          {showClearButton && hasActiveFilters ? (
-            <button
-              className="bubble-btn bubble-btn-danger"
-              type="button"
-              onClick={() => {
-                setColumnFilters({});
-                setSelectedIds(new Set());
-                onClear();
-              }}
-            >
-              Limpar
-            </button>
-          ) : null}
           {canDeleteSelected && selectedRows.length ? (
             <button
               className="bubble-btn bubble-btn-danger"
@@ -468,8 +563,34 @@ export function DataTable({
               Apagar linhas ({selectedRows.length})
             </button>
           ) : null}
+          {selectedRows.length ? (
+            <button
+              className="bubble-btn bubble-btn-light"
+              type="button"
+              onClick={() => {
+                setSelectedIds(new Set());
+                setSelectionAnchorId(null);
+              }}
+            >
+              Limpar seleção
+            </button>
+          ) : null}
         </div>
         <div className="bubble-toolbar-right">
+          {showClearButton && hasActiveFilters ? (
+            <button
+              className="bubble-btn bubble-btn-danger"
+              type="button"
+              onClick={() => {
+                setColumnFilters({});
+                setSelectedIds(new Set());
+                setSelectionAnchorId(null);
+                onClear();
+              }}
+            >
+              Limpar filtros
+            </button>
+          ) : null}
           <div className="bubble-search-wrap">
             <input
               className="bubble-search"
@@ -481,7 +602,9 @@ export function DataTable({
         </div>
       </div>
 
-      <div className="bubble-table-wrapper custom-scrollbar" style={tableHeight ? { height: tableHeight, maxHeight: tableHeight } : undefined}>
+      <div
+        className="bubble-table-wrapper custom-scrollbar"
+      >
         <div className="bubble-table-plane">
           <div className="bubble-grid-header" style={{ gridTemplateColumns }}>
             {showActions ? <div className="bubble-action-spacer" /> : null}
@@ -635,7 +758,7 @@ export function DataTable({
                         : "bubble-row-alt"
                   }${getRowClassName ? ` ${getRowClassName(row)}` : ""}`}
                 key={row.id}
-                onClick={() => handleRowClick(row)}
+                onClick={(event) => handleRowClick(row, event)}
                 style={{ gridTemplateColumns }}
               >
                   {showActions ? (

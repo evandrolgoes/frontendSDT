@@ -184,6 +184,11 @@ const getOptionLabel = (field, option) => {
 };
 
 const getSelectOptions = (field, lookupOptions, values) => {
+  if (typeof field.getOptions === "function") {
+    return field.getOptions({ lookupOptions, values, getOptionLabel }).filter(
+      (option) => String(option?.value ?? "").trim() && String(option?.label ?? "").trim(),
+    );
+  }
   if (field.resource) {
     let options = lookupOptions[field.resource] || [];
 

@@ -2824,12 +2824,15 @@ textarea {
   flex: 1 1 auto;
   min-height: 0;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .bubble-table-plane {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   width: max-content;
   min-width: 100%;
 }
@@ -2876,6 +2879,8 @@ textarea {
 .bubble-grid-row {
   border-bottom: 1px solid #f1f5f9;
   transition: background-color 0.12s ease;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .bubble-grid-row:hover {
@@ -2883,12 +2888,24 @@ textarea {
 }
 
 .bubble-row-selected {
-  background: #d1d5db;
+  background: #141d34;
+}
+
+.bubble-row-selected:hover {
+  background: #141d34;
+}
+
+.bubble-row-selected.bubble-row-encerrado,
+.bubble-row-selected.bubble-row-encerrado:hover {
+  background: #141d34;
 }
 
 .bubble-row-selected .bubble-grid-value,
-.bubble-row-selected .bubble-mini-action {
-  color: #000000;
+.bubble-row-selected .bubble-mini-action,
+.bubble-row-selected .bubble-cell-text,
+.bubble-row-selected .bubble-action-col,
+.bubble-row-selected .bubble-grid-cell {
+  color: #ffffff;
 }
 
 .bubble-row-base {
@@ -2954,7 +2971,9 @@ textarea {
 }
 
 .bubble-row-selected .bubble-cell-input {
-  color: #000;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .bubble-grid-sort {
@@ -3146,6 +3165,9 @@ textarea {
   background: #0f172a;
   color: #f8fafc;
   flex-shrink: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
 }
 
 .bubble-footer-grid {
