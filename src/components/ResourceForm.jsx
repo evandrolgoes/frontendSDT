@@ -116,6 +116,40 @@ const formatBrazilianPhone = (value) => {
   return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
+const normalizeLookupValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replaceAll("_", "")
+    .replaceAll("-", "")
+    .replaceAll("/", "");
+
+const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
+  const normalized = normalizeLookupValue(bolsaLabel);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const exactMatch = exchanges.find((item) => normalizeLookupValue(item.nome) === normalized);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  if (normalized.includes("soybean") || normalized.includes("soja")) {
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "soja") || null;
+  }
+  if (normalized.includes("corn") || normalized.includes("milho")) {
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "milho") || null;
+  }
+  if (normalized.includes("dollar") || normalized.includes("dolar") || normalized.includes("usd")) {
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "dolar") || null;
+  }
+
+  return null;
+};
+
 const normalizeFieldValue = (field, value) => {
   if (field.type === "relation" && field.optional && value === "") {
     return null;
@@ -343,16 +377,37 @@ export function ResourceForm({
       const nextValues = { ...currentValues };
 
       fields.forEach((field) => {
-        if (!field.filterByCurrent || !field.resource) {
+        const options = getSelectOptions(field, lookupOptions, currentValues);
+        const allowedValues = new Set(options.map((option) => String(option.value ?? "")));
+
+        if (field.type === "select") {
+          const currentValue = currentValues[field.name];
+          if (
+            currentValue !== ""
+            && currentValue !== undefined
+            && currentValue !== null
+            && options.length
+            && !allowedValues.has(String(currentValue))
+          ) {
+            nextValues[field.name] = "";
+            hasChanges = true;
+          }
           return;
         }
 
-        const options = (lookupOptions[field.resource] || []).filter((option) =>
-          matchesCurrentFilters(option, field.filterByCurrent, currentValues),
-        );
-        const allowedValues = new Set(
-          options.map((option) => String(option[field.valueKey || "id"] ?? option.id)),
-        );
+        if (field.type === "select-multi") {
+          const currentSelection = Array.isArray(currentValues[field.name]) ? currentValues[field.name] : [];
+          const filteredSelection = currentSelection.filter((value) => allowedValues.has(String(value)));
+          if (filteredSelection.length !== currentSelection.length) {
+            nextValues[field.name] = filteredSelection;
+            hasChanges = true;
+          }
+          return;
+        }
+
+        if (!field.filterByCurrent || !field.resource) {
+          return;
+        }
 
         if (field.type === "relation") {
           const currentValue = currentValues[field.name];
@@ -526,7 +581,7 @@ export function ResourceForm({
 
   useEffect(() => {
     const exchanges = lookupOptions.exchanges || [];
-    const selectedExchange = exchanges.find((item) => item.nome === values.bolsa_ref);
+    const selectedExchange = inferExchangeFromBolsaLabel(values.bolsa_ref, exchanges);
     const nextBasis = selectedExchange?.moeda_unidade_padrao || "";
 
     setValues((current) => {
@@ -536,6 +591,31 @@ export function ResourceForm({
       return {
         ...current,
         basis_moeda: nextBasis,
+      };
+    });
+  }, [lookupOptions.exchanges, values.bolsa_ref]);
+
+  useEffect(() => {
+    const exchanges = lookupOptions.exchanges || [];
+    const selectedExchange = inferExchangeFromBolsaLabel(values.bolsa_ref, exchanges);
+
+    if (!values.bolsa_ref || !selectedExchange?.nome || String(values.bolsa_ref) === String(selectedExchange.nome)) {
+      return;
+    }
+
+    setValues((current) => {
+      if (!current.bolsa_ref || String(current.bolsa_ref) === String(selectedExchange.nome)) {
+        return current;
+      }
+
+      const currentSelectedExchange = inferExchangeFromBolsaLabel(current.bolsa_ref, exchanges);
+      if (!currentSelectedExchange?.nome || String(currentSelectedExchange.nome) !== String(selectedExchange.nome)) {
+        return current;
+      }
+
+      return {
+        ...current,
+        bolsa_ref: selectedExchange.nome,
       };
     });
   }, [lookupOptions.exchanges, values.bolsa_ref]);

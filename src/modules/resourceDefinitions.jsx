@@ -49,6 +49,27 @@ const moedaCmdtyeOptions = [
   { value: "Cmdtye", label: "Cmdtye" },
 ];
 
+const normalizeLookupValue = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replaceAll("_", "")
+    .replaceAll("-", "")
+    .replaceAll("/", "");
+
+const formatExchangeOptionLabel = (exchangeName) =>
+  String(exchangeName || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+
+const getQuoteSectionName = (item) =>
+  String(item?.section_name || item?.secao || item?.seção || "")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const commonRelationFields = {
   grupo: { type: "relation", resource: "groups", labelKey: "grupo" },
   subgrupo: { type: "relation", resource: "subgroups", labelKey: "subgrupo" },
@@ -658,10 +679,21 @@ const baseResourceDefinitions = {
         name: "bolsa_ref",
         label: "Bolsa ref",
         type: "select",
-        resource: "tradingview-watchlist-quotes",
-        labelKey: "section_name",
-        valueKey: "section_name",
-        dedupeByValue: true,
+        resources: ["exchanges", "crops"],
+        getOptions: ({ lookupOptions, values }) => {
+          const exchanges = Array.isArray(lookupOptions.exchanges) ? lookupOptions.exchanges : [];
+          const crops = Array.isArray(lookupOptions.crops) ? lookupOptions.crops : [];
+          const selectedCrop = crops.find((item) => String(item.id) === String(values.cultura_produto));
+          const cropName = normalizeLookupValue(selectedCrop?.ativo || selectedCrop?.cultura || values.cultura_produto);
+          const filteredExchanges = cropName
+            ? exchanges.filter((item) => normalizeLookupValue(item.ativo || item.cultura) === cropName)
+            : exchanges;
+
+          return filteredExchanges.map((item) => ({
+            value: item.nome,
+            label: formatExchangeOptionLabel(item.nome),
+          }));
+        },
         optional: true,
       },
       {
@@ -669,10 +701,24 @@ const baseResourceDefinitions = {
         label: "Contrato bolsa",
         type: "select",
         resource: "tradingview-watchlist-quotes",
-        labelKey: "ticker",
-        valueKey: "ticker",
-        filterByCurrent: {
-          section_name: "bolsa_ref",
+        getOptions: ({ lookupOptions, values }) => {
+          const quotes = Array.isArray(lookupOptions["tradingview-watchlist-quotes"])
+            ? lookupOptions["tradingview-watchlist-quotes"]
+            : [];
+          const normalizedBolsa = normalizeLookupValue(values.bolsa_ref);
+
+          if (!normalizedBolsa) {
+            return [];
+          }
+
+          return quotes
+            .filter((item) => normalizeLookupValue(getQuoteSectionName(item)) === normalizedBolsa)
+            .map((item) => ({
+              value: item?.ticker || "",
+              label: item?.ticker || "",
+            }))
+            .filter((option) => String(option.value).trim())
+            .filter((option, index, self) => self.findIndex((current) => current.value === option.value) === index);
         },
         optional: true,
       },

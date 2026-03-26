@@ -910,6 +910,7 @@ function CommercialRiskGaugePanel({
   physicalRows = [],
   derivativeRows = [],
   policies = [],
+  derivativeVolumeGetter = getDerivativeVolumeValue,
   onOpenHedgePolicy,
 }) {
   const safeValue = (value) => Math.max(0, Math.min(Number(value || 0), 100));
@@ -1168,7 +1169,8 @@ function CommercialRiskGaugePanel({
           derivativeRows={derivativeRows}
           policies={policies}
           physicalValueGetter={getPhysicalVolumeValue}
-          derivativeValueGetter={getDerivativeVolumeValue}
+          derivativeValueGetter={derivativeVolumeGetter}
+          derivativeVolumeGetter={derivativeVolumeGetter}
           onFocusToggle={onOpenHedgePolicy || (() => {})}
         />
       </div>
@@ -1447,7 +1449,57 @@ const getDerivativeCostValue = (item, usdBrlRate) => {
   );
 };
 
-const getDerivativeVolumeValue = (item) => Math.abs(Number(item.volume || item.volume_fisico || item.numero_lotes || 0));
+const readDashboardLabel = (value) => {
+  if (value == null || value === "") return "";
+  if (Array.isArray(value)) return readDashboardLabel(value[0]);
+  if (typeof value === "object") {
+    return value.ativo || value.cultura || value.nome || value.label || value.descricao || value.id || "";
+  }
+  return String(value);
+};
+
+const getDerivativeVolumeValue = (item) => Math.abs(Number(item.volume_fisico || item.volume || item.numero_lotes || item.quantidade_derivativos || 0));
+
+const getDerivativeExchangeFactor = (item, exchanges = [], resolveCultureLabel = readDashboardLabel) => {
+  const normalizedExchangeKeys = [
+    item?.bolsa_ref,
+    item?.ctrbolsa,
+    item?.bolsa?.nome,
+    item?.bolsa,
+    item?.instituicao,
+  ]
+    .map((value) => normalizeText(value))
+    .filter(Boolean);
+  if (!normalizedExchangeKeys.length || !Array.isArray(exchanges) || !exchanges.length) {
+    return 1;
+  }
+
+  const derivativeCulture = normalizeText(
+    resolveCultureLabel(item?.destino_cultura || item?.cultura || item?.culturas || item?.ativo || item?.cultura_texto),
+  );
+  const sameExchangeRows = exchanges.filter((exchange) => normalizedExchangeKeys.includes(normalizeText(exchange?.nome)));
+  const matchedExchange =
+    sameExchangeRows.find((exchange) => {
+      const exchangeCulture = normalizeText(resolveCultureLabel(exchange?.ativo || exchange?.cultura));
+      return derivativeCulture && exchangeCulture === derivativeCulture;
+    }) ||
+    sameExchangeRows[0];
+  const factor = Number(matchedExchange?.fator_conversao_unidade_padrao_cultura || 0);
+  return Number.isFinite(factor) && factor > 0 ? factor : 1;
+};
+
+const getDerivativeVolumeInStandardUnit = (item, exchanges = [], resolveCultureLabel = readDashboardLabel) => {
+  const physicalVolume = getDerivativeVolumeValue(item);
+  if (!physicalVolume) return 0;
+  return physicalVolume / getDerivativeExchangeFactor(item, exchanges, resolveCultureLabel);
+};
+
+const getNetProductionValue = (productionRows = [], physicalPaymentRows = [], productionGetter, paymentGetter) =>
+  Math.max(
+    (productionRows || []).reduce((sum, item) => sum + Math.abs(Number(productionGetter(item) || 0)), 0) -
+      (physicalPaymentRows || []).reduce((sum, item) => sum + Math.abs(Number(paymentGetter(item) || 0)), 0),
+    0,
+  );
 
 const isUsdCurrency = (value) => {
   const moeda = normalizeText(value);
@@ -3016,6 +3068,10 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => filteredSales.reduce((sum, item) => sum + Math.abs(Number(item.volume_fisico || 0)), 0),
     [filteredSales],
   );
+  const derivativeStandardVolumeGetter = useMemo(
+    () => (item) => getDerivativeVolumeInStandardUnit(item, options.exchanges || [], resolveCultureLabel),
+    [options.exchanges, resolveCultureLabel],
+  );
   const bolsaDerivatives = useMemo(
     () => filteredDerivatives.filter((item) => normalizeText(item.moeda_ou_cmdtye) === "cmdtye"),
     [filteredDerivatives],
@@ -3025,8 +3081,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     [filteredDerivatives],
   );
   const derivativeCommodityVolume = useMemo(
-    () => bolsaDerivatives.reduce((sum, item) => sum + getDerivativeVolumeValue(item), 0),
-    [bolsaDerivatives],
+    () => bolsaDerivatives.reduce((sum, item) => sum + derivativeStandardVolumeGetter(item), 0),
+    [bolsaDerivatives, derivativeStandardVolumeGetter],
   );
   const derivativeCurrencyVolume = useMemo(
     () => currencyDerivatives.reduce((sum, item) => sum + getDerivativeVolumeValue(item), 0),
@@ -3065,7 +3121,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const derivativePriceLines = useMemo(() => {
     const groups = new Map();
     bolsaDerivatives.forEach((item) => {
-      const volume = getDerivativeVolumeValue(item);
+      const volume = derivativeStandardVolumeGetter(item);
       const strike = Number(item.strike_montagem || item.strike_liquidacao || 0);
       if (!volume || !strike) return;
       const unitLabel = item.moeda_unidade || item.volume_financeiro_moeda || "";
@@ -3081,13 +3137,21 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         averageStrike: item.volume > 0 ? item.weightedStrike / item.volume : 0,
       }))
       .sort((left, right) => right.volume - left.volume);
-  }, [bolsaDerivatives]);
+  }, [bolsaDerivatives, derivativeStandardVolumeGetter]);
   const quoteAverage = useMemo(
     () => averageOf(filteredQuotes.map((item) => item.cotacao)) ?? 0,
     [filteredQuotes],
   );
   const policyCount = filteredPolicies.length;
-  const commercializationCoverage = productionTotal > 0 ? (physicalSoldVolume + derivativeCommodityVolume) / productionTotal : 0;
+  const physicalPaymentVolume = useMemo(
+    () => filteredPhysicalPayments.reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0),
+    [filteredPhysicalPayments],
+  );
+  const netProductionBase = useMemo(
+    () => getNetProductionValue(filteredCropBoards, filteredPhysicalPayments, (item) => item.producao_total, (item) => item.volume),
+    [filteredCropBoards, filteredPhysicalPayments],
+  );
+  const commercializationCoverage = netProductionBase > 0 ? (physicalSoldVolume + derivativeCommodityVolume) / netProductionBase : 0;
 
   const derivativeOperationsByExchange = useMemo(() => {
     const exchangeMap = new Map();
@@ -3153,10 +3217,10 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     [filteredCropBoards],
   );
   const totalCommercializedVolume = physicalSoldVolume + derivativeCommodityVolume;
-  const netProductionVolume = Math.max(productionTotal - totalCommercializedVolume, 0);
-  const totalSalesPercent = productionTotal > 0 ? (totalCommercializedVolume / productionTotal) * 100 : 0;
-  const derivativeSalesPercent = productionTotal > 0 ? (derivativeCommodityVolume / productionTotal) * 100 : 0;
-  const physicalSalesPercent = productionTotal > 0 ? (physicalSoldVolume / productionTotal) * 100 : 0;
+  const netProductionVolume = netProductionBase;
+  const totalSalesPercent = netProductionBase > 0 ? (totalCommercializedVolume / netProductionBase) * 100 : 0;
+  const derivativeSalesPercent = netProductionBase > 0 ? (derivativeCommodityVolume / netProductionBase) * 100 : 0;
+  const physicalSalesPercent = netProductionBase > 0 ? (physicalSoldVolume / netProductionBase) * 100 : 0;
   const totalScPerHa = totalArea > 0 ? totalCommercializedVolume / totalArea : 0;
   const derivativeScPerHa = totalArea > 0 ? derivativeCommodityVolume / totalArea : 0;
   const physicalScPerHa = totalArea > 0 ? physicalSoldVolume / totalArea : 0;
@@ -3237,7 +3301,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     bolsaDerivatives.forEach((item) => {
       const node = ensureNode(item.cultura || item.culturas || item.destino_cultura);
       if (!node) return;
-      node.derivatives += getDerivativeVolumeValue(item);
+      node.derivatives += derivativeStandardVolumeGetter(item);
     });
 
     filteredPhysicalPayments.forEach((item) => {
@@ -3276,7 +3340,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         const leftBase = Math.max(left.production, left.covered);
         return rightBase - leftBase;
       });
-  }, [bolsaDerivatives, filteredCashPayments, filteredCropBoards, filteredPhysicalPayments, filteredSales, cultureLabelById]);
+  }, [bolsaDerivatives, derivativeStandardVolumeGetter, filteredCashPayments, filteredCropBoards, filteredPhysicalPayments, filteredSales, cultureLabelById]);
 
   const cultureRows = useMemo(() => {
     const map = new Map();
@@ -3298,7 +3362,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     bolsaDerivatives.forEach((item) => {
       const label = resolveCultureLabel(item.cultura || item.culturas || item.destino_cultura);
       const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
-      node.derivatives += getDerivativeVolumeValue(item);
+      node.derivatives += derivativeStandardVolumeGetter(item);
       map.set(label, node);
     });
 
@@ -3309,7 +3373,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       }))
       .sort((left, right) => right.coverage - left.coverage)
       .slice(0, 6);
-  }, [bolsaDerivatives, filteredCropBoards, filteredSales, cultureLabelById]);
+  }, [bolsaDerivatives, derivativeStandardVolumeGetter, filteredCropBoards, filteredSales, cultureLabelById]);
 
   const upcomingMaturityRows = useMemo(() => {
     const today = startOfDashboardDay(new Date());
@@ -3464,6 +3528,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         <article className="card stat-card">
           <span className="stat-card-primary-title">Produção líquida</span>
           <strong>{formatNumber0(netProductionVolume)} sc</strong>
+          <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
+          <strong className="stat-card-secondary-value">{formatNumber0(physicalPaymentVolume)} sc</strong>
           <span className="stat-card-secondary-label">Produção total</span>
           <strong className="stat-card-secondary-value">{formatNumber0(productionTotal)} sc</strong>
           <span className="stat-card-secondary-label">Área x Produtividade</span>
@@ -3511,10 +3577,11 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         physicalScPerHa={physicalScPerHa}
         policyMinPercent={currentPolicyMinPercent}
         policyMaxPercent={currentPolicyMaxPercent}
-        productionBase={productionTotal}
+        productionBase={netProductionBase}
         physicalRows={filteredSales}
         derivativeRows={bolsaDerivatives}
         policies={filteredPolicies}
+        derivativeVolumeGetter={derivativeStandardVolumeGetter}
         onOpenHedgePolicy={() => navigate("/dashboard/politica-hedge")}
       />
 
@@ -4292,6 +4359,8 @@ function HedgePolicyChart({
   derivativeValueGetter,
   physicalDetailValueGetter = physicalValueGetter,
   derivativeDetailValueGetter = derivativeValueGetter,
+  physicalVolumeGetter = getPhysicalVolumeValue,
+  derivativeVolumeGetter = getDerivativeVolumeValue,
   onFocusToggle,
   extraActions = null,
   simulatedIncrement = 0,
@@ -4538,7 +4607,7 @@ function HedgePolicyChart({
         id: `physical-${item.id}`,
         dataInicio: formatBrazilianDate(item.data_negociacao, ""),
         dataPagamento: formatBrazilianDate(item.data_pagamento, ""),
-        volume: getPhysicalVolumeValue(item),
+        volume: physicalVolumeGetter(item),
         valor: physicalDetailValueGetter(item),
         preco: Number(item.preco || 0),
         moeda: item.moeda_contrato || "R$",
@@ -4558,11 +4627,11 @@ function HedgePolicyChart({
         dataInicio: formatBrazilianDate(item.data_contratacao, ""),
         dataLiquidacao: formatBrazilianDate(item.data_liquidacao, ""),
         tipo: item.nome_da_operacao || item.tipo_derivativo || "Derivativo",
-        volume: getDerivativeVolumeValue(item),
+        volume: derivativeVolumeGetter(item),
         valor: derivativeDetailValueGetter(item),
         ajusteMtm: Number(item.ajustes_totais_brl || 0),
         strike: Number(item.strike_montagem || 0),
-        unidade: item.unidade || "",
+        unidade: unit === "SC" ? "sc" : item.unidade || item.volume_fisico_unidade || "",
         moedaUnidade: item.moeda_unidade || "",
         status: item.status_operacao || "",
         obs: item.obs || "",
@@ -4598,7 +4667,7 @@ function HedgePolicyChart({
         strike: derivativeWeightedStrike,
       },
     };
-  }, [derivativeDetailValueGetter, derivativeRows, detailPoint, physicalDetailValueGetter, physicalRows]);
+  }, [derivativeDetailValueGetter, derivativeRows, derivativeVolumeGetter, detailPoint, physicalDetailValueGetter, physicalRows, physicalVolumeGetter]);
 
   return (
     <article className="hedge-chart-card">
@@ -5084,7 +5153,7 @@ function HedgePolicyPercentChart({
 }
 
 function HedgePolicyDashboard({ dashboardFilter }) {
-  const { matchesDashboardFilter } = useDashboardFilter();
+  const { matchesDashboardFilter, options } = useDashboardFilter();
   const [frequency, setFrequency] = useState("monthly");
   const [focusedChart, setFocusedChart] = useState(null);
   const [showSimulationBox, setShowSimulationBox] = useState(false);
@@ -5142,16 +5211,17 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     [budgetCosts, dashboardFilter, matchesDashboardFilter, usdBrlRate],
   );
   const productionBase = useMemo(
-    () => {
-      const totalProduction = cropBoards
-        .filter((item) => matchesDashboardFilter(item, dashboardFilter))
-        .reduce((sum, item) => sum + Math.abs(Number(item.producao_total || 0)), 0);
-      const physicalPaymentVolume = physicalPayments
-        .filter((item) => matchesDashboardFilter(item, dashboardFilter))
-        .reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0);
-
-      return Math.max(totalProduction - physicalPaymentVolume, 0);
-    },
+    () =>
+      getNetProductionValue(
+        cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+        physicalPayments.filter((item) =>
+          rowMatchesDashboardFilter(item, dashboardFilter, {
+            cultureKeys: ["fazer_frente_com"],
+          }),
+        ),
+        (item) => item.producao_total,
+        (item) => item.volume,
+      ),
     [cropBoards, dashboardFilter, matchesDashboardFilter, physicalPayments],
   );
 
@@ -5164,8 +5234,40 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     [dashboardFilter, physicalSales],
   );
   const filteredDerivatives = useMemo(
-    () => derivatives.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    () =>
+      derivatives.filter((item) => {
+        const isCurrencyDerivative = normalizeText(item.moeda_ou_cmdtye) === "moeda";
+        return rowMatchesDashboardFilter(item, dashboardFilter, {
+          cultureKeys: isCurrencyDerivative ? ["destino_cultura"] : ["cultura", "culturas", "destino_cultura"],
+        });
+      }),
     [dashboardFilter, derivatives],
+  );
+  const cultureLabelById = useMemo(() => {
+    const map = new Map();
+    [...(options.crops || []), ...(options.cropBoardCrops || [])].forEach((item) => {
+      if (item?.id != null) {
+        map.set(String(item.id), item.ativo || item.cultura || item.nome || item.label || item.descricao || String(item.id));
+      }
+    });
+    return map;
+  }, [options.cropBoardCrops, options.crops]);
+  const resolveCultureLabel = (value) => {
+    if (!value) return "Sem ativo";
+    if (Array.isArray(value)) return resolveCultureLabel(value[0]);
+    if (typeof value === "string" || typeof value === "number") {
+      return cultureLabelById.get(String(value)) || String(value);
+    }
+    const nestedId = value.id != null ? cultureLabelById.get(String(value.id)) : null;
+    return nestedId || value.ativo || value.cultura || value.nome || value.label || value.descricao || "Sem ativo";
+  };
+  const derivativeStandardVolumeGetter = useMemo(
+    () => (item) => getDerivativeVolumeInStandardUnit(item, options.exchanges || [], resolveCultureLabel),
+    [options.exchanges, resolveCultureLabel],
+  );
+  const filteredCommodityDerivatives = useMemo(
+    () => filteredDerivatives.filter((item) => normalizeText(item.moeda_ou_cmdtye) === "cmdtye"),
+    [filteredDerivatives],
   );
 
   const parsedSimulationVolume = parseLocalizedInputNumber(simulationVolume) || 0;
@@ -5261,10 +5363,11 @@ function HedgePolicyDashboard({ dashboardFilter }) {
             frequency={frequency}
             baseValue={productionBase}
             physicalRows={filteredPhysicalSales}
-            derivativeRows={filteredDerivatives}
+            derivativeRows={filteredCommodityDerivatives}
             policies={filteredPolicies}
             physicalValueGetter={getPhysicalVolumeValue}
-            derivativeValueGetter={getDerivativeVolumeValue}
+            derivativeValueGetter={derivativeStandardVolumeGetter}
+            derivativeVolumeGetter={derivativeStandardVolumeGetter}
             physicalDetailValueGetter={(item) => getPhysicalCostValue(item, usdBrlRate)}
             derivativeDetailValueGetter={(item) => getDerivativeCostValue(item, usdBrlRate)}
             onFocusToggle={() => setFocusedChart((current) => (current === "production" ? null : "production"))}
@@ -5444,9 +5547,8 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
     const hasSeasonFilter = Array.isArray(dashboardFilter?.safra) && dashboardFilter.safra.length > 0;
     const hasLocalityFilter = Array.isArray(dashboardFilter?.localidade) && dashboardFilter.localidade.length > 0;
     const volumePgtoFisico = filteredPhysicalPayments.reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0);
-    const primaryCropBoard = filteredCropBoards.find((item) => Number(item.producao_total || 0) > 0);
-    const productionTotal = Number(primaryCropBoard?.producao_total || 0);
-    const producaoLiquida = productionTotal - volumePgtoFisico;
+    const productionTotal = filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.producao_total || 0)), 0);
+    const producaoLiquida = Math.max(productionTotal - volumePgtoFisico, 0);
 
     const compromissosUsd = filteredCashPayments
       .filter((item) => isUsdCurrency(item.moeda))

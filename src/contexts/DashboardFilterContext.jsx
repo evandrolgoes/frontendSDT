@@ -139,7 +139,16 @@ export const rowMatchesDashboardFilter = (
 export function DashboardFilterProvider({ children }) {
   const { isAuthenticated } = useAuth();
   const [filter, setFilter] = useState(readStoredFilter);
-  const [options, setOptions] = useState({ groups: [], subgroups: [], crops: [], seasons: [], cropBoardCrops: [], cropBoardSeasons: [], localities: [] });
+  const [options, setOptions] = useState({
+    groups: [],
+    subgroups: [],
+    crops: [],
+    seasons: [],
+    cropBoardCrops: [],
+    cropBoardSeasons: [],
+    localities: [],
+    exchanges: [],
+  });
   const [panelOpen, setPanelOpen] = useState(false);
 
   useEffect(() => {
@@ -156,7 +165,8 @@ export function DashboardFilterProvider({ children }) {
       resourceService.listAll("seasons"),
       resourceService.listAll("crop-boards"),
       resourceService.listAll("physical-quotes"),
-    ]).then(([groups, subgroups, crops, seasons, cropBoards, physicalQuotes]) => {
+      resourceService.listAll("exchanges"),
+    ]).then(([groups, subgroups, crops, seasons, cropBoards, physicalQuotes, exchanges]) => {
       if (!isMounted) return;
       const cropBoardCultureIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["cultura"])))];
       const cropBoardSeasonIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["safra"])))];
@@ -192,6 +202,7 @@ export function DashboardFilterProvider({ children }) {
         cropBoardCrops,
         cropBoardSeasons,
         localities,
+        exchanges: exchanges || [],
       });
     });
     return () => {
