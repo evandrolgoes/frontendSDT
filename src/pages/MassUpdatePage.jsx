@@ -209,6 +209,8 @@ export function MassUpdatePage() {
         type: definitionField.type || field.type,
         resource: definitionField.resource || field.relatedResource || field.resource,
         options: definitionField.options || field.options,
+        labelKey: definitionField.labelKey || field.labelKey,
+        valueKey: definitionField.valueKey || field.valueKey,
       };
     };
 
