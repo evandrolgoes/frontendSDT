@@ -118,7 +118,8 @@ const normalizeItem = (item = {}, index = 0, options = {}) => {
   const isMoedaMode = normalizeLookupValue(options.moedaOuCmdtye) === "moeda";
   const rawFinancialVolume =
     item.volume_financeiro_valor_moeda_original ??
-    (isMoedaMode ? item.volume : undefined);
+    item.volume_financeiro_valor ??
+    (isMoedaMode ? (item.volume ?? item.volume_fisico_valor) : undefined);
 
   return {
     id: item.id,
@@ -126,7 +127,7 @@ const normalizeItem = (item = {}, index = 0, options = {}) => {
     grupo_montagem: item.grupo_montagem || "",
     tipo_derivativo: item.tipo_derivativo || "",
     numero_lotes: formatInitialNumber(item.numero_lotes, 4),
-    volume: formatInitialNumber(item.volume ?? item.volume_fisico, 4),
+    volume: formatInitialNumber(item.volume ?? item.volume_fisico ?? item.volume_fisico_valor, 4),
     volume_financeiro_valor_moeda_original: formatInitialNumber(rawFinancialVolume, 4),
     strike_montagem: formatInitialNumber(item.strike_montagem, 4),
     custo_total_montagem_brl: formatInitialNumber(item.custo_total_montagem_brl, 4),
@@ -218,9 +219,9 @@ export function DerivativeOperationForm({
       contrato_derivativo: initialValues.contrato_derivativo || "",
       moeda_ou_cmdtye: initialValues.moeda_ou_cmdtye || "",
       swap_divida: initialValues.swap_divida || "",
-      moeda_unidade: initialValues.moeda_unidade || "",
+      moeda_unidade: initialValues.moeda_unidade || initialValues.strike_moeda_unidade || "",
       nome_da_operacao: initialValues.nome_da_operacao || "",
-      unidade: initialValues.unidade || "",
+      unidade: initialValues.unidade || initialValues.volume_fisico_unidade || "",
       volume_financeiro_moeda: initialValues.volume_financeiro_moeda || "",
       dolar_ptax_vencimento: formatInitialNumber(initialValues.dolar_ptax_vencimento, 4),
       attachments: [],
@@ -232,7 +233,9 @@ export function DerivativeOperationForm({
                 ...item,
                 volume_financeiro_valor_moeda_original:
                   item.volume_financeiro_valor_moeda_original ??
+                  item.volume_financeiro_valor ??
                   (isCurrentOpenedRow ? initialValues.volume_financeiro_valor_moeda_original : undefined) ??
+                  (isCurrentOpenedRow ? initialValues.volume_financeiro_valor : undefined) ??
                   initialValues.volume_financeiro_valor_moeda_original,
               },
               index,
@@ -575,9 +578,9 @@ export function DerivativeOperationForm({
     data_liquidacao: parseBrazilianDate(values.data_liquidacao),
     moeda_ou_cmdtye: values.moeda_ou_cmdtye || "",
     swap_divida: values.swap_divida || "",
-    moeda_unidade: values.moeda_unidade || "",
+    strike_moeda_unidade: values.moeda_unidade || "",
     nome_da_operacao: values.nome_da_operacao || "",
-    unidade: values.unidade || "",
+    volume_fisico_unidade: values.unidade || "",
     volume_financeiro_moeda: values.volume_financeiro_moeda || "",
     dolar_ptax_vencimento: parseLocalizedNumber(values.dolar_ptax_vencimento),
     itens: (values.itens || []).map((item, index) => ({
@@ -586,8 +589,8 @@ export function DerivativeOperationForm({
       grupo_montagem: item.grupo_montagem || "",
       tipo_derivativo: item.tipo_derivativo || "",
       numero_lotes: parseLocalizedNumber(item.numero_lotes),
-      volume: parseLocalizedNumber(item.volume),
-      volume_financeiro_valor_moeda_original: parseLocalizedNumber(item.volume_financeiro_valor_moeda_original),
+      volume_fisico_valor: parseLocalizedNumber(item.volume),
+      volume_financeiro_valor: parseLocalizedNumber(item.volume_financeiro_valor_moeda_original),
       strike_montagem: parseLocalizedNumber(item.strike_montagem),
       custo_total_montagem_brl: parseLocalizedNumber(item.custo_total_montagem_brl),
       strike_liquidacao: parseLocalizedNumber(item.strike_liquidacao),
@@ -742,7 +745,7 @@ export function DerivativeOperationForm({
             {renderSelect(
               "contraparte",
               values.contraparte,
-              counterpartyOptions.map((option) => ({ value: option.id, label: option.obs || `#${option.id}` })),
+              counterpartyOptions.map((option) => ({ value: option.id, label: option.contraparte || option.obs || `#${option.id}` })),
               (value) => updateValue("contraparte", value),
             )}
           </div>

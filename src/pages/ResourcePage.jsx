@@ -903,6 +903,10 @@ export function ResourcePage({ definition }) {
     }
     return rows.map((row) => ({
       ...row,
+      volume: row.volume ?? row.volume_fisico_valor,
+      unidade: row.unidade ?? row.volume_fisico_unidade,
+      moeda_unidade: row.moeda_unidade ?? row.strike_moeda_unidade,
+      volume_financeiro_valor_moeda_original: row.volume_financeiro_valor_moeda_original ?? row.volume_financeiro_valor,
       siblingRows: rows
         .filter((candidate) => candidate.cod_operacao_mae === row.cod_operacao_mae)
         .sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id),
@@ -1724,8 +1728,8 @@ export function ResourcePage({ definition }) {
                   ajustes_totais_brl: itemPayload.ajustes_totais_brl,
                   ajustes_totais_usd: itemPayload.ajustes_totais_usd,
                   ordem: index + 1,
-                  volume: itemPayload.volume,
-                  volume_financeiro_valor_moeda_original: itemPayload.volume_financeiro_valor_moeda_original,
+                  volume_fisico_valor: itemPayload.volume_fisico_valor,
+                  volume_financeiro_valor: itemPayload.volume_financeiro_valor,
                 };
 
                 if (existingRow?.id) {
@@ -1764,8 +1768,8 @@ export function ResourcePage({ definition }) {
                   ajustes_totais_brl: itemPayload.ajustes_totais_brl,
                   ajustes_totais_usd: itemPayload.ajustes_totais_usd,
                   ordem: index + 1,
-                  volume: itemPayload.volume,
-                  volume_financeiro_valor_moeda_original: itemPayload.volume_financeiro_valor_moeda_original,
+                  volume_fisico_valor: itemPayload.volume_fisico_valor,
+                  volume_financeiro_valor: itemPayload.volume_financeiro_valor,
                 });
                 savedRows.push(created);
                 if (!primaryRecord) {

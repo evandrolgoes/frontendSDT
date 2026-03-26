@@ -2525,7 +2525,7 @@ function CashflowCurrencyChart({
   const saldoSummary = activeSummary?.saldo ?? chartState.saldoTotal;
   const chartOption = useMemo(() => ({
     animationDuration: 250,
-    grid: { top: 18, right: 18, bottom: 24, left: 18, containLabel: true },
+    grid: { top: 18, right: 18, bottom: 24, left: 18, containLabel: isExpanded },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
@@ -2544,7 +2544,11 @@ function CashflowCurrencyChart({
     },
     yAxis: {
       type: "value",
-      axisLabel: { color: "#475569", formatter: (value) => formatMoneyByCurrency(value, currencyConfig.label) },
+      axisLabel: {
+        show: isExpanded,
+        color: "#475569",
+        formatter: (value) => formatMoneyByCurrency(value, currencyConfig.label),
+      },
       splitLine: { lineStyle: { color: "rgba(15,23,42,0.1)" } },
     },
     series: chartState.datasets.map((dataset) => ({
@@ -2573,7 +2577,7 @@ function CashflowCurrencyChart({
       data: dataset.data,
       barMaxWidth: 44,
     })),
-  }), [chartState, currencyConfig.label]);
+  }), [chartState, currencyConfig.label, isExpanded]);
   const chartEvents = useMemo(() => ({
     mouseover: (params) => {
       if (params.componentType !== "series") return;
@@ -4265,6 +4269,10 @@ function buildHedgePolicyChartState({
     maxDataset: points.map((item) => item.maxValue ?? null),
     minPctDataset: points.map((item) => (item.minPct != null ? item.minPct * 100 : null)),
     maxPctDataset: points.map((item) => (item.maxPct != null ? item.maxPct * 100 : null)),
+    bandPctDataset: points.map((item) => {
+      if (item.minPct == null || item.maxPct == null) return null;
+      return Math.max((item.maxPct - item.minPct) * 100, 0);
+    }),
     derivativeDataset: points.map((item) => item.derivativeVisible),
     physicalDataset: points.map((item) => item.derivativeVisible + item.physicalVisible),
     totalDataset,
@@ -4351,12 +4359,22 @@ function HedgePolicyChart({
             label: "Politica Minima",
             data: chartState.minDataset,
             borderColor: "#22c55e",
-            backgroundColor: "rgba(34, 197, 94, 0.08)",
             pointRadius: 0,
             pointHoverRadius: 0,
             borderWidth: 1.5,
             tension: 0,
             fill: false,
+          },
+          {
+            label: "Politica Maxima",
+            data: chartState.maxDataset,
+            borderColor: "#22c55e",
+            backgroundColor: "rgba(34, 197, 94, 0.14)",
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            borderWidth: 1.5,
+            tension: 0,
+            fill: "-1",
           },
           {
             label: "Hedge via Derivativos",
@@ -4601,6 +4619,9 @@ function HedgePolicyChart({
           </div>
           <div className="hedge-floating-line">
             Politica Min.: {activePoint.minValue != null ? formatHedgeTooltipValue(activePoint.minValue, unit) : "—"}
+          </div>
+          <div className="hedge-floating-line">
+            Politica Max.: {activePoint.maxValue != null ? formatHedgeTooltipValue(activePoint.maxValue, unit) : "—"}
           </div>
           <div className={`hedge-floating-total-box ${statusSummary?.tone || "ok"}`}>
             <div className="hedge-floating-total-main">
@@ -4961,6 +4982,7 @@ function HedgePolicyPercentChart({
     },
     legend: {
       bottom: 0,
+      data: ["Politica Min.", "Politica Max.", "Realizado"],
       textStyle: { color: "#475569", fontSize: 11, fontWeight: 700 },
       itemWidth: 12,
       itemHeight: 12,
@@ -4987,9 +5009,32 @@ function HedgePolicyPercentChart({
           type: "line",
           smooth: false,
           symbol: "none",
+          stack: "policy-band",
           lineStyle: { color: "#22c55e", width: 2 },
           areaStyle: undefined,
           data: chartState.minPctDataset,
+        },
+        {
+          name: "__policy_band__",
+          type: "line",
+          smooth: false,
+          symbol: "none",
+          stack: "policy-band",
+          lineStyle: { opacity: 0 },
+          itemStyle: { opacity: 0 },
+          emphasis: { disabled: true },
+          tooltip: { show: false },
+          areaStyle: { color: "rgba(34, 197, 94, 0.14)" },
+          data: chartState.bandPctDataset,
+        },
+        {
+          name: "Politica Max.",
+          type: "line",
+          smooth: false,
+          symbol: "none",
+          lineStyle: { color: "#22c55e", width: 2 },
+          areaStyle: undefined,
+          data: chartState.maxPctDataset,
         },
         {
           name: "Realizado",
@@ -5003,7 +5048,7 @@ function HedgePolicyPercentChart({
         data: chartState.totalPctDataset,
       },
     ],
-  }), [chartState.labels, chartState.minPctDataset, chartState.totalPctDataset]);
+  }), [chartState.bandPctDataset, chartState.labels, chartState.maxPctDataset, chartState.minPctDataset, chartState.totalPctDataset]);
 
   return (
     <article className="hedge-chart-card">
@@ -5025,6 +5070,9 @@ function HedgePolicyPercentChart({
           </div>
           <div className="hedge-floating-line">
             Politica Min.: {latestPoint.minPct != null ? `${(latestPoint.minPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—"}
+          </div>
+          <div className="hedge-floating-line">
+            Politica Max.: {latestPoint.maxPct != null ? `${(latestPoint.maxPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—"}
           </div>
         </aside>
       ) : null}
