@@ -1374,6 +1374,11 @@ const formatHedgePercentValue = (value, baseValue) =>
     maximumFractionDigits: 1,
   })}%`;
 
+const DERIVATIVE_CULTURE_KEYS = ["ativo", "cultura", "culturas", "destino_cultura"];
+
+const getDerivativeCultureValue = (item) =>
+  item?.ativo || item?.cultura || item?.culturas || item?.destino_cultura || item?.cultura_texto || null;
+
 const getHedgeTodayIndex = (points = []) => {
   if (!points.length) return 0;
   const today = startOfDashboardDay(new Date());
@@ -1500,7 +1505,7 @@ const getDerivativeExchangeFactor = (item, exchanges = [], resolveCultureLabel =
   }
 
   const derivativeCulture = normalizeText(
-    resolveCultureLabel(item?.destino_cultura || item?.cultura || item?.culturas || item?.ativo || item?.cultura_texto),
+    resolveCultureLabel(getDerivativeCultureValue(item)),
   );
   const sameExchangeRows = exchanges.filter((exchange) => normalizedExchangeKeys.includes(normalizeText(exchange?.nome)));
   const matchedExchange =
@@ -1641,9 +1646,8 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
 
   const derivativeRows = derivatives
     .filter((item) => {
-      const isCurrencyDerivative = normalizeText(item.moeda_ou_cmdtye) === "moeda";
       return rowMatchesDashboardFilter(item, dashboardFilter, {
-        cultureKeys: isCurrencyDerivative ? ["destino_cultura"] : ["cultura", "culturas"],
+        cultureKeys: DERIVATIVE_CULTURE_KEYS,
       });
     })
     .filter((item) => {
@@ -2446,7 +2450,7 @@ const buildCashflowRows = ({
   const derivativeRows = derivatives
     .filter((item) =>
       rowMatchesDashboardFilter(item, dashboardFilter, {
-        cultureKeys: ["destino_cultura", "cultura", "culturas"],
+        cultureKeys: DERIVATIVE_CULTURE_KEYS,
       }),
     )
     .filter((item) => normalizeText(item.moeda_ou_cmdtye) === "moeda")
@@ -2999,9 +3003,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const filteredDerivatives = useMemo(
     () =>
       derivatives.filter((item) => {
-        const isCurrencyDerivative = normalizeText(item.moeda_ou_cmdtye) === "moeda";
         return rowMatchesDashboardFilter(item, dashboardFilter, {
-          cultureKeys: isCurrencyDerivative ? ["destino_cultura"] : ["cultura", "culturas", "destino_cultura"],
+          cultureKeys: DERIVATIVE_CULTURE_KEYS,
         });
       }),
     [dashboardFilter, derivatives],
@@ -3349,7 +3352,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     });
 
     bolsaDerivatives.forEach((item) => {
-      const node = ensureNode(item.cultura || item.culturas || item.destino_cultura);
+      const node = ensureNode(getDerivativeCultureValue(item));
       if (!node) return;
       node.derivatives += derivativeStandardVolumeGetter(item);
     });
@@ -3410,7 +3413,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     });
 
     bolsaDerivatives.forEach((item) => {
-      const label = resolveCultureLabel(item.cultura || item.culturas || item.destino_cultura);
+      const label = resolveCultureLabel(getDerivativeCultureValue(item));
       const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
       node.derivatives += derivativeStandardVolumeGetter(item);
       map.set(label, node);
@@ -5329,9 +5332,8 @@ function HedgePolicyDashboard({ dashboardFilter }) {
   const filteredDerivatives = useMemo(
     () =>
       derivatives.filter((item) => {
-        const isCurrencyDerivative = normalizeText(item.moeda_ou_cmdtye) === "moeda";
         return rowMatchesDashboardFilter(item, dashboardFilter, {
-          cultureKeys: isCurrencyDerivative ? ["destino_cultura"] : ["cultura", "culturas", "destino_cultura"],
+          cultureKeys: DERIVATIVE_CULTURE_KEYS,
         });
       }),
     [dashboardFilter, derivatives],
@@ -5598,9 +5600,8 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
   const filteredDerivatives = useMemo(
     () =>
       derivatives.filter((item) => {
-        const isCurrencyDerivative = normalizeText(item.moeda_ou_cmdtye) === "moeda";
         return rowMatchesDashboardFilter(item, dashboardFilter, {
-          cultureKeys: isCurrencyDerivative ? ["destino_cultura"] : ["cultura", "culturas"],
+          cultureKeys: DERIVATIVE_CULTURE_KEYS,
         });
       }),
     [dashboardFilter, derivatives],
