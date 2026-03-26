@@ -1463,7 +1463,17 @@ const readDashboardLabel = (value) => {
   return String(value);
 };
 
-const getDerivativeVolumeValue = (item) => Math.abs(Number(item.volume_fisico || item.volume || item.numero_lotes || item.quantidade_derivativos || 0));
+const getDerivativeVolumeValue = (item) =>
+  Math.abs(
+    Number(
+      item.volume_fisico_valor ||
+        item.volume_fisico ||
+        item.volume ||
+        item.numero_lotes ||
+        item.quantidade_derivativos ||
+        0,
+    ),
+  );
 
 const getDerivativeExchangeFactor = (item, exchanges = [], resolveCultureLabel = readDashboardLabel) => {
   const normalizedExchangeKeys = [
@@ -2582,7 +2592,7 @@ function CashflowCurrencyChart({
   const saldoSummary = activeSummary?.saldo ?? chartState.saldoTotal;
   const chartOption = useMemo(() => ({
     animationDuration: 250,
-    grid: { top: 18, right: 18, bottom: 24, left: 18, containLabel: isExpanded },
+    grid: { top: 18, right: 18, bottom: 24, left: 18, containLabel: false },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
@@ -2602,7 +2612,7 @@ function CashflowCurrencyChart({
     yAxis: {
       type: "value",
       axisLabel: {
-        show: isExpanded,
+        show: false,
         color: "#475569",
         formatter: (value) => formatMoneyByCurrency(value, currencyConfig.label),
       },
@@ -2634,7 +2644,7 @@ function CashflowCurrencyChart({
       data: dataset.data,
       barMaxWidth: 44,
     })),
-  }), [chartState, currencyConfig.label, isExpanded]);
+  }), [chartState, currencyConfig.label]);
   const chartEvents = useMemo(() => ({
     mouseover: (params) => {
       if (params.componentType !== "series") return;
@@ -2707,7 +2717,7 @@ function CashflowCurrencyChart({
 
 function CashflowDashboard({ dashboardFilter, compact = false }) {
   const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
-  const [interval, setInterval] = useState("daily");
+  const [interval, setInterval] = useState("monthly");
   const [expandedCurrencyKey, setExpandedCurrencyKey] = useState(null);
   const [dateRange, setDateRange] = useState({
     start: defaultDateRange.startIso,
@@ -6832,7 +6842,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
           sourceKey: item.bolsa_ref || item.ctrbolsa || item.instituicao || item.operation,
           amount,
           strike: Number(item.strike_montagem || item.strike_liquidacao || 0),
-          volume: Math.abs(Number(item.volume || item.volume_fisico || item.quantidade_derivativos || 0)),
+          volume: getDerivativeVolumeValue(item),
           institution: item.instituicao || item.bolsa_ref || "—",
           operation: item.nome_da_operacao || item.tipo_derivativo || "Derivativo",
         };
