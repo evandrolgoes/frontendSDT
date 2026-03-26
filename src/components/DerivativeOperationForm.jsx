@@ -23,6 +23,11 @@ const statusOptions = [
   { value: "Encerrado", label: "Encerrado" },
 ];
 
+const yesNoOptions = [
+  { value: "Sim", label: "Sim" },
+  { value: "Nao", label: "Nao" },
+];
+
 const normalizeLookupValue = (value) =>
   String(value || "")
     .trim()
@@ -212,6 +217,7 @@ export function DerivativeOperationForm({
       status_operacao: initialValues.status_operacao || "Em aberto",
       contrato_derivativo: initialValues.contrato_derivativo || "",
       moeda_ou_cmdtye: initialValues.moeda_ou_cmdtye || "",
+      swap_divida: initialValues.swap_divida || "",
       moeda_unidade: initialValues.moeda_unidade || "",
       nome_da_operacao: initialValues.nome_da_operacao || "",
       unidade: initialValues.unidade || "",
@@ -574,6 +580,7 @@ export function DerivativeOperationForm({
     data_contratacao: parseBrazilianDate(values.data_contratacao),
     data_liquidacao: parseBrazilianDate(values.data_liquidacao),
     moeda_ou_cmdtye: values.moeda_ou_cmdtye || "",
+    swap_divida: values.swap_divida || "",
     moeda_unidade: values.moeda_unidade || "",
     nome_da_operacao: values.nome_da_operacao || "",
     unidade: values.unidade || "",
@@ -759,6 +766,17 @@ export function DerivativeOperationForm({
             <label>Moeda ou cmdtye</label>
             <input className="form-control" value={values.moeda_ou_cmdtye || ""} disabled />
           </div>
+          {normalizeLookupValue(values.moeda_ou_cmdtye) === "moeda" ? (
+            <div className="field">
+              <label>Se for Moeda Swap de Divida</label>
+              {renderSelect(
+                "swap_divida",
+                values.swap_divida,
+                yesNoOptions,
+                (value) => updateValue("swap_divida", value),
+              )}
+            </div>
+          ) : null}
           <div className="field">
             <label>Moeda/unidade</label>
             <input className="form-control" value={values.moeda_unidade || ""} disabled />

@@ -260,6 +260,7 @@ export function DataTable({
   const [tempFilter, setTempFilter] = useState(DEFAULT_FILTER);
   const [actionRowId, setActionRowId] = useState(null);
   const [selectionAnchorId, setSelectionAnchorId] = useState(null);
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [autoTableShellHeight, setAutoTableShellHeight] = useState(null);
   const shellRef = useRef(null);
 
@@ -525,6 +526,19 @@ export function DataTable({
 
   const selectedRows = useMemo(() => filteredRows.filter((row) => selectedIds.has(row.id)), [filteredRows, selectedIds]);
 
+  const handleDeleteSelectedClick = async () => {
+    if (!canDeleteSelected || !selectedRows.length || isDeletingSelected) {
+      return;
+    }
+
+    try {
+      setIsDeletingSelected(true);
+      await onDeleteSelected(selectedRows);
+    } finally {
+      setIsDeletingSelected(false);
+    }
+  };
+
   return (
     <section
       className="bubble-table-shell"
@@ -558,9 +572,10 @@ export function DataTable({
             <button
               className="bubble-btn bubble-btn-danger"
               type="button"
-              onClick={() => onDeleteSelected(selectedRows)}
+              onClick={handleDeleteSelectedClick}
+              disabled={isDeletingSelected}
             >
-              Apagar linhas ({selectedRows.length})
+              {isDeletingSelected ? `Apagando (${selectedRows.length})...` : `Apagar linhas (${selectedRows.length})`}
             </button>
           ) : null}
           {selectedRows.length ? (
