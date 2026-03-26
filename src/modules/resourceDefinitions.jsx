@@ -756,6 +756,7 @@ const baseResourceDefinitions = {
       { name: "data_desembolso", label: "Data desembolso", type: "date" },
       { name: "data_pagamento", label: "Data pagamento parcela", type: "date" },
       { name: "descricao", label: "Descricao", type: "textarea" },
+      { name: "obs", label: "Obs", type: "textarea", optional: true },
       { name: "contraparte", label: "Contraparte", ...commonRelationFields.contraparte, optional: true },
     ],
   },
