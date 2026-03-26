@@ -388,9 +388,14 @@ function AnotacaoComposerModal({
             <strong>{form.id ? "Editar anotacao" : "Nova anotacao"}</strong>
             <div className="muted">Ata de reuniao com o mesmo editor rico do Blog/News e suporte a anexos.</div>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>
-            Fechar
-          </button>
+          <div className="modal-header-actions">
+            <button className="btn btn-primary" type="submit">
+              Salvar
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={onClose}>
+              Fechar
+            </button>
+          </div>
         </div>
 
         <div className="market-news-editor-body">

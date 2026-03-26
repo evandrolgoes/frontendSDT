@@ -36,7 +36,7 @@ function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onCl
 export function AdminLayout({ children }) {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const { filter, options, panelOpen, setPanelOpen, toggleFilterValue, updateFilter, clearFilter } = useDashboardFilter();
+  const { filter, hasActiveFilter, options, panelOpen, setPanelOpen, toggleFilterValue, updateFilter, clearFilter } = useDashboardFilter();
   const isCashflowDashboard = location.pathname === "/dashboard/fluxo-caixa";
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
   const [marketNewsCategories, setMarketNewsCategories] = useState([]);
@@ -327,7 +327,7 @@ export function AdminLayout({ children }) {
       <main className="main-area">
         <button
           type="button"
-          className="dashboard-floating-filter-trigger"
+          className={`dashboard-floating-filter-trigger${hasActiveFilter ? "" : " is-empty"}`}
           onClick={() => setPanelOpen((current) => !current)}
           aria-label="Abrir filtros dos dashboards"
           title={filterSummary.join(" | ")}

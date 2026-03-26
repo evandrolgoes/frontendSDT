@@ -1122,9 +1122,14 @@ export function ResourceForm({
             <strong>{title}</strong>
             <div className="muted">Edite os campos da linha selecionada ou crie um novo registro.</div>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>
-            Fechar
-          </button>
+          <div className="modal-header-actions">
+            <button className="btn btn-primary" type="submit">
+              {submitLabel}
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={onClose}>
+              Fechar
+            </button>
+          </div>
         </div>
         {error ? <div className="form-error">{error}</div> : null}
         {beforeContent}

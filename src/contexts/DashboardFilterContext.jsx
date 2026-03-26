@@ -30,19 +30,20 @@ const sortByLabel = (items = [], labelGetter) =>
     String(labelGetter(left) || "").localeCompare(String(labelGetter(right) || ""), "pt-BR", { sensitivity: "base" }),
   );
 
+const normalizeDashboardFilter = (value) => ({
+  grupo: normalizeValues(value?.grupo),
+  subgrupo: normalizeValues(value?.subgrupo),
+  cultura: normalizeValues(value?.cultura),
+  safra: normalizeValues(value?.safra),
+  localidade: normalizeValues(value?.localidade),
+});
+
 const readStoredFilter = () => {
   if (typeof window === "undefined") return EMPTY_FILTER;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY_FILTER;
-    const parsed = JSON.parse(raw);
-    return {
-      grupo: normalizeValues(parsed?.grupo),
-      subgrupo: normalizeValues(parsed?.subgrupo),
-      cultura: normalizeValues(parsed?.cultura),
-      safra: normalizeValues(parsed?.safra),
-      localidade: normalizeValues(parsed?.localidade),
-    };
+    return normalizeDashboardFilter(JSON.parse(raw));
   } catch {
     return EMPTY_FILTER;
   }
@@ -50,7 +51,7 @@ const readStoredFilter = () => {
 
 const writeStoredFilter = (value) => {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeDashboardFilter(value)));
 };
 
 const extractIds = (row, keys) => {
@@ -168,6 +169,16 @@ export function DashboardFilterProvider({ children }) {
   }, [filter]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleStorage = (event) => {
+      if (event.key !== STORAGE_KEY) return;
+      setFilter(readStoredFilter());
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  useEffect(() => {
     if (!isAuthenticated) return undefined;
     let isMounted = true;
     Promise.all([
@@ -277,9 +288,15 @@ export function DashboardFilterProvider({ children }) {
     });
   }, [options]);
 
+  const hasActiveFilter = useMemo(
+    () => Object.values(normalizeDashboardFilter(filter)).some((items) => items.length > 0),
+    [filter],
+  );
+
   const value = useMemo(
     () => ({
       filter,
+      hasActiveFilter,
       options,
       panelOpen,
       setPanelOpen,
@@ -301,7 +318,7 @@ export function DashboardFilterProvider({ children }) {
       },
       matchesDashboardFilter: rowMatchesDashboardFilter,
     }),
-    [filter, options, panelOpen],
+    [filter, hasActiveFilter, options, panelOpen],
   );
 
   return <DashboardFilterContext.Provider value={value}>{children}</DashboardFilterContext.Provider>;

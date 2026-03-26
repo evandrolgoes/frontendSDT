@@ -675,9 +675,14 @@ export function DerivativeOperationForm({
             </div>
             <div className="muted">Operacao mae com derivativos filhos vinculados ao mesmo codigo.</div>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>
-            Cancelar
-          </button>
+          <div className="modal-header-actions">
+            <button className="btn btn-primary" type="submit">
+              Salvar
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={onClose}>
+              Fechar
+            </button>
+          </div>
         </div>
 
         {error ? <div className="form-error">{error}</div> : null}

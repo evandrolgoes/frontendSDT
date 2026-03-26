@@ -420,9 +420,14 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
             <strong>{form.id ? "Editar post" : "Novo post"}</strong>
             <div className="muted">Conteúdo corrido com formatação rica, imagens, vídeos e HTML no mesmo fluxo.</div>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>
-            Fechar
-          </button>
+          <div className="modal-header-actions">
+            <button className="btn btn-primary" type="submit">
+              Salvar
+            </button>
+            <button className="btn btn-secondary" type="button" onClick={onClose}>
+              Fechar
+            </button>
+          </div>
         </div>
 
         <div className="market-news-editor-body">
