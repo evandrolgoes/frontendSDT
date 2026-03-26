@@ -124,7 +124,7 @@ const normalizeItem = (item = {}, index = 0, options = {}) => {
   return {
     id: item.id,
     ordem: item.ordem || index + 1,
-    grupo_montagem: item.grupo_montagem || "",
+    posicao: item.posicao || item.grupo_montagem || "",
     tipo_derivativo: item.tipo_derivativo || "",
     numero_lotes: formatInitialNumber(item.numero_lotes, 4),
     volume: formatInitialNumber(item.volume ?? item.volume_fisico ?? item.volume_fisico_valor, 4),
@@ -586,7 +586,7 @@ export function DerivativeOperationForm({
     itens: (values.itens || []).map((item, index) => ({
       ...(item.id ? { id: item.id } : {}),
       ordem: index + 1,
-      grupo_montagem: item.grupo_montagem || "",
+      posicao: item.posicao || "",
       tipo_derivativo: item.tipo_derivativo || "",
       numero_lotes: parseLocalizedNumber(item.numero_lotes),
       volume_fisico_valor: parseLocalizedNumber(item.volume),
@@ -848,10 +848,10 @@ export function DerivativeOperationForm({
                   <div className="field">
                     <label>Compra ou venda</label>
                     {renderSelect(
-                      `grupo_montagem_${index}`,
-                      item.grupo_montagem,
+                      `posicao_${index}`,
+                      item.posicao,
                       buySellOptions,
-                      (value) => updateItem(index, "grupo_montagem", value),
+                      (value) => updateItem(index, "posicao", value),
                     )}
                   </div>
                   <div className="field">
