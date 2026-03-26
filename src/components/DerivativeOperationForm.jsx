@@ -452,26 +452,20 @@ export function DerivativeOperationForm({
         if (values.grupo && String(option.grupo ?? "") !== String(values.grupo)) {
           return false;
         }
-        if (values.subgrupo && String(option.subgrupo ?? "") !== String(values.subgrupo)) {
-          return false;
-        }
         return true;
       }),
-    [lookupOptions.counterparties, values.grupo, values.subgrupo],
+    [lookupOptions.counterparties, values.grupo],
   );
 
   const updateValue = (key, value) => {
     setValues((current) => {
       const next = { ...current, [key]: value };
-      if ((key === "grupo" || key === "subgrupo") && current.contraparte) {
+      if (key === "grupo" && current.contraparte) {
         const validCounterparty = (lookupOptions.counterparties || []).some((option) => {
           if (String(option.id) !== String(current.contraparte)) {
             return false;
           }
           if (next.grupo && String(option.grupo ?? "") !== String(next.grupo)) {
-            return false;
-          }
-          if (next.subgrupo && String(option.subgrupo ?? "") !== String(next.subgrupo)) {
             return false;
           }
           return true;

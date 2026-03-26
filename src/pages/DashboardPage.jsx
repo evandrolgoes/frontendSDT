@@ -43,6 +43,27 @@ Chart.register(
 
 const formatNumber = (value, suffix = "") => `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}${suffix}`;
 const COMMERCIAL_RISK_DERIVATIVE_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c3aed", "#dc2626", "#0891b2", "#65a30d", "#d97706"];
+const CASHFLOW_DEFAULT_PAST_DAYS = 15;
+const CASHFLOW_DEFAULT_FUTURE_DAYS = 180;
+
+const shiftDateByDays = (value, days) => {
+  const date = new Date(value);
+  date.setDate(date.getDate() + days);
+  return date;
+};
+
+const formatIsoDate = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const buildCashflowDefaultDateRange = (today = new Date()) => ({
+  fromBrazilian: formatBrazilianDate(shiftDateByDays(today, -CASHFLOW_DEFAULT_PAST_DAYS)),
+  toBrazilian: formatBrazilianDate(shiftDateByDays(today, CASHFLOW_DEFAULT_FUTURE_DAYS)),
+  startIso: formatIsoDate(shiftDateByDays(today, -CASHFLOW_DEFAULT_PAST_DAYS)),
+  endIso: formatIsoDate(shiftDateByDays(today, CASHFLOW_DEFAULT_FUTURE_DAYS)),
+});
 
 const formatCompactPostDate = (value) => {
   if (!value) return "";
@@ -1907,21 +1928,11 @@ const stackTotalsPlugin = {
 Chart.register(stackTotalsPlugin);
 
 function ComponentSalesDashboard({ dashboardFilter }) {
-  const today = useMemo(() => new Date(), []);
-  const defaultDateFrom = useMemo(() => {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 30);
-    return formatBrazilianDate(start);
-  }, [today]);
-  const defaultDateTo = useMemo(() => {
-    const end = new Date(today);
-    end.setFullYear(end.getFullYear() + 1);
-    return formatBrazilianDate(end);
-  }, [today]);
+  const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
 
   const [interval, setInterval] = useState("daily");
-  const [dateFrom, setDateFrom] = useState(defaultDateFrom);
-  const [dateTo, setDateTo] = useState(defaultDateTo);
+  const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
+  const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
   const [selectedBar, setSelectedBar] = useState(null);
   const [datasetVisibility, setDatasetVisibility] = useState(() =>
     Object.fromEntries(COMPONENT_DATASETS.map((dataset) => [dataset.key, true])),
@@ -2067,20 +2078,10 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 }
 
 function ComponentSalesNativeDashboard({ dashboardFilter }) {
-  const today = useMemo(() => new Date(), []);
-  const defaultDateFrom = useMemo(() => {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 30);
-    return formatBrazilianDate(start);
-  }, [today]);
-  const defaultDateTo = useMemo(() => {
-    const end = new Date(today);
-    end.setFullYear(end.getFullYear() + 1);
-    return formatBrazilianDate(end);
-  }, [today]);
+  const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
   const [interval, setInterval] = useState("monthly");
-  const [dateFrom, setDateFrom] = useState(defaultDateFrom);
-  const [dateTo, setDateTo] = useState(defaultDateTo);
+  const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
+  const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
   const [selectedBar, setSelectedBar] = useState(null);
 
   const rows = useComponentSalesSource(dashboardFilter, dateFrom, dateTo);
@@ -2644,9 +2645,13 @@ function CashflowCurrencyChart({
 }
 
 function CashflowDashboard({ dashboardFilter, compact = false }) {
+  const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
   const [interval, setInterval] = useState("daily");
   const [expandedCurrencyKey, setExpandedCurrencyKey] = useState(null);
-  const [dateRange, setDateRange] = useState({ start: "", end: "" });
+  const [dateRange, setDateRange] = useState({
+    start: defaultDateRange.startIso,
+    end: defaultDateRange.endIso,
+  });
   const [sales, setSales] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
@@ -4354,17 +4359,6 @@ function HedgePolicyChart({
             fill: false,
           },
           {
-            label: "Politica Maxima",
-            data: chartState.maxDataset,
-            borderColor: "#22c55e",
-            backgroundColor: "rgba(34, 197, 94, 0.12)",
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            borderWidth: 1.5,
-            tension: 0,
-            fill: "-1",
-          },
-          {
             label: "Hedge via Derivativos",
             data: chartState.derivativeDataset,
             borderColor: "rgba(71, 85, 105, 0.9)",
@@ -4604,9 +4598,6 @@ function HedgePolicyChart({
         <aside className="hedge-floating-card">
           <div className="hedge-floating-topline">
             <div className="hedge-floating-title">{formatHedgeTitleDate(activePoint.date)}</div>
-          </div>
-          <div className="hedge-floating-line">
-            Politica Máx.: {activePoint.maxValue != null ? formatHedgeTooltipValue(activePoint.maxValue, unit) : "—"}
           </div>
           <div className="hedge-floating-line">
             Politica Min.: {activePoint.minValue != null ? formatHedgeTooltipValue(activePoint.minValue, unit) : "—"}
@@ -4990,30 +4981,21 @@ function HedgePolicyPercentChart({
       },
       splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
     },
-    series: [
-      {
-        name: "Politica Min.",
-        type: "line",
-        smooth: false,
-        symbol: "none",
-        lineStyle: { color: "#22c55e", width: 2 },
-        areaStyle: undefined,
-        data: chartState.minPctDataset,
-      },
-      {
-        name: "Politica Max.",
-        type: "line",
-        smooth: false,
-        symbol: "none",
-        lineStyle: { color: "#22c55e", width: 2 },
-        areaStyle: { color: "rgba(34, 197, 94, 0.10)" },
-        data: chartState.maxPctDataset,
-      },
-      {
-        name: "Realizado",
-        type: "line",
-        smooth: false,
-        symbol: "circle",
+      series: [
+        {
+          name: "Politica Min.",
+          type: "line",
+          smooth: false,
+          symbol: "none",
+          lineStyle: { color: "#22c55e", width: 2 },
+          areaStyle: undefined,
+          data: chartState.minPctDataset,
+        },
+        {
+          name: "Realizado",
+          type: "line",
+          smooth: false,
+          symbol: "circle",
         symbolSize: 7,
         lineStyle: { color: "#111827", width: 4 },
         itemStyle: { color: "#111827" },
@@ -5021,7 +5003,7 @@ function HedgePolicyPercentChart({
         data: chartState.totalPctDataset,
       },
     ],
-  }), [chartState.labels, chartState.maxPctDataset, chartState.minPctDataset, chartState.totalPctDataset]);
+  }), [chartState.labels, chartState.minPctDataset, chartState.totalPctDataset]);
 
   return (
     <article className="hedge-chart-card">
@@ -5042,10 +5024,7 @@ function HedgePolicyPercentChart({
             Realizado: {(latestPoint.totalPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
           </div>
           <div className="hedge-floating-line">
-            Politica:{" "}
-            {latestPoint.minPct != null && latestPoint.maxPct != null
-              ? `${(latestPoint.minPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% ate ${(latestPoint.maxPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`
-              : "—"}
+            Politica Min.: {latestPoint.minPct != null ? `${(latestPoint.minPct * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—"}
           </div>
         </aside>
       ) : null}

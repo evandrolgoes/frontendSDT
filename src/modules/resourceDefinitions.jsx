@@ -301,18 +301,16 @@ const baseResourceDefinitions = {
   counterparties: {
     resource: "counterparties",
     title: "Contrapartes",
-    description: "Contrapartes ligadas a grupo e subgrupo.",
+    description: "Contrapartes ligadas ao grupo.",
     searchPlaceholder: "Buscar contraparte...",
     columns: [
       { key: "contraparte", label: "Contraparte" },
       { key: "grupo", label: "Grupo", type: "relation", ...commonRelationFields.grupo },
-      { key: "subgrupo", label: "Subgrupo", type: "relation", ...commonRelationFields.subgrupo },
       { key: "obs", label: "Observacoes" },
     ],
     fields: [
       { name: "contraparte", label: "Contraparte" },
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "obs", label: "Observacoes", type: "textarea" },
     ],
   },
@@ -687,7 +685,6 @@ const baseResourceDefinitions = {
         optional: true,
         filterByCurrent: {
           grupo: "grupo",
-          subgrupo: "subgrupo",
         },
       },
       { name: "cotacao_bolsa_ref", label: "Cotacao bolsa ref", type: "number" },
@@ -775,7 +772,15 @@ const baseResourceDefinitions = {
       { name: "data_pagamento", label: "Data pagamento", type: "date" },
       { name: "descricao", label: "Descricao", type: "textarea" },
       { name: "obs", label: "Obs", type: "textarea", optional: true },
-      { name: "contraparte", label: "Contraparte", ...commonRelationFields.contraparte, optional: true },
+      {
+        name: "contraparte",
+        label: "Contraparte",
+        ...commonRelationFields.contraparte,
+        optional: true,
+        filterByCurrent: {
+          grupo: "grupo",
+        },
+      },
     ],
   },
   cashPayments: {
@@ -807,7 +812,15 @@ const baseResourceDefinitions = {
       { name: "data_pagamento", label: "Data pagamento parcela", type: "date" },
       { name: "descricao", label: "Descricao", type: "textarea" },
       { name: "obs", label: "Obs", type: "textarea", optional: true },
-      { name: "contraparte", label: "Contraparte", ...commonRelationFields.contraparte, optional: true },
+      {
+        name: "contraparte",
+        label: "Contraparte",
+        ...commonRelationFields.contraparte,
+        optional: true,
+        filterByCurrent: {
+          grupo: "grupo",
+        },
+      },
     ],
   },
   accountsPayable: {
