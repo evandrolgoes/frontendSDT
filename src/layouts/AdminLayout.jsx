@@ -37,6 +37,7 @@ export function AdminLayout({ children }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const { filter, options, panelOpen, setPanelOpen, toggleFilterValue, updateFilter, clearFilter } = useDashboardFilter();
+  const isCashflowDashboard = location.pathname === "/dashboard/fluxo-caixa";
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
   const [marketNewsCategories, setMarketNewsCategories] = useState([]);
   const [isMobileSidebar, setIsMobileSidebar] = useState(() =>
@@ -62,13 +63,13 @@ export function AdminLayout({ children }) {
     const parts = [
       summarize(filter.grupo, options.groups, "grupo", "Grupo"),
       summarize(filter.subgrupo, options.subgroups, "subgrupo", "Subgrupo"),
-      summarize(filter.cultura, options.crops, "ativo", "Ativo"),
-      summarize(filter.safra, options.seasons, "safra", "Safra"),
-      summarize(filter.localidade, options.localities, "label", "Localidade"),
+      !isCashflowDashboard ? summarize(filter.cultura, options.crops, "ativo", "Ativo") : null,
+      !isCashflowDashboard ? summarize(filter.safra, options.seasons, "safra", "Safra") : null,
+      !isCashflowDashboard ? summarize(filter.localidade, options.localities, "label", "Localidade") : null,
     ].filter(Boolean);
 
     return parts.length ? parts : ["Consolidado geral"];
-  }, [filter, options]);
+  }, [filter, isCashflowDashboard, options]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -310,9 +311,15 @@ export function AdminLayout({ children }) {
             <div className="sidebar-filter-panel modal dashboard-filter-popup-grid">
               <PopupChipGroup title="Grupos" items={options.groups} selectedValues={filter.grupo} labelKey="grupo" onToggle={(value) => toggleFilterValue("grupo", value)} onClear={() => updateFilter("grupo", [])} />
               <PopupChipGroup title="Subgrupos" items={options.subgroups} selectedValues={filter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleFilterValue("subgrupo", value)} onClear={() => updateFilter("subgrupo", [])} />
-              <PopupChipGroup title="Ativos" items={options.cropBoardCrops || []} selectedValues={filter.cultura} labelKey="ativo" onToggle={(value) => toggleFilterValue("cultura", value)} onClear={() => updateFilter("cultura", [])} />
-              <PopupChipGroup title="Safras" items={options.cropBoardSeasons || []} selectedValues={filter.safra} labelKey="safra" onToggle={(value) => toggleFilterValue("safra", value)} onClear={() => updateFilter("safra", [])} />
-              <PopupChipGroup title="Localidade de Referência" items={options.localities} selectedValues={filter.localidade} labelKey="label" onToggle={(value) => toggleFilterValue("localidade", value)} onClear={() => updateFilter("localidade", [])} />
+              {!isCashflowDashboard ? (
+                <PopupChipGroup title="Ativos" items={options.cropBoardCrops || []} selectedValues={filter.cultura} labelKey="ativo" onToggle={(value) => toggleFilterValue("cultura", value)} onClear={() => updateFilter("cultura", [])} />
+              ) : null}
+              {!isCashflowDashboard ? (
+                <PopupChipGroup title="Safras" items={options.cropBoardSeasons || []} selectedValues={filter.safra} labelKey="safra" onToggle={(value) => toggleFilterValue("safra", value)} onClear={() => updateFilter("safra", [])} />
+              ) : null}
+              {!isCashflowDashboard ? (
+                <PopupChipGroup title="Localidade de Referência" items={options.localities} selectedValues={filter.localidade} labelKey="label" onToggle={(value) => toggleFilterValue("localidade", value)} onClear={() => updateFilter("localidade", [])} />
+              ) : null}
             </div>
           </div>
         </div>

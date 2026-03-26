@@ -1369,6 +1369,11 @@ const formatHedgeTooltipValue = (value, unit) => {
   return `${Number(value || 0).toLocaleString("pt-BR")} sc`;
 };
 
+const formatHedgePercentValue = (value, baseValue) =>
+  `${((baseValue > 0 ? Number(value || 0) / baseValue : 0) * 100).toLocaleString("pt-BR", {
+    maximumFractionDigits: 1,
+  })}%`;
+
 const formatHedgeShortDate = (value, frequency) => {
   const date = parseDashboardDate(value);
   if (!date) return "—";
@@ -3872,9 +3877,9 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
   const [policies, setPolicies] = useState([]);
   const [budgetCosts, setBudgetCosts] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
-  const [sheetyQuotes, setSheetyQuotes] = useState([]);
-  const [selectedSojaCtr, setSelectedSojaCtr] = useState("");
-  const [selectedDollarDvc, setSelectedDollarDvc] = useState("");
+  const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
+  const [selectedSojaTicker, setSelectedSojaTicker] = useState("");
+  const [selectedDollarTicker, setSelectedDollarTicker] = useState("");
   const [selectedCell, setSelectedCell] = useState({ row: 8, col: 9 });
   const [hoverCell, setHoverCell] = useState(null);
   const [sojaValue, setSojaValue] = useState("0,00");
@@ -3891,26 +3896,41 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
       resourceService.listAll("hedge-policies"),
       resourceService.listAll("budget-costs"),
       resourceService.listAll("derivative-operations"),
-      resourceService.fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL).catch(() => ({ planilha1: [] })),
-    ]).then(([quotesResponse, salesResponse, policiesResponse, budgetResponse, derivativesResponse, sheetyResponse]) => {
+      resourceService.listTradingviewQuotes({ force: true }).catch(() => []),
+    ]).then(([quotesResponse, salesResponse, policiesResponse, budgetResponse, derivativesResponse, tradingviewResponse]) => {
       if (!isMounted) return;
       setQuotes(quotesResponse || []);
       setSales(salesResponse || []);
       setPolicies(policiesResponse || []);
       setBudgetCosts(budgetResponse || []);
       setDerivatives(derivativesResponse || []);
-      const sheetyRows = sheetyResponse?.planilha1 || [];
-      setSheetyQuotes(sheetyRows);
+      const marketRows = Array.isArray(tradingviewResponse) ? tradingviewResponse : [];
+      setTradingviewQuotes(marketRows);
 
-      const sojaContracts = sheetyRows.filter((item) => normalizeText(item.bolsa).includes("soja_cbot") && item.ctrbolsa);
-      const dollarContracts = sheetyRows.filter((item) => normalizeText(item["cultura/produto"]).includes("dolar") && item.dvc);
+      const sojaContracts = marketRows.filter(
+        (item) =>
+          normalizeText(item?.section_name).includes("soja cbot") &&
+          item?.ticker &&
+          item?.price !== null &&
+          item?.price !== undefined,
+      );
+      const dollarContracts = marketRows.filter(
+        (item) =>
+          normalizeText(item?.section_name).includes("dolar fwd") &&
+          String(item?.ticker || "")
+            .trim()
+            .toUpperCase()
+            .startsWith("DOL") &&
+          item?.price !== null &&
+          item?.price !== undefined,
+      );
 
-      if (sojaContracts[0]?.ctrbolsa) {
-        setSelectedSojaCtr(String(sojaContracts[0].ctrbolsa));
+      if (sojaContracts[0]?.ticker) {
+        setSelectedSojaTicker(String(sojaContracts[0].ticker));
       }
 
-      if (dollarContracts[0]?.dvc) {
-        setSelectedDollarDvc(String(dollarContracts[0].dvc));
+      if (dollarContracts[0]?.ticker) {
+        setSelectedDollarTicker(String(dollarContracts[0].ticker));
       }
     });
 
@@ -3978,54 +3998,70 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
     const latestPolicy = [...filteredPolicies].sort((left, right) => String(right.mes_ano || "").localeCompare(String(left.mes_ano || "")))[0];
     const targetPct = parsePercentValue(latestPolicy?.margem_alvo_minimo ?? 0.18);
 
-    setSojaValue((current) => (selectedSojaCtr ? current : formatNumber2(sojaAvg)));
-    setCambioValue((current) => (selectedDollarDvc ? current : formatNumber2(cambioAvg)));
+    setSojaValue((current) => (selectedSojaTicker ? current : formatNumber2(sojaAvg)));
+    setCambioValue((current) => (selectedDollarTicker ? current : formatNumber2(cambioAvg)));
     setBreakevenValue(formatNumber2(breakEvenAvg));
     setBasisValue(formatNumber2(basisAvg));
     setTargetPercentValue(formatPercent1(Number.isFinite(targetPct) ? targetPct : 0.18));
-  }, [filteredBudgetCosts, filteredDerivatives, filteredPolicies, filteredQuotes, filteredSales, selectedDollarDvc, selectedSojaCtr]);
+  }, [filteredBudgetCosts, filteredDerivatives, filteredPolicies, filteredQuotes, filteredSales, selectedDollarTicker, selectedSojaTicker]);
 
-  const sojaCtrOptions = useMemo(() => {
+  const sojaTickerOptions = useMemo(() => {
     const unique = new Map();
-    sheetyQuotes
-      .filter((item) => normalizeText(item.bolsa).includes("soja_cbot") && item.ctrbolsa)
+    tradingviewQuotes
+      .filter(
+        (item) =>
+          normalizeText(item?.section_name).includes("soja cbot") &&
+          item?.ticker &&
+          item?.price !== null &&
+          item?.price !== undefined,
+      )
       .forEach((item) => {
-        const key = String(item.ctrbolsa);
+        const key = String(item.ticker);
         if (!unique.has(key)) unique.set(key, item);
       });
     return Array.from(unique.values());
-  }, [sheetyQuotes]);
+  }, [tradingviewQuotes]);
 
-  const dollarDvcOptions = useMemo(() => {
+  const dollarTickerOptions = useMemo(() => {
     const unique = new Map();
-    sheetyQuotes
-      .filter((item) => normalizeText(item["cultura/produto"]).includes("dolar") && item.dvc)
+    tradingviewQuotes
+      .filter((item) => {
+        const ticker = String(item?.ticker || "")
+          .trim()
+          .toUpperCase();
+        return (
+          normalizeText(item?.section_name).includes("dolar fwd") &&
+          ticker.startsWith("DOL") &&
+          item?.price !== null &&
+          item?.price !== undefined
+        );
+      })
       .forEach((item) => {
-        const key = String(item.dvc);
+        const key = String(item.ticker);
         if (!unique.has(key)) unique.set(key, item);
       });
     return Array.from(unique.values());
-  }, [sheetyQuotes]);
+  }, [tradingviewQuotes]);
 
   useEffect(() => {
-    if (!selectedSojaCtr) return;
-    const match = sojaCtrOptions.find((item) => String(item.ctrbolsa) === String(selectedSojaCtr));
+    if (!selectedSojaTicker) return;
+    const match = sojaTickerOptions.find((item) => String(item.ticker) === String(selectedSojaTicker));
     if (!match) return;
-    const cotacao = Number(match.cotacao);
+    const cotacao = Number(match.price);
     if (Number.isFinite(cotacao)) {
       setSojaValue(formatNumber2(cotacao));
     }
-  }, [selectedSojaCtr, sojaCtrOptions]);
+  }, [selectedSojaTicker, sojaTickerOptions]);
 
   useEffect(() => {
-    if (!selectedDollarDvc) return;
-    const match = dollarDvcOptions.find((item) => String(item.dvc) === String(selectedDollarDvc));
+    if (!selectedDollarTicker) return;
+    const match = dollarTickerOptions.find((item) => String(item.ticker) === String(selectedDollarTicker));
     if (!match) return;
-    const cotacao = Number(match.cotacao);
+    const cotacao = Number(match.price);
     if (Number.isFinite(cotacao)) {
       setCambioValue(formatNumber2(cotacao));
     }
-  }, [dollarDvcOptions, selectedDollarDvc]);
+  }, [dollarTickerOptions, selectedDollarTicker]);
 
   const sojaBase = parseLocaleNumber(sojaValue);
   const cambioBase = parseLocaleNumber(cambioValue);
@@ -4103,12 +4139,12 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
     <section className="simulation-shell">
       <div className="simulation-topbar card">
         <label>
-          Ctr bolsa soja cbot:
-          <select value={selectedSojaCtr} onChange={(event) => setSelectedSojaCtr(event.target.value)}>
+          Contrato soja CBOT:
+          <select value={selectedSojaTicker} onChange={(event) => setSelectedSojaTicker(event.target.value)}>
             <option value="">Selecione</option>
-            {sojaCtrOptions.map((item) => (
-              <option key={item.ctrbolsa} value={item.ctrbolsa}>
-                {item.ctrbolsa}
+            {sojaTickerOptions.map((item) => (
+              <option key={item.ticker} value={item.ticker}>
+                {item.ticker}
               </option>
             ))}
           </select>
@@ -4118,12 +4154,12 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
           <input type="text" value={sojaValue} onChange={(event) => setSojaValue(event.target.value)} />
         </label>
         <label>
-          DVC dolar:
-          <select value={selectedDollarDvc} onChange={(event) => setSelectedDollarDvc(event.target.value)}>
+          Dólar futuro:
+          <select value={selectedDollarTicker} onChange={(event) => setSelectedDollarTicker(event.target.value)}>
             <option value="">Selecione</option>
-            {dollarDvcOptions.map((item) => (
-              <option key={item.dvc} value={item.dvc}>
-                {item.dvc}
+            {dollarTickerOptions.map((item) => (
+              <option key={item.ticker} value={item.ticker}>
+                {item.ticker}
               </option>
             ))}
           </select>
@@ -4523,6 +4559,8 @@ function HedgePolicyChart({
           legend: { display: false },
           tooltip: { enabled: false },
           datalabels: { display: false },
+          fundPositionZeroLineAndLabels: { enabled: false },
+          fundPositionLastValueLabel: { enabled: false },
         },
         layout: {
           padding: {
@@ -4687,14 +4725,16 @@ function HedgePolicyChart({
             <div className="hedge-floating-title">{formatHedgeTitleDate(activePoint.date)}</div>
           </div>
           <div className="hedge-floating-line">
-            Politica Min.: {activePoint.minValue != null ? formatHedgeTooltipValue(activePoint.minValue, unit) : "—"}
+            Politica Min.:{" "}
+            {activePoint.minValue != null ? `${formatHedgePercentValue(activePoint.minValue, baseValue)} — ${formatHedgeTooltipValue(activePoint.minValue, unit)}` : "—"}
           </div>
           <div className="hedge-floating-line">
-            Politica Max.: {activePoint.maxValue != null ? formatHedgeTooltipValue(activePoint.maxValue, unit) : "—"}
+            Politica Max.:{" "}
+            {activePoint.maxValue != null ? `${formatHedgePercentValue(activePoint.maxValue, baseValue)} — ${formatHedgeTooltipValue(activePoint.maxValue, unit)}` : "—"}
           </div>
           <div className={`hedge-floating-total-box ${statusSummary?.tone || "ok"}`}>
             <div className="hedge-floating-total-main">
-              Total Realizado: {((baseValue > 0 ? (activePoint.total + activeSimulation) / baseValue : 0) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% —{" "}
+              Total Realizado: {formatHedgePercentValue(activePoint.total + activeSimulation, baseValue)} —{" "}
               {formatHedgeTooltipValue(activePoint.total + activeSimulation, unit)}
             </div>
             <div className="hedge-floating-total-status">{statusSummary?.text || "—"}</div>
@@ -4705,13 +4745,11 @@ function HedgePolicyChart({
             </div>
           ) : null}
           <div className="hedge-floating-line">
-            Vendas Fisico:{" "}
-            {((activePoint.physicalRaw / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% —{" "}
+            Vendas Fisico: {formatHedgePercentValue(activePoint.physicalRaw, baseValue)} —{" "}
             {formatHedgeTooltipValue(activePoint.physicalRaw, unit)}
           </div>
           <div className="hedge-floating-line">
-            Derivativos:{" "}
-            {((activePoint.derivativeRaw / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% —{" "}
+            Derivativos: {formatHedgePercentValue(activePoint.derivativeRaw, baseValue)} —{" "}
             {formatHedgeTooltipValue(activePoint.derivativeRaw, unit)}
           </div>
         </aside>
@@ -7393,7 +7431,7 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
 const dashboardContent = {
   cashflow: {
     title: "Fluxo de Caixa",
-    description: "Visao consolidada de entradas, saidas, vencimentos e pressao financeira por safra e grupo.",
+    description: "Visao consolidada de entradas, saidas, vencimentos e pressao financeira por grupo e subgrupo.",
     stats: [
       { label: "Entradas previstas", value: "R$ 18,6 mi" },
       { label: "Saidas previstas", value: "R$ 11,2 mi" },
@@ -7628,12 +7666,21 @@ const dashboardContent = {
 export function DashboardPage({ kind = "cashflow" }) {
   const content = dashboardContent[kind] || dashboardContent.cashflow;
   const { filter, options } = useDashboardFilter();
+  const cashflowFilter = useMemo(
+    () => ({
+      ...filter,
+      cultura: [],
+      safra: [],
+      localidade: [],
+    }),
+    [filter],
+  );
 
   if (kind === "cashflow") {
     return (
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
-        <CashflowDashboard dashboardFilter={filter} compact />
+        <CashflowDashboard dashboardFilter={cashflowFilter} compact />
       </div>
     );
   }
