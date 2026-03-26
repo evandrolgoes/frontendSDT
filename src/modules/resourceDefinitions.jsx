@@ -541,8 +541,8 @@ const baseResourceDefinitions = {
     description: "Quadro de safra com area, produtividade, producao e monitoramento.",
     searchPlaceholder: "Buscar quadro safra...",
     columns: [
-      { key: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo" },
-      { key: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo" },
+      { key: "grupo", label: "Grupo", type: "relation", ...commonRelationFields.grupo },
+      { key: "subgrupo", label: "Subgrupo", type: "relation", ...commonRelationFields.subgrupo },
       { key: "cultura", label: "Ativo", type: "relation", ...commonRelationFields.cultura },
       { key: "safra", label: "Safra", type: "relation", ...commonRelationFields.safra },
       { key: "localidade", label: "Locais de producao" },
@@ -552,8 +552,8 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
-      { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", single: true, optional: true },
-      { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", single: true, optional: true },
+      { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "localidade", label: "Locais de producao", type: "localidade-list" },
       { name: "area", label: "Area", type: "number" },
