@@ -54,7 +54,7 @@ const commonRelationFields = {
   subgrupo: { type: "relation", resource: "subgroups", labelKey: "subgrupo" },
   cultura: { type: "relation", resource: "crops", labelKey: "ativo" },
   safra: { type: "relation", resource: "seasons", labelKey: "safra" },
-  contraparte: { type: "relation", resource: "counterparties", labelKey: "obs" },
+  contraparte: { type: "relation", resource: "counterparties", labelKey: "contraparte" },
 };
 
 const catalogSelectFields = {
@@ -279,11 +279,13 @@ const baseResourceDefinitions = {
     description: "Contrapartes ligadas a grupo e subgrupo.",
     searchPlaceholder: "Buscar contraparte...",
     columns: [
+      { key: "contraparte", label: "Contraparte" },
       { key: "grupo", label: "Grupo", type: "relation", ...commonRelationFields.grupo },
       { key: "subgrupo", label: "Subgrupo", type: "relation", ...commonRelationFields.subgrupo },
       { key: "obs", label: "Observacoes" },
     ],
     fields: [
+      { name: "contraparte", label: "Contraparte" },
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
       { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "obs", label: "Observacoes", type: "textarea" },

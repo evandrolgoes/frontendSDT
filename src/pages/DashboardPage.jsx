@@ -1746,7 +1746,7 @@ function useComponentSalesSource(dashboardFilter, dateFrom, dateTo) {
   }, []);
 
   const counterpartyMap = useMemo(
-    () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.obs || `#${item.id}`])),
+    () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.contraparte || item.obs || `#${item.id}`])),
     [counterparties],
   );
 
@@ -2672,7 +2672,7 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
   }, []);
 
   const counterpartyMap = useMemo(
-    () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.obs || `#${item.id}`])),
+    () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.contraparte || item.obs || `#${item.id}`])),
     [counterparties],
   );
 
@@ -6757,7 +6757,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         volume: Math.abs(Number(item.volume_fisico || 0)),
         unidade: item.unidade_contrato || "sc",
         precoStrike: Number(item.preco || 0),
-        instituicao: item.contraparte?.obs || item.contraparte?.nome || "—",
+        instituicao: item.contraparte?.contraparte || item.contraparte?.obs || item.contraparte?.nome || "—",
         status: "—",
       })),
     [currencyMode, filteredSales, usdRate],

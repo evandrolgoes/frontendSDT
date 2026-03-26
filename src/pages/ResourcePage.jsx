@@ -18,7 +18,7 @@ const relationResourceLabels = {
   subgroups: "subgrupo",
   crops: "ativo",
   seasons: "safra",
-  counterparties: "obs",
+  counterparties: "contraparte",
   strategies: "descricao_estrategia",
 };
 
