@@ -37,6 +37,13 @@ const cifFobOptions = [
   { value: "FOB", label: "FOB" },
 ];
 
+const physicalPaymentClassificationOptions = [
+  { value: "Arrendamento", label: "Arrendamento" },
+  { value: "Barter", label: "Barter" },
+  { value: "Divida de Terras", label: "Divida de Terras" },
+  { value: "Outros", label: "Outros" },
+];
+
 const moedaCmdtyeOptions = [
   { value: "Moeda", label: "Moeda" },
   { value: "Cmdtye", label: "Cmdtye" },
@@ -701,6 +708,7 @@ const baseResourceDefinitions = {
       { key: "subgrupo", label: "Subgrupo", type: "relation", ...commonRelationFields.subgrupo },
       { key: "fazer_frente_com", label: "Fazer frente com", type: "relation", ...commonRelationFields.cultura },
       { key: "safra", label: "Safra", type: "relation", ...commonRelationFields.safra },
+      { key: "classificacao", label: "Classificacao" },
       { key: "volume", label: "Volume", type: "number" },
       { key: "unidade", label: "Unidade" },
       { key: "data_pagamento", label: "Data pagamento", type: "date" },
@@ -711,10 +719,12 @@ const baseResourceDefinitions = {
       { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "fazer_frente_com", label: "Fazer frente com", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
+      { name: "classificacao", label: "Classificacao", type: "select", options: physicalPaymentClassificationOptions },
       { name: "volume", label: "Volume", type: "number" },
       { name: "unidade", label: "Unidade", ...catalogSelectFields.unidade },
       { name: "data_pagamento", label: "Data pagamento", type: "date" },
       { name: "descricao", label: "Descricao", type: "textarea" },
+      { name: "obs", label: "Obs", type: "textarea", optional: true },
       { name: "contraparte", label: "Contraparte", ...commonRelationFields.contraparte, optional: true },
     ],
   },
