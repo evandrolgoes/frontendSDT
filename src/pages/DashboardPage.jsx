@@ -1374,6 +1374,16 @@ const formatHedgePercentValue = (value, baseValue) =>
     maximumFractionDigits: 1,
   })}%`;
 
+const getHedgeTodayIndex = (points = []) => {
+  if (!points.length) return 0;
+  const today = startOfDashboardDay(new Date());
+  const todayIndex = points.findIndex((point) => {
+    const pointDate = startOfDashboardDay(point?.date);
+    return pointDate && today <= pointDate;
+  });
+  return todayIndex >= 0 ? todayIndex : points.length - 1;
+};
+
 const formatHedgeShortDate = (value, frequency) => {
   const date = parseDashboardDate(value);
   if (!date) return "—";
@@ -1992,7 +2002,32 @@ const stackTotalsPlugin = {
   },
 };
 
-Chart.register(stackTotalsPlugin);
+const hedgeTodayLinePlugin = {
+  id: "hedgeTodayLine",
+  afterDatasetsDraw(chart, _args, pluginOptions) {
+    const todayIndex = Number(pluginOptions?.index);
+    if (!Number.isInteger(todayIndex) || todayIndex < 0) return;
+
+    const xScale = chart.scales?.x;
+    const { ctx, chartArea } = chart;
+    if (!xScale || !chartArea) return;
+
+    const x = xScale.getPixelForValue(todayIndex);
+    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(37, 99, 235, 0.7)";
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+Chart.register(stackTotalsPlugin, hedgeTodayLinePlugin);
 
 function ComponentSalesDashboard({ dashboardFilter }) {
   const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
@@ -4448,14 +4483,15 @@ function HedgePolicyChart({
       unit,
     ],
   );
+  const todayIndex = useMemo(() => getHedgeTodayIndex(chartState.points), [chartState.points]);
 
   useEffect(() => {
     if (!chartState.points.length) {
       setActiveIndex(0);
       return;
     }
-    setActiveIndex(chartState.points.length - 1);
-  }, [chartState.points.length, frequency]);
+    setActiveIndex(todayIndex);
+  }, [chartState.points.length, frequency, todayIndex]);
 
   useEffect(() => {
     const canvas = chartRef.current;
@@ -4571,6 +4607,7 @@ function HedgePolicyChart({
           datalabels: { display: false },
           fundPositionZeroLineAndLabels: { enabled: false },
           fundPositionLastValueLabel: { enabled: false },
+          hedgeTodayLine: { index: todayIndex },
         },
         layout: {
           padding: {
@@ -4601,9 +4638,17 @@ function HedgePolicyChart({
       },
     });
 
+    const handleMouseLeave = () => {
+      setActiveIndex(todayIndex);
+    };
+    canvas.addEventListener("mouseleave", handleMouseLeave);
+
     chartInstanceRef.current = nextChart;
-    return () => nextChart.destroy();
-  }, [chartState, frequency, unit]);
+    return () => {
+      canvas.removeEventListener("mouseleave", handleMouseLeave);
+      nextChart.destroy();
+    };
+  }, [chartState, frequency, todayIndex, unit]);
 
   const activePoint = chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
