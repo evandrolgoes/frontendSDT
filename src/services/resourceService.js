@@ -158,9 +158,9 @@ export const resourceService = {
       api.get(`/${resource}/${id}/attachments/`).then((response) => response.data),
     );
   },
-  listDerivativeContracts: (bolsa) =>
-    remember(buildCacheKey("lookup", "derivative-contracts", { bolsa }), () =>
-      api.get("derivative-contracts/", { params: { bolsa } }).then((response) => response.data),
+  listDerivativeContracts: (secao) =>
+    remember(buildCacheKey("lookup", "derivative-contracts", { secao }), () =>
+      api.get("derivative-contracts/", { params: { secao } }).then((response) => response.data),
     ),
   listIbgeStates: () =>
     remember(buildCacheKey("lookup", "localidades/estados", {}), () =>

@@ -17,11 +17,35 @@ const normalizeLookupValue = (value) =>
     .replaceAll("-", "")
     .replaceAll("/", "");
 
-const normalizeDescriptionBase = (value) =>
-  String(value || "")
-    .replace(/\s*\([^)]*\)\s*/g, " ")
+const getQuoteSectionName = (item) =>
+  String(item?.section_name || item?.secao || item?.seção || "")
     .replace(/\s+/g, " ")
     .trim();
+
+const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
+  const normalized = normalizeLookupValue(bolsaLabel);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const exactMatch = exchanges.find((item) => normalizeLookupValue(item.nome) === normalized);
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  if (normalized.includes("soybean") || normalized.includes("soja")) {
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "soja") || null;
+  }
+  if (normalized.includes("corn") || normalized.includes("milho")) {
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "milho") || null;
+  }
+  if (normalized.includes("dollar") || normalized.includes("dolar") || normalized.includes("usd")) {
+    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "dolar") || null;
+  }
+
+  return null;
+};
 
 const isSelectLikeField = (field) => ["select", "relation", "contract", "boolean"].includes(field?.type);
 const generateRandomOperationCode = () => `DRV-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -107,10 +131,18 @@ const getFieldOptions = (field, lookupOptions, tradingviewQuotes, row) => {
   if (field.type === "contract") {
     const normalizedBolsa = normalizeLookupValue(row?.bolsa_ref);
     return (tradingviewQuotes || [])
-      .filter((item) => normalizeLookupValue(normalizeDescriptionBase(item?.description)) === normalizedBolsa)
+      .filter((item) => normalizeLookupValue(getQuoteSectionName(item)) === normalizedBolsa)
       .map((item) => ({ value: item?.ticker || "", label: item?.ticker || "" }))
       .filter((option) => option.value)
       .filter((option, index, array) => array.findIndex((candidate) => candidate.value === option.value) === index);
+  }
+
+  if (field.name === "bolsa_ref" && Array.isArray(tradingviewQuotes) && tradingviewQuotes.length) {
+    return tradingviewQuotes
+      .map((item) => getQuoteSectionName(item))
+      .filter(Boolean)
+      .filter((value, index, array) => array.findIndex((candidate) => normalizeLookupValue(candidate) === normalizeLookupValue(value)) === index)
+      .map((value) => ({ value, label: value }));
   }
 
   if (Array.isArray(field.options)) {
@@ -167,7 +199,7 @@ const applyResourceDefaults = (resource, row, fields, lookupOptions) => {
   const exchangeField = fields.find((field) => field.name === "bolsa_ref");
   if (!exchangeField) return row;
   const exchanges = lookupOptions[exchangeField.resource] || [];
-  const selectedExchange = exchanges.find((item) => String(item.nome || "") === String(row.bolsa_ref || ""));
+  const selectedExchange = inferExchangeFromBolsaLabel(row.bolsa_ref, exchanges);
   if (!selectedExchange) return row;
 
   const nextRow = { ...row };

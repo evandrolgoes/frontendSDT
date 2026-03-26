@@ -37,9 +37,8 @@ const normalizeLookupValue = (value) =>
     .replaceAll("-", "")
     .replaceAll("/", "");
 
-const normalizeDescriptionBase = (value) =>
-  String(value || "")
-    .replace(/\s*\([^)]*\)\s*/g, " ")
+const getQuoteSectionName = (item) =>
+  String(item?.section_name || item?.secao || item?.seção || "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -55,7 +54,7 @@ const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
     return exactMatch;
   }
 
-  if (normalized.includes("soybean")) {
+  if (normalized.includes("soybean") || normalized.includes("soja")) {
     return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "soja") || null;
   }
   if (normalized.includes("corn") || normalized.includes("milho")) {
@@ -331,7 +330,7 @@ export function DerivativeOperationForm({
 
       const normalizedBolsa = normalizeLookupValue(values.bolsa_ref);
       const options = tradingviewQuotes
-        .filter((item) => normalizeLookupValue(normalizeDescriptionBase(item?.description)) === normalizedBolsa)
+        .filter((item) => normalizeLookupValue(getQuoteSectionName(item)) === normalizedBolsa)
         .map((item) => ({
           value: item?.ticker || "",
           label: item?.ticker || "",
@@ -382,7 +381,7 @@ export function DerivativeOperationForm({
 
   const bolsaOptions = useMemo(() => {
     const baseOptions = tradingviewQuotes
-      .map((item) => normalizeDescriptionBase(item?.description))
+      .map((item) => getQuoteSectionName(item))
       .filter(Boolean)
       .filter((value, index, self) => self.findIndex((current) => normalizeLookupValue(current) === normalizeLookupValue(value)) === index)
       .map((value) => ({ value, label: value }));
@@ -399,9 +398,9 @@ export function DerivativeOperationForm({
     }
 
     const keywordMap = {
-      soja: ["soybean"],
-      milho: ["corn"],
-      dolar: ["dollar", "usd"],
+      soja: ["soybean", "soja"],
+      milho: ["corn", "milho"],
+      dolar: ["dollar", "usd", "dolar"],
     };
     const allowedKeywords = keywordMap[cropName] || [cropName];
     const filteredOptions = baseOptions.filter((item) =>
