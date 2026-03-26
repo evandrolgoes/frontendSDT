@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarController,
   BarElement,
@@ -907,11 +907,113 @@ function CommercialRiskGaugePanel({
   policyMinPercent = null,
   policyMaxPercent = null,
   productionBase = 0,
+  totalArea = 0,
   physicalRows = [],
   derivativeRows = [],
   policies = [],
   derivativeVolumeGetter = getDerivativeVolumeValue,
+  hidePolicyChart = false,
+  activeIndex: controlledActiveIndex = null,
+  onActiveIndexChange = null,
   onOpenHedgePolicy,
+}) {
+  const summaryChartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit: "SC",
+        frequency: "monthly",
+        baseValue: productionBase,
+        physicalRows,
+        derivativeRows,
+        policies,
+        physicalValueGetter: getPhysicalVolumeValue,
+        derivativeValueGetter: derivativeVolumeGetter,
+      }),
+    [derivativeRows, derivativeVolumeGetter, physicalRows, policies, productionBase],
+  );
+  const summaryTodayIndex = useMemo(() => getHedgeTodayIndex(summaryChartState.points), [summaryChartState.points]);
+  const [internalActiveSummaryIndex, setInternalActiveSummaryIndex] = useState(summaryTodayIndex);
+  const activeSummaryIndex = controlledActiveIndex != null ? controlledActiveIndex : internalActiveSummaryIndex;
+
+  const updateActiveSummaryIndex = (nextIndex) => {
+    const safeIndex = Math.max(0, Math.min(Number(nextIndex || 0), Math.max(summaryChartState.points.length - 1, 0)));
+    if (controlledActiveIndex == null) {
+      setInternalActiveSummaryIndex(safeIndex);
+    }
+    if (typeof onActiveIndexChange === "function") {
+      onActiveIndexChange(safeIndex);
+    }
+  };
+
+  useEffect(() => {
+    updateActiveSummaryIndex(summaryTodayIndex);
+  }, [summaryTodayIndex]);
+
+  const activeSummaryPoint =
+    summaryChartState.points[activeSummaryIndex] || summaryChartState.points[summaryTodayIndex] || summaryChartState.points.at(-1) || null;
+
+  const activeTotalPercent = activeSummaryPoint?.totalPct != null ? activeSummaryPoint.totalPct * 100 : totalPercent;
+  const activeTotalVolume = activeSummaryPoint?.total || 0;
+  const activePhysicalVolume = activeSummaryPoint?.physicalRaw || 0;
+  const activeDerivativeVolume = activeSummaryPoint?.derivativeRaw || 0;
+  const activeTotalScPerHa = totalArea > 0 ? activeTotalVolume / totalArea : totalScPerHa;
+  const activePhysicalScPerHa = totalArea > 0 ? activePhysicalVolume / totalArea : physicalScPerHa;
+  const activeDerivativeScPerHa = totalArea > 0 ? activeDerivativeVolume / totalArea : derivativeScPerHa;
+  const activePolicyMinPercent = activeSummaryPoint?.minPct != null ? activeSummaryPoint.minPct * 100 : policyMinPercent;
+  const activePolicyMaxPercent = activeSummaryPoint?.maxPct != null ? activeSummaryPoint.maxPct * 100 : policyMaxPercent;
+
+  return (
+    <section className={`risk-kpi-gauge-grid${hidePolicyChart ? " risk-kpi-gauge-grid--compact" : ""}`}>
+      {!hidePolicyChart ? (
+        <div className="risk-kpi-policy-slot">
+          <HedgePolicyChart
+            title="Hedge produção liquida (sc)"
+            unit="SC"
+            frequency="monthly"
+            baseValue={productionBase}
+            areaBase={totalArea}
+            activeIndex={activeSummaryIndex}
+            onActiveIndexChange={updateActiveSummaryIndex}
+            physicalRows={physicalRows}
+            derivativeRows={derivativeRows}
+            policies={policies}
+            physicalValueGetter={getPhysicalVolumeValue}
+            derivativeValueGetter={derivativeVolumeGetter}
+            derivativeVolumeGetter={derivativeVolumeGetter}
+            onFocusToggle={onOpenHedgePolicy || (() => {})}
+          />
+        </div>
+      ) : null}
+
+      <HedgeSummaryGaugeCards
+        totalPercent={activeTotalPercent}
+        totalMetricValue={activeTotalVolume}
+        totalMetricLabel={totalArea > 0 ? `${formatNumber2(activeTotalScPerHa)} scs/ha` : null}
+        physicalPercent={activeTotalVolume > 0 ? (activePhysicalVolume / activeTotalVolume) * 100 : physicalPercent}
+        physicalMetricValue={activePhysicalVolume}
+        physicalMetricLabel={totalArea > 0 ? `${formatNumber2(activePhysicalScPerHa)} scs/ha` : `${formatNumber0(activePhysicalVolume)} sc`}
+        derivativePercent={activeTotalVolume > 0 ? (activeDerivativeVolume / activeTotalVolume) * 100 : derivativePercent}
+        derivativeMetricValue={activeDerivativeVolume}
+        derivativeMetricLabel={totalArea > 0 ? `${formatNumber2(activeDerivativeScPerHa)} scs/ha` : `${formatNumber0(activeDerivativeVolume)} sc`}
+        policyMinPercent={activePolicyMinPercent}
+        policyMaxPercent={activePolicyMaxPercent}
+      />
+    </section>
+  );
+}
+
+function HedgeSummaryGaugeCards({
+  totalPercent,
+  totalMetricValue = 0,
+  totalMetricLabel = null,
+  physicalPercent,
+  physicalMetricValue = 0,
+  physicalMetricLabel = null,
+  derivativePercent,
+  derivativeMetricValue = 0,
+  derivativeMetricLabel = null,
+  policyMinPercent = null,
+  policyMaxPercent = null,
 }) {
   const safeValue = (value) => Math.max(0, Math.min(Number(value || 0), 100));
   const totalValue = safeValue(totalPercent);
@@ -920,34 +1022,34 @@ function CommercialRiskGaugePanel({
   const hasPolicyBand = Number.isFinite(policyMinPercent) && Number.isFinite(policyMaxPercent);
   const minBand = hasPolicyBand ? safeValue(Math.min(policyMinPercent, policyMaxPercent)) : null;
   const maxBand = hasPolicyBand ? safeValue(Math.max(policyMinPercent, policyMaxPercent)) : null;
-  const policyDelta = hasPolicyBand
-    ? totalValue < minBand
-      ? totalValue - minBand
-      : totalValue > maxBand
-        ? totalValue - maxBand
-        : 0
-    : 0;
-  const policyStepDelta = Math.abs(policyDelta) / 5;
-  const policyStatusText = hasPolicyBand
-    ? policyDelta < 0
-      ? `Abaixo da politica em ${policyStepDelta.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} x 5 p.p.`
-      : policyDelta > 0
-        ? `Acima da politica em ${policyStepDelta.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} x 5 p.p.`
-        : "Dentro da politica"
-    : "Politica nao definida";
+  const warnLowBand = hasPolicyBand ? safeValue(Math.max(minBand - 10, 0)) : null;
+  const warnHighBand = hasPolicyBand ? safeValue(Math.min(maxBand + 10, 100)) : null;
   const totalAxisColors = hasPolicyBand
     ? [
-        [Math.max(minBand / 100, 0), "#ff1a1a"],
-        [Math.max((minBand + maxBand) / 200, Math.max(minBand / 100, 0)), "#f5b82e"],
-        [Math.max(maxBand / 100, Math.max((minBand + maxBand) / 200, 0)), "#0b7a0a"],
+        [Math.max(warnLowBand / 100, 0), "#ff1a1a"],
+        [Math.max(minBand / 100, Math.max(warnLowBand / 100, 0)), "#f5b82e"],
+        [Math.max(maxBand / 100, Math.max(minBand / 100, 0)), "#16a34a"],
+        [Math.max(warnHighBand / 100, Math.max(maxBand / 100, 0)), "#f5b82e"],
         [1, "#ff1a1a"],
       ]
     : [
         [1, "#9ca3af"],
       ];
   const distributionSlices = [
-    { label: "Derivativos", value: Number(derivativeValue || 0), scPerHa: derivativeScPerHa, color: "#f59e0b" },
-    { label: "Físico", value: Number(physicalValue || 0), scPerHa: physicalScPerHa, color: "#16a34a" },
+    {
+      label: "Derivativos",
+      value: Number(derivativeValue || 0),
+      metricValue: derivativeMetricValue,
+      metricLabel: derivativeMetricLabel,
+      color: "rgba(251, 146, 60, 0.85)",
+    },
+    {
+      label: "Físico",
+      value: Number(physicalValue || 0),
+      metricValue: physicalMetricValue,
+      metricLabel: physicalMetricLabel,
+      color: "rgba(250, 204, 21, 0.75)",
+    },
   ].filter((item) => item.value > 0);
   const distributionOption = {
     animationDuration: 250,
@@ -959,33 +1061,42 @@ function CommercialRiskGaugePanel({
     series: [
       {
         type: "pie",
-        radius: ["54%", "76%"],
-        center: ["50%", "46%"],
+        radius: ["50%", "70%"],
+        center: ["50%", "48%"],
         avoidLabelOverlap: true,
         itemStyle: { borderColor: "#fff", borderWidth: 4 },
         label: {
           show: true,
           position: "outside",
-          alignTo: "none",
-          edgeDistance: 0,
-          bleedMargin: 2,
+          alignTo: "edge",
+          edgeDistance: 10,
+          bleedMargin: 8,
           color: "#0f172a",
           fontWeight: 800,
-          fontSize: 10,
-          lineHeight: 15,
+          fontSize: 9,
+          lineHeight: 13,
+          width: 84,
+          overflow: "break",
           formatter: ({ value, data }) =>
-            `${data?.name || ""}\n${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%\n${formatNumber2(data?.scPerHa || 0)} scs/ha`,
+            `${data?.name || ""}\n${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%\n${data?.metricLabel || "—"}`,
+        },
+        labelLayout: {
+          hideOverlap: true,
+          moveOverlap: "shiftY",
         },
         labelLine: {
           show: true,
-          length: 12,
-          length2: 8,
+          length: 10,
+          length2: 6,
           lineStyle: { color: "#94a3b8", width: 1.5 },
         },
-        data: (distributionSlices.length ? distributionSlices : [{ label: "Sem dados", value: 100, color: "#cbd5e1", scPerHa: 0 }]).map((slice) => ({
+        data: (distributionSlices.length
+          ? distributionSlices
+          : [{ label: "Sem dados", value: 100, color: "#cbd5e1", metricValue: 0, metricLabel: "—" }]).map((slice) => ({
           name: slice.label,
           value: slice.value,
-          scPerHa: slice.scPerHa,
+          metricValue: slice.metricValue,
+          metricLabel: slice.metricLabel,
           itemStyle: { color: slice.color },
         })),
       },
@@ -998,7 +1109,7 @@ function CommercialRiskGaugePanel({
             left: "center",
             top: "47%",
             style: {
-              text: `${Number(totalValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
+              text: `${Number(totalPercent || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
               fill: "#0f172a",
               fontSize: 20,
               fontWeight: 900,
@@ -1096,7 +1207,7 @@ function CommercialRiskGaugePanel({
             right: 12,
             top: 0,
             style: {
-              text: `${totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
+              text: `${Number(totalPercent || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
               fill: "#0f172a",
               fontSize: 11,
               fontWeight: 800,
@@ -1158,30 +1269,14 @@ function CommercialRiskGaugePanel({
   };
 
   return (
-    <section className="risk-kpi-gauge-grid">
-      <div className="risk-kpi-policy-slot">
-        <HedgePolicyChart
-          title="Hedge produção liquida (sc)"
-          unit="SC"
-          frequency="monthly"
-          baseValue={productionBase}
-          physicalRows={physicalRows}
-          derivativeRows={derivativeRows}
-          policies={policies}
-          physicalValueGetter={getPhysicalVolumeValue}
-          derivativeValueGetter={derivativeVolumeGetter}
-          derivativeVolumeGetter={derivativeVolumeGetter}
-          onFocusToggle={onOpenHedgePolicy || (() => {})}
-        />
-      </div>
-
+    <>
       <article className="chart-card risk-kpi-gauge-card">
         <div className="risk-kpi-gauge-main">
           <div className="risk-kpi-gauge-main-title">Vendas Realizadas</div>
-          <div className="risk-kpi-gauge-main-subtitle">{formatNumber2(totalScPerHa)} scs/ha</div>
+          <div className="risk-kpi-gauge-main-subtitle">{totalMetricLabel || " "}</div>
           <ReactECharts option={mainOption} style={{ height: 156, width: "100%" }} opts={{ renderer: "svg" }} />
           <div className="risk-kpi-gauge-main-value">
-            {Number(totalValue).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+            {Number(totalPercent || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
           </div>
         </div>
       </article>
@@ -1190,7 +1285,7 @@ function CommercialRiskGaugePanel({
         <div className="risk-kpi-mini-gauge-title">Distribuição</div>
         <ReactECharts option={distributionOption} style={{ height: 156, width: "100%" }} opts={{ renderer: "svg" }} />
       </article>
-    </section>
+    </>
   );
 }
 
@@ -1367,6 +1462,23 @@ const formatHedgeTooltipValue = (value, unit) => {
     })}`;
   }
   return `${Number(value || 0).toLocaleString("pt-BR")} sc`;
+};
+
+const formatHedgeScPerHaValue = (value, unit, areaBase) => {
+  if (unit !== "SC" || !(Number(areaBase || 0) > 0)) return null;
+  return `${(Number(value || 0) / Number(areaBase || 1)).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} sc/ha`;
+};
+
+const formatHedgeTooltipLine = (label, value, unit, baseValue, areaBase) => {
+  const parts = [formatHedgePercentValue(value, baseValue), formatHedgeTooltipValue(value, unit)];
+  const scPerHa = formatHedgeScPerHaValue(value, unit, areaBase);
+  if (scPerHa) {
+    parts.push(scPerHa);
+  }
+  return `${label}: ${parts.join(" — ")}`;
 };
 
 const formatHedgePercentValue = (value, baseValue) =>
@@ -3149,23 +3261,64 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => averageOf(filteredSales.map((item) => item.basis_valor)) ?? 0,
     [filteredSales],
   );
-  const hedgeSummaryToday = useMemo(() => startOfDashboardDay(new Date()), []);
+  const quoteAverage = useMemo(
+    () => averageOf(filteredQuotes.map((item) => item.cotacao)) ?? 0,
+    [filteredQuotes],
+  );
+  const policyCount = filteredPolicies.length;
+  const physicalPaymentVolume = useMemo(
+    () => filteredPhysicalPayments.reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0),
+    [filteredPhysicalPayments],
+  );
+  const netProductionBase = useMemo(
+    () => getNetProductionValue(filteredCropBoards, filteredPhysicalPayments, (item) => item.producao_total, (item) => item.volume),
+    [filteredCropBoards, filteredPhysicalPayments],
+  );
+  const hedgeSummaryChartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit: "SC",
+        frequency: "monthly",
+        baseValue: netProductionBase,
+        physicalRows: filteredSales,
+        derivativeRows: bolsaDerivatives,
+        policies: filteredPolicies,
+        physicalValueGetter: getPhysicalVolumeValue,
+        derivativeValueGetter: derivativeStandardVolumeGetter,
+      }),
+    [bolsaDerivatives, derivativeStandardVolumeGetter, filteredPolicies, filteredSales, netProductionBase],
+  );
+  const hedgeSummaryTodayIndex = useMemo(
+    () => getHedgeTodayIndex(hedgeSummaryChartState.points),
+    [hedgeSummaryChartState.points],
+  );
+  const [hedgeSummaryActiveIndex, setHedgeSummaryActiveIndex] = useState(hedgeSummaryTodayIndex);
+
+  useEffect(() => {
+    setHedgeSummaryActiveIndex(hedgeSummaryTodayIndex);
+  }, [hedgeSummaryTodayIndex]);
+
+  const hedgeSummaryActivePoint =
+    hedgeSummaryChartState.points[hedgeSummaryActiveIndex] || hedgeSummaryChartState.points[hedgeSummaryTodayIndex] || hedgeSummaryChartState.points.at(-1) || null;
+  const hedgeSummaryReferenceDate = hedgeSummaryActivePoint?.date || startOfDashboardDay(new Date());
+  const hedgeCardCommercializedVolume = hedgeSummaryActivePoint?.total || 0;
+  const commercializationCoverage = netProductionBase > 0 ? hedgeCardCommercializedVolume / netProductionBase : 0;
   const activePhysicalSales = useMemo(
     () =>
       filteredSales.filter((item) => {
         const saleDate = startOfDashboardDay(item.data_negociacao || item.created_at);
-        return saleDate && hedgeSummaryToday && saleDate <= hedgeSummaryToday;
+        return saleDate && hedgeSummaryReferenceDate && saleDate <= hedgeSummaryReferenceDate;
       }),
-    [filteredSales, hedgeSummaryToday],
+    [filteredSales, hedgeSummaryReferenceDate],
   );
   const activeBolsaDerivatives = useMemo(
     () =>
       bolsaDerivatives.filter((item) => {
         const startDate = startOfDashboardDay(item.data_contratacao || item.created_at);
         const endDate = startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at);
-        return startDate && endDate && hedgeSummaryToday && startDate <= hedgeSummaryToday && hedgeSummaryToday < endDate;
+        return startDate && endDate && hedgeSummaryReferenceDate && startDate <= hedgeSummaryReferenceDate && hedgeSummaryReferenceDate < endDate;
       }),
-    [bolsaDerivatives, hedgeSummaryToday],
+    [bolsaDerivatives, hedgeSummaryReferenceDate],
   );
   const physicalPriceLines = useMemo(() => {
     const groups = new Map();
@@ -3209,41 +3362,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       }))
       .sort((left, right) => right.volume - left.volume);
   }, [activeBolsaDerivatives, derivativeStandardVolumeGetter]);
-  const quoteAverage = useMemo(
-    () => averageOf(filteredQuotes.map((item) => item.cotacao)) ?? 0,
-    [filteredQuotes],
-  );
-  const policyCount = filteredPolicies.length;
-  const physicalPaymentVolume = useMemo(
-    () => filteredPhysicalPayments.reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0),
-    [filteredPhysicalPayments],
-  );
-  const netProductionBase = useMemo(
-    () => getNetProductionValue(filteredCropBoards, filteredPhysicalPayments, (item) => item.producao_total, (item) => item.volume),
-    [filteredCropBoards, filteredPhysicalPayments],
-  );
-  const hedgeSummaryChartState = useMemo(
-    () =>
-      buildHedgePolicyChartState({
-        unit: "SC",
-        frequency: "monthly",
-        baseValue: netProductionBase,
-        physicalRows: filteredSales,
-        derivativeRows: bolsaDerivatives,
-        policies: filteredPolicies,
-        physicalValueGetter: getPhysicalVolumeValue,
-        derivativeValueGetter: derivativeStandardVolumeGetter,
-      }),
-    [bolsaDerivatives, derivativeStandardVolumeGetter, filteredPolicies, filteredSales, netProductionBase],
-  );
-  const hedgeSummaryTodayIndex = useMemo(
-    () => getHedgeTodayIndex(hedgeSummaryChartState.points),
-    [hedgeSummaryChartState.points],
-  );
-  const hedgeSummaryActivePoint =
-    hedgeSummaryChartState.points[hedgeSummaryTodayIndex] || hedgeSummaryChartState.points.at(-1) || null;
-  const hedgeCardCommercializedVolume = hedgeSummaryActivePoint?.total || 0;
-  const commercializationCoverage = netProductionBase > 0 ? hedgeCardCommercializedVolume / netProductionBase : 0;
 
   const derivativeOperationsByExchange = useMemo(() => {
     const exchangeMap = new Map();
@@ -3308,14 +3426,16 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.area || 0)), 0),
     [filteredCropBoards],
   );
-  const totalCommercializedVolume = physicalSoldVolume + derivativeCommodityVolume;
+  const activePhysicalCommercializedVolume = hedgeSummaryActivePoint?.physicalRaw || 0;
+  const activeDerivativeCommercializedVolume = hedgeSummaryActivePoint?.derivativeRaw || 0;
+  const totalCommercializedVolume = hedgeCardCommercializedVolume;
   const netProductionVolume = netProductionBase;
   const totalSalesPercent = netProductionBase > 0 ? (totalCommercializedVolume / netProductionBase) * 100 : 0;
-  const derivativeSalesPercent = netProductionBase > 0 ? (derivativeCommodityVolume / netProductionBase) * 100 : 0;
-  const physicalSalesPercent = netProductionBase > 0 ? (physicalSoldVolume / netProductionBase) * 100 : 0;
+  const derivativeSalesPercent = netProductionBase > 0 ? (activeDerivativeCommercializedVolume / netProductionBase) * 100 : 0;
+  const physicalSalesPercent = netProductionBase > 0 ? (activePhysicalCommercializedVolume / netProductionBase) * 100 : 0;
   const totalScPerHa = totalArea > 0 ? totalCommercializedVolume / totalArea : 0;
-  const derivativeScPerHa = totalArea > 0 ? derivativeCommodityVolume / totalArea : 0;
-  const physicalScPerHa = totalArea > 0 ? physicalSoldVolume / totalArea : 0;
+  const derivativeScPerHa = totalArea > 0 ? activeDerivativeCommercializedVolume / totalArea : 0;
+  const physicalScPerHa = totalArea > 0 ? activePhysicalCommercializedVolume / totalArea : 0;
   const currentPolicyMinPercent = currentMonthPolicy?.minRatio != null ? currentMonthPolicy.minRatio * 100 : null;
   const currentPolicyMaxPercent = currentMonthPolicy?.maxRatio != null ? currentMonthPolicy.maxRatio * 100 : null;
   const formCompletionRows = useMemo(
@@ -3623,9 +3743,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
           <strong className="stat-card-secondary-value">{formatNumber0(physicalPaymentVolume)} sc</strong>
           <span className="stat-card-secondary-label">Produção total</span>
-          <strong className="stat-card-secondary-value">{formatNumber0(productionTotal)} sc</strong>
-          <span className="stat-card-secondary-label">Área x Produtividade</span>
-          <strong className="stat-card-secondary-value">{formatNumber2(totalArea)} ha | {formatNumber2(totalArea > 0 ? productionTotal / totalArea : 0)} sc/ha</strong>
+          <strong className="stat-card-secondary-value">
+            {formatNumber0(productionTotal)} sc ({formatNumber0(totalArea)} ha | {formatNumber0(totalArea > 0 ? productionTotal / totalArea : 0)} sc/ha)
+          </strong>
         </article>
         <article className="card stat-card">
           <span className="stat-card-primary-title">Hedge</span>
@@ -3670,10 +3790,13 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         policyMinPercent={currentPolicyMinPercent}
         policyMaxPercent={currentPolicyMaxPercent}
         productionBase={netProductionBase}
+        totalArea={totalArea}
         physicalRows={filteredSales}
         derivativeRows={bolsaDerivatives}
         policies={filteredPolicies}
         derivativeVolumeGetter={derivativeStandardVolumeGetter}
+        activeIndex={hedgeSummaryActiveIndex}
+        onActiveIndexChange={setHedgeSummaryActiveIndex}
         onOpenHedgePolicy={() => navigate("/dashboard/politica-hedge")}
       />
 
@@ -4484,6 +4607,9 @@ function HedgePolicyChart({
   derivativeDetailValueGetter = derivativeValueGetter,
   physicalVolumeGetter = getPhysicalVolumeValue,
   derivativeVolumeGetter = getDerivativeVolumeValue,
+  areaBase = 0,
+  activeIndex: controlledActiveIndex = null,
+  onActiveIndexChange = null,
   onFocusToggle,
   extraActions = null,
   simulatedIncrement = 0,
@@ -4491,7 +4617,7 @@ function HedgePolicyChart({
 }) {
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [internalActiveIndex, setInternalActiveIndex] = useState(0);
   const [detailIndex, setDetailIndex] = useState(null);
   const [showPhysical, setShowPhysical] = useState(true);
   const [showDerivatives, setShowDerivatives] = useState(true);
@@ -4526,13 +4652,37 @@ function HedgePolicyChart({
     ],
   );
   const todayIndex = useMemo(() => getHedgeTodayIndex(chartState.points), [chartState.points]);
+  const activeIndex = controlledActiveIndex != null ? controlledActiveIndex : internalActiveIndex;
+
+  const updateActiveIndex = useCallback(
+    (nextIndex) => {
+      const safeIndex = Math.max(0, Math.min(Number(nextIndex || 0), Math.max(chartState.points.length - 1, 0)));
+      if (controlledActiveIndex == null) {
+        setInternalActiveIndex(safeIndex);
+      }
+      if (typeof onActiveIndexChange === "function") {
+        onActiveIndexChange(safeIndex);
+      }
+    },
+    [chartState.points.length, controlledActiveIndex, onActiveIndexChange],
+  );
 
   useEffect(() => {
     if (!chartState.points.length) {
-      setActiveIndex(0);
+      if (controlledActiveIndex == null) {
+        setInternalActiveIndex(0);
+      }
+      if (typeof onActiveIndexChange === "function") {
+        onActiveIndexChange(0);
+      }
       return;
     }
-    setActiveIndex(todayIndex);
+    if (controlledActiveIndex == null) {
+      setInternalActiveIndex(todayIndex);
+    }
+    if (typeof onActiveIndexChange === "function") {
+      onActiveIndexChange(todayIndex);
+    }
   }, [chartState.points.length, frequency, todayIndex]);
 
   useEffect(() => {
@@ -4632,7 +4782,7 @@ function HedgePolicyChart({
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: 160 },
+        animation: false,
         interaction: { mode: "nearest", axis: "x", intersect: false },
         onClick: (_, elements) => {
           if (!elements?.[0]) return;
@@ -4640,7 +4790,7 @@ function HedgePolicyChart({
         },
         onHover: (_, elements) => {
           if (elements?.[0]) {
-            setActiveIndex(elements[0].index);
+            updateActiveIndex(elements[0].index);
           }
         },
         plugins: {
@@ -4681,7 +4831,7 @@ function HedgePolicyChart({
     });
 
     const handleMouseLeave = () => {
-      setActiveIndex(todayIndex);
+      updateActiveIndex(todayIndex);
     };
     canvas.addEventListener("mouseleave", handleMouseLeave);
 
@@ -4690,7 +4840,7 @@ function HedgePolicyChart({
       canvas.removeEventListener("mouseleave", handleMouseLeave);
       nextChart.destroy();
     };
-  }, [chartState, frequency, todayIndex, unit]);
+  }, [chartState, frequency, todayIndex, unit, updateActiveIndex]);
 
   const activePoint = chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
@@ -4716,9 +4866,7 @@ function HedgePolicyChart({
     }
     return {
       tone: "ok",
-      text: `${((baseValue > 0 ? activeTotal / baseValue : 0) * 100).toLocaleString("pt-BR", {
-        maximumFractionDigits: 1,
-      })}% dentro da politica`,
+      text: "dentro da politica",
     };
   }, [activePoint, baseValue]);
 
@@ -4821,34 +4969,31 @@ function HedgePolicyChart({
           <div className="hedge-floating-topline">
             <div className="hedge-floating-title">{formatHedgeTitleDate(activePoint.date)}</div>
           </div>
-          <div className="hedge-floating-line">
-            Politica Min.:{" "}
-            {activePoint.minValue != null ? `${formatHedgePercentValue(activePoint.minValue, baseValue)} — ${formatHedgeTooltipValue(activePoint.minValue, unit)}` : "—"}
-          </div>
-          <div className="hedge-floating-line">
-            Politica Max.:{" "}
-            {activePoint.maxValue != null ? `${formatHedgePercentValue(activePoint.maxValue, baseValue)} — ${formatHedgeTooltipValue(activePoint.maxValue, unit)}` : "—"}
-          </div>
           <div className={`hedge-floating-total-box ${statusSummary?.tone || "ok"}`}>
             <div className="hedge-floating-total-main">
-              Total Realizado: {formatHedgePercentValue(activePoint.total + activeSimulation, baseValue)} —{" "}
-              {formatHedgeTooltipValue(activePoint.total + activeSimulation, unit)}
+              {formatHedgePercentValue(activePoint.total + activeSimulation, baseValue)} - {statusSummary?.text || "—"} - {formatHedgeTooltipValue(activePoint.total + activeSimulation, unit)}
+              {formatHedgeScPerHaValue(activePoint.total + activeSimulation, unit, areaBase)
+                ? ` - ${formatHedgeScPerHaValue(activePoint.total + activeSimulation, unit, areaBase)}`
+                : ""}
             </div>
-            <div className="hedge-floating-total-status">{statusSummary?.text || "—"}</div>
+          </div>
+          <div className="hedge-floating-line">
+            {formatHedgeTooltipLine("Vendas Fisico", activePoint.physicalRaw, unit, baseValue, areaBase)}
+          </div>
+          <div className="hedge-floating-line">
+            {formatHedgeTooltipLine("Derivativos", activePoint.derivativeRaw, unit, baseValue, areaBase)}
+          </div>
+          <div className="hedge-floating-line">
+            {activePoint.minValue != null ? formatHedgeTooltipLine("Politica Min", activePoint.minValue, unit, baseValue, areaBase) : "Politica Min: —"}
+          </div>
+          <div className="hedge-floating-line">
+            {activePoint.maxValue != null ? formatHedgeTooltipLine("Politica Max", activePoint.maxValue, unit, baseValue, areaBase) : "Politica Max: —"}
           </div>
           {activeSimulation > 0 && simulatedLabel ? (
             <div className="hedge-floating-line">
               Simulação: +{formatHedgeTooltipValue(activeSimulation, unit)} {simulatedLabel}
             </div>
           ) : null}
-          <div className="hedge-floating-line">
-            Vendas Fisico: {formatHedgePercentValue(activePoint.physicalRaw, baseValue)} —{" "}
-            {formatHedgeTooltipValue(activePoint.physicalRaw, unit)}
-          </div>
-          <div className="hedge-floating-line">
-            Derivativos: {formatHedgePercentValue(activePoint.derivativeRaw, baseValue)} —{" "}
-            {formatHedgeTooltipValue(activePoint.derivativeRaw, unit)}
-          </div>
         </aside>
       ) : null}
 
@@ -5291,6 +5436,8 @@ function HedgePolicyDashboard({ dashboardFilter }) {
   const { matchesDashboardFilter, options } = useDashboardFilter();
   const [frequency, setFrequency] = useState("monthly");
   const [focusedChart, setFocusedChart] = useState(null);
+  const [costActiveIndex, setCostActiveIndex] = useState(0);
+  const [productionActiveIndex, setProductionActiveIndex] = useState(0);
   const [showSimulationBox, setShowSimulationBox] = useState(false);
   const [simulationVolume, setSimulationVolume] = useState("");
   const [simulationValue, setSimulationValue] = useState("");
@@ -5364,6 +5511,10 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     () => policies.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, policies],
   );
+  const filteredCropBoards = useMemo(
+    () => cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [cropBoards, dashboardFilter, matchesDashboardFilter],
+  );
   const filteredPhysicalSales = useMemo(
     () => physicalSales.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, physicalSales],
@@ -5403,6 +5554,10 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     () => filteredDerivatives.filter((item) => normalizeText(item.moeda_ou_cmdtye) === "cmdtye"),
     [filteredDerivatives],
   );
+  const totalArea = useMemo(
+    () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.area || 0)), 0),
+    [filteredCropBoards],
+  );
 
   const parsedSimulationVolume = parseLocalizedInputNumber(simulationVolume) || 0;
   const parsedSimulationValue = parseLocalizedInputNumber(simulationValue) || 0;
@@ -5410,6 +5565,165 @@ function HedgePolicyDashboard({ dashboardFilter }) {
   const simulatedCostValue =
     simulationCurrency === "USD" ? parsedSimulationValue * Math.max(usdBrlRate, 0) : parsedSimulationValue;
   const simulationLabel = simulationCurrency === "USD" ? "convertido em R$" : "adicionado em R$";
+  const costChartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit: "BRL",
+        frequency,
+        baseValue: costBase,
+        physicalRows: filteredPhysicalSales,
+        derivativeRows: filteredDerivatives,
+        policies: filteredPolicies,
+        physicalValueGetter: (item) => getPhysicalCostValue(item, usdBrlRate),
+        derivativeValueGetter: (item) => getDerivativeCostValue(item, usdBrlRate),
+        simulatedIncrement: simulatedCostValue,
+      }),
+    [costBase, filteredDerivatives, filteredPhysicalSales, filteredPolicies, frequency, simulatedCostValue, usdBrlRate],
+  );
+  const productionChartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit: "SC",
+        frequency,
+        baseValue: productionBase,
+        physicalRows: filteredPhysicalSales,
+        derivativeRows: filteredCommodityDerivatives,
+        policies: filteredPolicies,
+        physicalValueGetter: getPhysicalVolumeValue,
+        derivativeValueGetter: derivativeStandardVolumeGetter,
+        simulatedIncrement: parsedSimulationVolume,
+      }),
+    [
+      derivativeStandardVolumeGetter,
+      filteredCommodityDerivatives,
+      filteredPhysicalSales,
+      filteredPolicies,
+      frequency,
+      parsedSimulationVolume,
+      productionBase,
+    ],
+  );
+  const costTodayIndex = useMemo(() => getHedgeTodayIndex(costChartState.points), [costChartState.points]);
+  const productionTodayIndex = useMemo(() => getHedgeTodayIndex(productionChartState.points), [productionChartState.points]);
+
+  useEffect(() => {
+    setCostActiveIndex(costTodayIndex);
+  }, [costTodayIndex]);
+
+  useEffect(() => {
+    setProductionActiveIndex(productionTodayIndex);
+  }, [productionTodayIndex]);
+
+  const activeCostPoint =
+    costChartState.points[costActiveIndex] || costChartState.points[costTodayIndex] || costChartState.points.at(-1) || null;
+  const activeProductionPoint =
+    productionChartState.points[productionActiveIndex] ||
+    productionChartState.points[productionTodayIndex] ||
+    productionChartState.points.at(-1) ||
+    null;
+
+  const focusedSummaryProps = useMemo(() => {
+    if (focusedChart === "cost") {
+      const activeTotalValue = (activeCostPoint?.total || 0) + (costActiveIndex === costChartState.points.length - 1 ? simulatedCostValue : 0);
+      const activePhysicalValue = activeCostPoint?.physicalRaw || 0;
+      const activeDerivativeValue = activeCostPoint?.derivativeRaw || 0;
+      const activeTotalPercent = costBase > 0 ? (activeTotalValue / costBase) * 100 : 0;
+      const activePhysicalPercent = activeTotalValue > 0 ? (activePhysicalValue / activeTotalValue) * 100 : 0;
+      const activeDerivativePercent = activeTotalValue > 0 ? (activeDerivativeValue / activeTotalValue) * 100 : 0;
+      return {
+        totalPercent: activeTotalPercent,
+        totalMetricLabel: `R$ ${formatCurrency2(activeTotalValue)}`,
+        physicalPercent: activePhysicalPercent,
+        physicalMetricLabel: `R$ ${formatCurrency2(activePhysicalValue)}`,
+        derivativePercent: activeDerivativePercent,
+        derivativeMetricLabel: `R$ ${formatCurrency2(activeDerivativeValue)}`,
+        policyMinPercent: activeCostPoint?.minPct != null ? activeCostPoint.minPct * 100 : null,
+        policyMaxPercent: activeCostPoint?.maxPct != null ? activeCostPoint.maxPct * 100 : null,
+      };
+    }
+    if (focusedChart === "production") {
+      const activeTotalValue =
+        (activeProductionPoint?.total || 0) + (productionActiveIndex === productionChartState.points.length - 1 ? parsedSimulationVolume : 0);
+      const activePhysicalValue = activeProductionPoint?.physicalRaw || 0;
+      const activeDerivativeValue = activeProductionPoint?.derivativeRaw || 0;
+      const activeTotalPercent = productionBase > 0 ? (activeTotalValue / productionBase) * 100 : 0;
+      const activePhysicalPercent = activeTotalValue > 0 ? (activePhysicalValue / activeTotalValue) * 100 : 0;
+      const activeDerivativePercent = activeTotalValue > 0 ? (activeDerivativeValue / activeTotalValue) * 100 : 0;
+      return {
+        totalPercent: activeTotalPercent,
+        totalMetricLabel: totalArea > 0 ? `${formatNumber2(activeTotalValue / totalArea)} scs/ha` : `${formatNumber0(activeTotalValue)} sc`,
+        physicalPercent: activePhysicalPercent,
+        physicalMetricLabel: totalArea > 0 ? `${formatNumber2(activePhysicalValue / totalArea)} scs/ha` : `${formatNumber0(activePhysicalValue)} sc`,
+        derivativePercent: activeDerivativePercent,
+        derivativeMetricLabel: totalArea > 0 ? `${formatNumber2(activeDerivativeValue / totalArea)} scs/ha` : `${formatNumber0(activeDerivativeValue)} sc`,
+        policyMinPercent: activeProductionPoint?.minPct != null ? activeProductionPoint.minPct * 100 : null,
+        policyMaxPercent: activeProductionPoint?.maxPct != null ? activeProductionPoint.maxPct * 100 : null,
+      };
+    }
+    return null;
+  }, [
+    activeCostPoint,
+    activeProductionPoint,
+    costActiveIndex,
+    costChartState.points.length,
+    focusedChart,
+    parsedSimulationVolume,
+    productionActiveIndex,
+    productionChartState.points.length,
+    productionBase,
+    simulatedCostValue,
+    costBase,
+    totalArea,
+  ]);
+
+  const costChartNode = (
+    <HedgePolicyChart
+      title="Gráfico 1 — Hedge sobre o custo (R$)"
+      unit="BRL"
+      frequency={frequency}
+      baseValue={costBase}
+      physicalRows={filteredPhysicalSales}
+      derivativeRows={filteredDerivatives}
+      policies={filteredPolicies}
+      physicalValueGetter={(item) => getPhysicalCostValue(item, usdBrlRate)}
+      derivativeValueGetter={(item) => getDerivativeCostValue(item, usdBrlRate)}
+      activeIndex={costActiveIndex}
+      onActiveIndexChange={setCostActiveIndex}
+      onFocusToggle={() => setFocusedChart((current) => (current === "cost" ? null : "cost"))}
+      simulatedIncrement={simulatedCostValue}
+      simulatedLabel={simulationLabel}
+      extraActions={
+        <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
+          <option value="daily">Diario</option>
+          <option value="weekly">Semanal</option>
+          <option value="monthly">Mensal</option>
+        </select>
+      }
+    />
+  );
+
+  const productionChartNode = (
+    <HedgePolicyChart
+      title="Gráfico 2 — Hedge produção liquida (sc)"
+      unit="SC"
+      frequency={frequency}
+      baseValue={productionBase}
+      areaBase={totalArea}
+      physicalRows={filteredPhysicalSales}
+      derivativeRows={filteredCommodityDerivatives}
+      policies={filteredPolicies}
+      physicalValueGetter={getPhysicalVolumeValue}
+      derivativeValueGetter={derivativeStandardVolumeGetter}
+      derivativeVolumeGetter={derivativeStandardVolumeGetter}
+      physicalDetailValueGetter={(item) => getPhysicalCostValue(item, usdBrlRate)}
+      derivativeDetailValueGetter={(item) => getDerivativeCostValue(item, usdBrlRate)}
+      activeIndex={productionActiveIndex}
+      onActiveIndexChange={setProductionActiveIndex}
+      onFocusToggle={() => setFocusedChart((current) => (current === "production" ? null : "production"))}
+      simulatedIncrement={parsedSimulationVolume}
+      simulatedLabel="adicionado em volume"
+    />
+  );
 
   const resetSimulation = () => {
     setSimulationVolume("");
@@ -5467,47 +5781,19 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         </div>
       ) : null}
       <section className={`hedge-dashboard-grid${focusedChart ? " single-visible" : ""}`}>
-        {(!focusedChart || focusedChart === "cost") ? (
-          <HedgePolicyChart
-            title="Gráfico 1 — Hedge sobre o custo (R$)"
-            unit="BRL"
-            frequency={frequency}
-            baseValue={costBase}
-            physicalRows={filteredPhysicalSales}
-            derivativeRows={filteredDerivatives}
-            policies={filteredPolicies}
-            physicalValueGetter={(item) => getPhysicalCostValue(item, usdBrlRate)}
-            derivativeValueGetter={(item) => getDerivativeCostValue(item, usdBrlRate)}
-            onFocusToggle={() => setFocusedChart((current) => (current === "cost" ? null : "cost"))}
-            simulatedIncrement={simulatedCostValue}
-            simulatedLabel={simulationLabel}
-            extraActions={
-              <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
-                <option value="daily">Diario</option>
-                <option value="weekly">Semanal</option>
-                <option value="monthly">Mensal</option>
-              </select>
-            }
-          />
-        ) : null}
-        {(!focusedChart || focusedChart === "production") ? (
-          <HedgePolicyChart
-            title="Gráfico 2 — Hedge produção liquida (sc)"
-            unit="SC"
-            frequency={frequency}
-            baseValue={productionBase}
-            physicalRows={filteredPhysicalSales}
-            derivativeRows={filteredCommodityDerivatives}
-            policies={filteredPolicies}
-            physicalValueGetter={getPhysicalVolumeValue}
-            derivativeValueGetter={derivativeStandardVolumeGetter}
-            derivativeVolumeGetter={derivativeStandardVolumeGetter}
-            physicalDetailValueGetter={(item) => getPhysicalCostValue(item, usdBrlRate)}
-            derivativeDetailValueGetter={(item) => getDerivativeCostValue(item, usdBrlRate)}
-            onFocusToggle={() => setFocusedChart((current) => (current === "production" ? null : "production"))}
-            simulatedIncrement={parsedSimulationVolume}
-            simulatedLabel="adicionado em volume"
-          />
+        {!focusedChart ? costChartNode : null}
+        {!focusedChart ? productionChartNode : null}
+        {focusedChart ? (
+          <div className="hedge-focus-layout">
+            <div className="hedge-focus-main">
+              {focusedChart === "cost" ? costChartNode : productionChartNode}
+            </div>
+            <div className="hedge-focus-side">
+              <div className="hedge-focus-side-panels">
+                {focusedSummaryProps ? <HedgeSummaryGaugeCards {...focusedSummaryProps} /> : null}
+              </div>
+            </div>
+          </div>
         ) : null}
       </section>
     </section>

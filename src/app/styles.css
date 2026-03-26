@@ -743,53 +743,53 @@ textarea {
 }
 
 .stat-card {
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 .stat-card span {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.76rem;
 }
 
 .stat-card strong {
   display: block;
-  margin-top: 6px;
-  font-size: 1.58rem;
-  line-height: 1.05;
+  margin-top: 4px;
+  font-size: 1.4rem;
+  line-height: 1.02;
 }
 
 .stat-card-primary-title {
-  font-size: 1.22rem;
+  font-size: 1.08rem;
   font-weight: 900;
 }
 
 .stat-card-primary-meta {
-  margin-left: 8px;
+  margin-left: 6px;
   color: #475569;
-  font-size: 0.92rem;
+  font-size: 0.82rem;
   font-weight: 700;
 }
 
 .stat-card-secondary-label {
   display: block;
-  margin-top: 12px;
+  margin-top: 10px;
   color: #ea580c;
-  font-size: 0.66rem;
+  font-size: 0.6rem;
   font-weight: 700;
   line-height: 1.2;
 }
 
 .stat-card strong.stat-card-secondary-value {
-  margin-top: 6px;
+  margin-top: 4px;
   color: #ea580c;
-  font-size: 0.92rem;
+  font-size: 0.84rem;
   font-weight: 600;
   line-height: 1.1;
 }
 
 .stat-card strong.stat-card-secondary-value .stat-card-secondary-line {
   display: block;
-  margin-top: 2px;
+  margin-top: 1px;
   color: #ea580c;
 }
 
@@ -1405,7 +1405,7 @@ textarea {
 }
 
 .risk-kpi-grid > .stat-card {
-  min-height: 252px;
+  min-height: 176px;
 }
 
 .risk-kpi-link-card {
@@ -1491,10 +1491,10 @@ textarea {
 
 .risk-kpi-news-stat-card {
   display: grid;
-  gap: 8px;
-  min-height: 252px;
-  height: 252px;
-  max-height: 252px;
+  gap: 6px;
+  min-height: 176px;
+  height: 176px;
+  max-height: 176px;
   align-content: start;
   overflow: hidden;
   text-align: left;
@@ -1510,19 +1510,19 @@ textarea {
 
 .risk-kpi-news-stat-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   align-content: start;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: 2px;
 }
 
 .risk-kpi-news-stat-item {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
-  padding: 8px 12px;
-  border-radius: 16px;
+  padding: 6px 10px;
+  border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(255, 255, 255, 0.72);
 }
@@ -1530,12 +1530,13 @@ textarea {
 .risk-kpi-news-date {
   display: grid;
   place-items: center;
-  min-height: 40px;
-  padding: 6px 6px;
-  border-radius: 14px;
+  min-height: 28px;
+  padding: 2px 4px;
+  border-radius: 12px;
   background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(14, 165, 233, 0.12));
   color: #0f766e;
-  font-size: 0.78rem;
+  font-size: 0.68rem;
+  line-height: 1;
   font-weight: 900;
 }
 
@@ -1548,8 +1549,8 @@ textarea {
   margin-top: 0;
   margin-bottom: 0;
   color: #0f172a;
-  font-size: 0.88rem;
-  line-height: 1.15;
+  font-size: 0.8rem;
+  line-height: 1.05;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1557,26 +1558,29 @@ textarea {
 
 .risk-kpi-maturity-card {
   display: grid;
-  gap: 8px;
-  min-height: 252px;
-  height: 252px;
-  max-height: 252px;
+  gap: 6px;
+  min-height: 176px;
+  height: 176px;
+  max-height: 176px;
   align-content: start;
   overflow: hidden;
 }
 
 .risk-kpi-maturity-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  overflow-x: hidden;
+  padding-right: 2px;
 }
 
 .risk-kpi-maturity-item {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 16px;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(255, 255, 255, 0.72);
   cursor: pointer;
@@ -1593,26 +1597,28 @@ textarea {
 
 .risk-kpi-maturity-topline,
 .risk-kpi-maturity-bottomline {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .risk-kpi-maturity-topline strong,
 .risk-kpi-maturity-bottomline b {
   margin: 0;
   color: #0f172a;
-  font-size: 0.86rem;
-  line-height: 1.1;
+  font-size: 0.78rem;
+  line-height: 1.02;
+  min-width: 0;
 }
 
 .risk-kpi-maturity-topline span,
 .risk-kpi-maturity-bottomline span {
   min-width: 0;
   color: #64748b;
-  font-size: 0.74rem;
-  line-height: 1.2;
+  font-size: 0.68rem;
+  line-height: 1.05;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1621,6 +1627,7 @@ textarea {
 .risk-kpi-maturity-bottomline b {
   flex-shrink: 0;
   color: #ea580c;
+  white-space: nowrap;
 }
 
 
@@ -1815,6 +1822,16 @@ textarea {
 
 .risk-kpi-policy-slot > .hedge-chart-card .hedge-legend {
   margin-top: 0;
+}
+
+.risk-kpi-gauge-grid--compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.risk-kpi-gauge-grid--compact .risk-kpi-gauge-card,
+.risk-kpi-gauge-grid--compact .risk-kpi-distribution-card {
+  grid-column: auto;
+  min-height: 220px;
 }
 
 .risk-kpi-gauge-card {
@@ -2264,6 +2281,31 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.hedge-focus-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.hedge-focus-main,
+.hedge-focus-side {
+  min-width: 0;
+}
+
+.hedge-focus-side-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  height: 100%;
+}
+
+.hedge-focus-side-panels .risk-kpi-gauge-card,
+.hedge-focus-side-panels .risk-kpi-distribution-card {
+  grid-column: auto;
+  min-height: 0;
+}
+
 .hedge-chart-card {
   display: grid;
   gap: 6px;
@@ -2399,9 +2441,10 @@ textarea {
 
 .hedge-floating-total-box {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 2px;
   margin-top: 5px;
   padding: 4px 8px;
   border-radius: 10px;
@@ -3429,7 +3472,7 @@ th {
 .resource-filter-track {
   display: inline-flex;
   align-items: stretch;
-  gap: 8px;
+  gap: 2px;
   flex-wrap: nowrap;
   white-space: nowrap;
   width: max-content;
@@ -3438,7 +3481,7 @@ th {
 .resource-filter-sequence {
   display: inline-flex;
   align-items: stretch;
-  gap: 8px;
+  gap: 2px;
   flex-wrap: nowrap;
   white-space: nowrap;
 }
@@ -4856,6 +4899,10 @@ th {
   }
 
   .hedge-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hedge-focus-layout {
     grid-template-columns: 1fr;
   }
 
