@@ -1,5 +1,6 @@
 import { DashboardPage } from "../pages/DashboardPage";
 import { DerivativeOperationsPage } from "../pages/DerivativeOperationsPage";
+import { AnotacoesPage } from "../pages/AnotacoesPage";
 import { JsonImportPage } from "../pages/JsonImportPage";
 import { MassImportPage } from "../pages/MassImportPage";
 import { MassUpdatePage } from "../pages/MassUpdatePage";
@@ -43,6 +44,7 @@ const baseNavigationSections = [
       { path: "/grupos", label: "Grupo", module: "cad_groups", allowedUserTypes: ["tenant_can_manage_groups"] },
       { path: "/subgrupos", label: "Subgrupo", module: "cad_subgroups", allowedUserTypes: ["tenant_can_manage_subgroups"] },
       { path: "/contrapartes", label: "Contrapartes", module: "cad_counterparties" },
+      { path: "/anotacoes", label: "Anotacoes", module: "cad_anotacoes" },
       { path: "/politica-hedge", label: "Politica de Hedge", module: "ops_hedge_policies" },
       { path: "/quadro-safra", label: "Quadro Safra", module: "ops_crop_boards" },
       { path: "/cotacoes-fisico", label: "Cotacoes Fisico", module: "ops_physical_quotes" },
@@ -61,9 +63,11 @@ const baseNavigationSections = [
       { path: "/bolsas", label: "Bolsa", module: "sys_exchanges", superuserOnly: true },
       { path: "/nomes-operacoes-derivativos", label: "Nome Operacoes Derivativos", module: "sys_derivative_operation_names", superuserOnly: true },
       { path: "/safras", label: "Safra", module: "sys_seasons", superuserOnly: true },
+      { path: "/entradas-recebimentos", label: "Entradas recebimentos", module: "sys_receipt_entries", superuserOnly: true },
       { path: "/usuarios", label: "Usuarios", module: "sys_users", allowedUserTypes: ["tenant_admin"] },
       { path: "/convites-e-acessos", label: "Convites e acessos", module: "sys_invites", allowedUserTypes: ["tenant_admin"] },
       { path: "/convites-admin", label: "Convites (Admin)", module: "sys_admin_invites", allowedUserTypes: ["invitation_tenants"] },
+      { path: "/contas-a-pagar", label: "Contas a Pagar", module: "sys_accounts_payable" },
     ],
   },
   {
@@ -135,7 +139,10 @@ export const appRoutes = [
   { path: "/bolsas", element: <ResourcePage key="exchanges" definition={resourceDefinitions.exchanges} />, module: "sys_exchanges", superuserOnly: true },
   { path: "/nomes-operacoes-derivativos", element: <ResourcePage key="derivative-operation-names" definition={resourceDefinitions.derivativeOperationNames} />, module: "sys_derivative_operation_names", superuserOnly: true },
   { path: "/safras", element: <ResourcePage key="seasons" definition={resourceDefinitions.seasons} />, module: "sys_seasons", superuserOnly: true },
+  { path: "/entradas-recebimentos", element: <ResourcePage key="receipt-entries" definition={resourceDefinitions.receiptEntries} />, module: "sys_receipt_entries", superuserOnly: true },
   { path: "/contrapartes", element: <ResourcePage key="counterparties" definition={resourceDefinitions.counterparties} />, module: "cad_counterparties" },
+  { path: "/anotacoes", element: <AnotacoesPage />, module: "cad_anotacoes" },
+  { path: "/anotacoes/:postId", element: <AnotacoesPage />, module: "cad_anotacoes", title: "Anotacoes" },
   { path: "/cotacoes-fisico", element: <ResourcePage key="physical-quotes" definition={resourceDefinitions.physicalQuotes} />, module: "ops_physical_quotes" },
   { path: "/tradingview-experimental", element: <ResourcePage key="tradingview-watchlist-quotes" definition={resourceDefinitions.tradingviewWatchlistQuotes} /> },
   { path: "/custo-orcamento", element: <ResourcePage key="budget-costs" definition={resourceDefinitions.budgetCosts} />, module: "ops_budget_costs" },
@@ -165,6 +172,11 @@ export const appRoutes = [
     element: <ResourcePage key="admin-invitations" definition={resourceDefinitions.adminInvitations} />,
     module: "sys_admin_invites",
     allowedUserTypes: ["invitation_tenants"],
+  },
+  {
+    path: "/contas-a-pagar",
+    element: <ResourcePage key="accounts-payable" definition={resourceDefinitions.accountsPayable} />,
+    module: "sys_accounts_payable",
   },
   { path: "/logs", element: <ResourcePage key="logs" definition={resourceDefinitions.logs} />, module: "sys_logs" },
   { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true },
