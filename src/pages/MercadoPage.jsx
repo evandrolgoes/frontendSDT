@@ -79,11 +79,15 @@ export function MercadoPage({ kind = "fundPositions" }) {
             title="Posicao de Fundos - Milho CBOT"
             marketName="CORN - CHICAGO BOARD OF TRADE"
             csvUrl={"https://publicreporting.cftc.gov/resource/jun7-fc8e.csv?$select=report_date_as_yyyy_mm_dd,market_and_exchange_names,noncomm_positions_long_all,noncomm_positions_short_all,noncomm_postions_spread_all&$where=cftc_contract_market_code='002602'%20AND%20report_date_as_yyyy_mm_dd%20%3E=%20'2020-01-01'&$order=report_date_as_yyyy_mm_dd%20asc&$limit=2000&$offset=0"}
+            showDirectionLabels
+            showNetLabel
           />
           <FundPositionChart
             title="Posicao de Fundos - Soja CBOT"
             marketName="SOYBEANS - CHICAGO BOARD OF TRADE"
             csvUrl={"https://publicreporting.cftc.gov/resource/jun7-fc8e.csv?$select=report_date_as_yyyy_mm_dd,market_and_exchange_names,noncomm_positions_long_all,noncomm_positions_short_all,comm_positions_short_all,noncomm_postions_spread_all&$where=market_and_exchange_names='SOYBEANS - CHICAGO BOARD OF TRADE'%20AND%20report_date_as_yyyy_mm_dd%20%3E=%20'2020-01-01'&$order=report_date_as_yyyy_mm_dd%20asc&$limit=2000&$offset=0"}
+            showDirectionLabels
+            showNetLabel
           />
         </div>
       </div>

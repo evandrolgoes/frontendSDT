@@ -32,6 +32,7 @@ Chart.register(
 const zeroLineAndLabelsPlugin = {
   id: "fundPositionZeroLineAndLabels",
   afterDraw(chart, _args, pluginOptions) {
+    if (pluginOptions?.enabled === false) return;
     const { ctx, chartArea, scales } = chart;
     const y = scales?.y;
     if (!y) return;
@@ -62,6 +63,7 @@ const zeroLineAndLabelsPlugin = {
 const lastValueLabelPlugin = {
   id: "fundPositionLastValueLabel",
   afterDatasetsDraw(chart, _args, pluginOptions) {
+    if (pluginOptions?.enabled === false) return;
     const datasetIndex = pluginOptions?.datasetIndex ?? 0;
     const meta = chart.getDatasetMeta(datasetIndex);
     if (!meta || meta.hidden) return;
@@ -466,7 +468,13 @@ function useFundPositionData({ csvUrl, marketName }) {
   };
 }
 
-export function FundPositionChart({ title, csvUrl, marketName }) {
+export function FundPositionChart({
+  title,
+  csvUrl,
+  marketName,
+  showDirectionLabels = false,
+  showNetLabel = false,
+}) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
   const dragCleanupRef = useRef(null);
@@ -581,6 +589,7 @@ export function FundPositionChart({ title, csvUrl, marketName }) {
             },
           },
           fundPositionZeroLineAndLabels: {
+            enabled: showDirectionLabels,
             zeroLineWidth: 3,
             zeroLineColor: "rgba(0,0,0,.72)",
             labelFontSize: 20,
@@ -589,6 +598,7 @@ export function FundPositionChart({ title, csvUrl, marketName }) {
             labelOffset: 34,
           },
           fundPositionLastValueLabel: {
+            enabled: showNetLabel,
             datasetIndex: 3,
           },
           zoom: {
@@ -639,7 +649,7 @@ export function FundPositionChart({ title, csvUrl, marketName }) {
       }
       nextChart.destroy();
     };
-  }, [filteredRows]);
+  }, [filteredRows, showDirectionLabels, showNetLabel]);
 
   useEffect(() => {
     const onResize = () => chartRef.current?.resize();
