@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DatePickerField } from "./DatePickerField";
 import { resourceService } from "../services/resourceService";
-import { formatBrazilianDate, isBrazilianDate, isIsoDate, parseBrazilianDate } from "../utils/date";
+import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
 
 const BRAZILIAN_STATES = [
   { id: "AC", sigla: "AC", nome: "Acre" },

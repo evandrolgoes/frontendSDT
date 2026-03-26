@@ -265,9 +265,6 @@ export function DataTable({
   const shellRef = useRef(null);
 
   useEffect(() => {
-  }, [searchValue, columnFilters]);
-
-  useEffect(() => {
     setSelectedIds((current) => {
       const validIds = new Set(rows.map((row) => row.id));
       return new Set([...current].filter((id) => validIds.has(id)));

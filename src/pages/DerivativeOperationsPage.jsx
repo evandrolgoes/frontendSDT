@@ -375,7 +375,6 @@ export function DerivativeOperationsPage() {
     <div className="resource-page">
       <PageHeader title={definition.title} description={definition.description} />
       <DataTable
-        title={loading ? `${definition.title} carregando...` : definition.title}
         columns={columns}
         rows={displayRows}
         searchValue={filters.search || ""}

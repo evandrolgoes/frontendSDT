@@ -1649,7 +1649,6 @@ export function ResourcePage({ definition }) {
         />
       ) : (
         <DataTable
-          title={loading ? `${definition.title} carregando...` : definition.title}
           columns={effectiveTableColumns}
           rows={displayRows}
           searchValue={filters.search || ""}

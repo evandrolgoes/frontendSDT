@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DatePickerField } from "./DatePickerField";
 import { InfoPopup } from "./InfoPopup";
 import { resourceService } from "../services/resourceService";
-import { formatBrazilianDate, isBrazilianDate, isIsoDate, parseBrazilianDate } from "../utils/date";
+import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
 
 const TRADINGVIEW_REFRESH_MS = 60000;
 
