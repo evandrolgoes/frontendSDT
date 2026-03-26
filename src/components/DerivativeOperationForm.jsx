@@ -206,7 +206,7 @@ export function DerivativeOperationForm({
       ...initialValues,
       grupo: initialValues.grupo ? String(initialValues.grupo) : "",
       subgrupo: initialValues.subgrupo ? String(initialValues.subgrupo) : "",
-      cultura: initialValues.cultura ? String(initialValues.cultura) : "",
+      ativo: (initialValues.ativo ?? initialValues.cultura) ? String(initialValues.ativo ?? initialValues.cultura) : "",
       destino_cultura: initialValues.destino_cultura ? String(initialValues.destino_cultura) : "",
       safra: initialValues.safra ? String(initialValues.safra) : "",
       contraparte: initialValues.contraparte ? String(initialValues.contraparte) : "",
@@ -384,11 +384,11 @@ export function DerivativeOperationForm({
       .filter((value, index, self) => self.findIndex((current) => normalizeLookupValue(current) === normalizeLookupValue(value)) === index)
       .map((value) => ({ value, label: value }));
 
-    if (!values.cultura) {
+    if (!values.ativo) {
       return baseOptions;
     }
 
-    const selectedCrop = (lookupOptions.crops || []).find((item) => String(item.id) === String(values.cultura));
+    const selectedCrop = (lookupOptions.crops || []).find((item) => String(item.id) === String(values.ativo));
     const cropName = normalizeLookupValue(selectedCrop?.ativo || selectedCrop?.cultura);
 
     if (!cropName) {
@@ -406,7 +406,7 @@ export function DerivativeOperationForm({
     );
 
     return filteredOptions.length ? filteredOptions : baseOptions;
-  }, [lookupOptions.crops, tradingviewQuotes, values.cultura]);
+  }, [lookupOptions.crops, tradingviewQuotes, values.ativo]);
 
   useEffect(() => {
     if (!values.bolsa_ref) {
@@ -569,7 +569,7 @@ export function DerivativeOperationForm({
   const buildPayload = () => ({
     grupo: values.grupo ? Number(values.grupo) : null,
     subgrupo: values.subgrupo ? Number(values.subgrupo) : null,
-    cultura: values.cultura ? Number(values.cultura) : null,
+    ativo: values.ativo ? Number(values.ativo) : null,
     destino_cultura: values.destino_cultura ? Number(values.destino_cultura) : null,
     safra: values.safra ? Number(values.safra) : null,
     contraparte: values.contraparte ? Number(values.contraparte) : null,
@@ -676,10 +676,10 @@ export function DerivativeOperationForm({
           <div className="field">
             <label>Ativo</label>
             {renderSelect(
-              "cultura",
-              values.cultura,
+              "ativo",
+              values.ativo,
               (lookupOptions.crops || []).map((option) => ({ value: option.id, label: option.ativo || option.cultura })),
-              (value) => updateValue("cultura", value),
+              (value) => updateValue("ativo", value),
             )}
           </div>
           <div className="field">

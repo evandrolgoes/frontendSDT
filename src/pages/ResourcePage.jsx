@@ -934,7 +934,7 @@ export function ResourcePage({ definition }) {
     return [
       { key: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "cultura", label: "Ativo" },
+      { key: "ativo", label: "Ativo", type: "relation", resource: "crops", labelKey: "ativo" },
       { key: "safra", label: "Safra" },
       { key: "cod_operacao_mae", label: "Cod operacao mae" },
       { key: "nome_da_operacao", label: "Operacao" },
@@ -1007,7 +1007,7 @@ export function ResourcePage({ definition }) {
               }}
             />
           ) : (
-            formatBrazilianNumber(value, 4)
+            formatBrazilianNumber(row.strike_liquidacao, 4)
           ),
       },
       {
