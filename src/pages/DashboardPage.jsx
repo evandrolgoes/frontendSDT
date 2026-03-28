@@ -3616,13 +3616,30 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [physicalSales, setPhysicalSales] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
   const [cropBoards, setCropBoards] = useState([]);
-  const [physicalQuotes, setPhysicalQuotes] = useState([]);
   const [hedgePolicies, setHedgePolicies] = useState([]);
-  const [budgetCosts, setBudgetCosts] = useState([]);
   const [physicalPayments, setPhysicalPayments] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
-  const [marketQuotes, setMarketQuotes] = useState([]);
-  const [marketNewsPosts, setMarketNewsPosts] = useState([]);
+  const [summaryData, setSummaryData] = useState({
+    productionSummary: {
+      productionTotal: 0,
+      totalArea: 0,
+      physicalPaymentVolume: 0,
+      netProductionVolume: 0,
+    },
+    marketQuotes: [],
+    marketNewsPosts: [],
+    upcomingMaturityRows: [],
+    formCompletionRows: [],
+    formCompletionSummary: {
+      totalForms: 0,
+      filledForms: 0,
+      pendingForms: 0,
+      totalRecords: 0,
+    },
+  });
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsReady, setAnalyticsReady] = useState(false);
   const [selectedMarketNewsPost, setSelectedMarketNewsPost] = useState(null);
   const [selectedMarketNewsAttachments, setSelectedMarketNewsAttachments] = useState([]);
   const [selectedMarketNewsAttachmentsLoading, setSelectedMarketNewsAttachmentsLoading] = useState(false);
@@ -3633,45 +3650,80 @@ function CommercialRiskDashboard({ dashboardFilter }) {
 
   useEffect(() => {
     let isMounted = true;
-    Promise.all([
-      resourceService.listAll("physical-sales").catch(() => []),
-      resourceService.listAll("derivative-operations").catch(() => []),
-      resourceService.listAll("crop-boards").catch(() => []),
-      resourceService.listAll("physical-quotes").catch(() => []),
-      resourceService.listAll("hedge-policies").catch(() => []),
-      resourceService.listAll("budget-costs").catch(() => []),
-      resourceService.listAll("physical-payments").catch(() => []),
-      resourceService.listAll("cash-payments").catch(() => []),
-      resourceService.listTradingviewQuotes({ force: true }).catch(() => []),
-      resourceService.listAll("market-news-posts").catch(() => []),
-    ]).then(([
-      salesResponse,
-      derivativeResponse,
-      cropBoardResponse,
-      quotesResponse,
-      policiesResponse,
-      budgetResponse,
-      physicalPaymentsResponse,
-      cashPaymentsResponse,
-      marketQuotesResponse,
-      marketNewsPostsResponse,
-    ]) => {
-      if (!isMounted) return;
-      setPhysicalSales(salesResponse || []);
-      setDerivatives(derivativeResponse || []);
-      setCropBoards(cropBoardResponse || []);
-      setPhysicalQuotes(quotesResponse || []);
-      setHedgePolicies(policiesResponse || []);
-      setBudgetCosts(budgetResponse || []);
-      setPhysicalPayments(physicalPaymentsResponse || []);
-      setCashPayments(cashPaymentsResponse || []);
-      setMarketQuotes(marketQuotesResponse || []);
-      setMarketNewsPosts(marketNewsPostsResponse || []);
-    });
+    setSummaryLoading(true);
+    resourceService
+      .getCommercialRiskSummary(
+        {
+          grupo: dashboardFilter?.grupo || [],
+          subgrupo: dashboardFilter?.subgrupo || [],
+          cultura: dashboardFilter?.cultura || [],
+          safra: dashboardFilter?.safra || [],
+          localidade: dashboardFilter?.localidade || [],
+        },
+        { force: true },
+      )
+      .then((response) => {
+        if (!isMounted) return;
+        setSummaryData(response || {});
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSummaryData((current) => ({ ...current }));
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setSummaryLoading(false);
+      });
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [dashboardFilter]);
+
+  useEffect(() => {
+    if (analyticsReady || analyticsLoading || summaryLoading) {
+      return undefined;
+    }
+
+    let isMounted = true;
+    let timeoutId = 0;
+    const loadAnalytics = () => {
+      setAnalyticsLoading(true);
+      Promise.all([
+        resourceService.listAll("physical-sales").catch(() => []),
+        resourceService.listAll("derivative-operations").catch(() => []),
+        resourceService.listAll("crop-boards").catch(() => []),
+        resourceService.listAll("hedge-policies").catch(() => []),
+        resourceService.listAll("physical-payments").catch(() => []),
+      ])
+        .then(([salesResponse, derivativeResponse, cropBoardResponse, policiesResponse, physicalPaymentsResponse]) => {
+          if (!isMounted) return;
+          setPhysicalSales(salesResponse || []);
+          setDerivatives(derivativeResponse || []);
+          setCropBoards(cropBoardResponse || []);
+          setHedgePolicies(policiesResponse || []);
+          setPhysicalPayments(physicalPaymentsResponse || []);
+          setAnalyticsReady(true);
+        })
+        .finally(() => {
+          if (!isMounted) return;
+          setAnalyticsLoading(false);
+        });
+    };
+
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const idleId = window.requestIdleCallback(loadAnalytics, { timeout: 900 });
+      return () => {
+        isMounted = false;
+        window.cancelIdleCallback(idleId);
+      };
+    }
+
+    timeoutId = window.setTimeout(loadAnalytics, 250);
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [analyticsLoading, analyticsReady, summaryLoading]);
 
   useEffect(() => {
     let isMounted = true;
@@ -3704,6 +3756,18 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     };
   }, [selectedMarketNewsPost?.id]);
 
+  const productionSummary = summaryData?.productionSummary || {};
+  const marketQuotes = Array.isArray(summaryData?.marketQuotes) ? summaryData.marketQuotes : [];
+  const marketNewsPosts = Array.isArray(summaryData?.marketNewsPosts) ? summaryData.marketNewsPosts : [];
+  const upcomingMaturityRows = Array.isArray(summaryData?.upcomingMaturityRows) ? summaryData.upcomingMaturityRows : [];
+  const formCompletionRows = Array.isArray(summaryData?.formCompletionRows) ? summaryData.formCompletionRows : [];
+  const formCompletionSummary = summaryData?.formCompletionSummary || {
+    totalForms: 0,
+    filledForms: 0,
+    pendingForms: 0,
+    totalRecords: 0,
+  };
+
   const filteredSales = useMemo(
     () => physicalSales.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, physicalSales],
@@ -3712,23 +3776,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => cropBoards.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
     [cropBoards, dashboardFilter],
   );
-  const filteredQuotes = useMemo(
-    () =>
-      physicalQuotes.filter((item) =>
-        rowMatchesDashboardFilter(item, dashboardFilter, {
-          seasonKeys: ["safra"],
-          localityKeys: ["localidade"],
-        }),
-      ),
-    [dashboardFilter, physicalQuotes],
-  );
   const filteredPolicies = useMemo(
     () => hedgePolicies.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, hedgePolicies],
-  );
-  const filteredBudgetCosts = useMemo(
-    () => budgetCosts.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
-    [budgetCosts, dashboardFilter],
   );
   const filteredPhysicalPayments = useMemo(
     () =>
@@ -3738,16 +3788,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         }),
       ),
     [dashboardFilter, physicalPayments],
-  );
-  const filteredCashPayments = useMemo(
-    () =>
-      cashPayments.filter((item) =>
-        rowMatchesDashboardFilter(item, dashboardFilter, {
-          cultureKeys: ["fazer_frente_com"],
-          seasonKeys: ["safra"],
-        }),
-      ),
-    [cashPayments, dashboardFilter],
   );
   const filteredDerivatives = useMemo(
     () =>
@@ -3831,11 +3871,13 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     };
   }, [editingMaturityItem?.id, maturityFormDefinition?.resource, maturityFormFields]);
 
-  const openMaturityForm = (item) => {
+  const openMaturityForm = async (item) => {
     if (!item?.recordId || !item?.resourceKey) return;
 
     if (item.resourceKey === "derivative-operations") {
-      const current = derivatives.find((row) => String(row.id) === String(item.recordId));
+      const current =
+        derivatives.find((row) => String(row.id) === String(item.recordId)) ||
+        (await resourceService.getOne(item.resourceKey, item.recordId).catch(() => null));
       if (!current) return;
       setEditingMaturityItem({
         ...current,
@@ -3854,7 +3896,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         : item.resourceKey === "physical-payments"
           ? physicalPayments
           : cashPayments;
-    const current = sourceRows.find((row) => String(row.id) === String(item.recordId));
+    const current =
+      sourceRows.find((row) => String(row.id) === String(item.recordId)) ||
+      (await resourceService.getOne(item.resourceKey, item.recordId).catch(() => null));
     if (!current) return;
     setEditingMaturityItem({ ...current, resourceKey: item.resourceKey });
     setMaturityFormError("");
@@ -3890,19 +3934,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => currencyDerivatives.reduce((sum, item) => sum + getDerivativeVolumeValue(item), 0),
     [currencyDerivatives],
   );
-  const basisContracts = useMemo(
-    () => filteredSales.filter((item) => Math.abs(Number(item.basis_valor || 0)) > 0).length,
-    [filteredSales],
-  );
-  const basisAverage = useMemo(
-    () => averageOf(filteredSales.map((item) => item.basis_valor)) ?? 0,
-    [filteredSales],
-  );
-  const quoteAverage = useMemo(
-    () => averageOf(filteredQuotes.map((item) => item.cotacao)) ?? 0,
-    [filteredQuotes],
-  );
-  const policyCount = filteredPolicies.length;
   const physicalPaymentVolume = useMemo(
     () => filteredPhysicalPayments.reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0),
     [filteredPhysicalPayments],
@@ -4115,6 +4146,10 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.area || 0)), 0),
     [filteredCropBoards],
   );
+  const displayedProductionTotal = analyticsReady ? productionTotal : Number(productionSummary?.productionTotal || 0);
+  const displayedPhysicalPaymentVolume = analyticsReady ? physicalPaymentVolume : Number(productionSummary?.physicalPaymentVolume || 0);
+  const displayedNetProductionVolume = analyticsReady ? netProductionBase : Number(productionSummary?.netProductionVolume || 0);
+  const displayedTotalArea = analyticsReady ? totalArea : Number(productionSummary?.totalArea || 0);
   const activePhysicalCommercializedVolume = hedgeSummaryActivePoint?.physicalRaw || 0;
   const activeDerivativeCommercializedVolume = hedgeSummaryActivePoint?.derivativeRaw || 0;
   const totalCommercializedVolume = hedgeCardCommercializedVolume;
@@ -4205,39 +4240,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       totalArea,
     ],
   );
-  const formCompletionRows = useMemo(
-    () => [
-      { label: "Quadro Safra", path: "/quadro-safra", count: filteredCropBoards.length, hint: "Base de produção e cobertura" },
-      { label: "Vendas Físico", path: "/vendas-fisico", count: filteredSales.length, hint: "Contratos físicos negociados" },
-      { label: "Derivativos", path: "/derivativos", count: filteredDerivatives.length, hint: "Operações em bolsa e câmbio" },
-      { label: "Cotações Físico", path: "/cotacoes-fisico", count: filteredQuotes.length, hint: "Referência de mercado / MTM" },
-      { label: "Política de Hedge", path: "/politica-hedge", count: filteredPolicies.length, hint: "Faixas e disciplina de risco" },
-      { label: "Custo Orçamento", path: "/custo-orcamento", count: filteredBudgetCosts.length, hint: "Base de margem e cobertura" },
-      { label: "Pgtos Físico", path: "/pgtos-fisico", count: filteredPhysicalPayments.length, hint: "Fluxo operacional do físico" },
-      { label: "Pgtos Caixa", path: "/pgtos-caixa", count: filteredCashPayments.length, hint: "Fluxo financeiro consolidado" },
-    ].map((item) => ({
-      ...item,
-      status: item.count > 0 ? "Preenchido" : "Pendente",
-    })),
-    [
-      filteredBudgetCosts.length,
-      filteredCashPayments.length,
-      filteredCropBoards.length,
-      filteredDerivatives.length,
-      filteredPhysicalPayments.length,
-      filteredPolicies.length,
-      filteredQuotes.length,
-      filteredSales.length,
-    ],
-  );
-  const formCompletionSummary = useMemo(() => {
-    const totalForms = formCompletionRows.length;
-    const filledForms = formCompletionRows.filter((item) => item.count > 0).length;
-    const pendingForms = totalForms - filledForms;
-    const totalRecords = formCompletionRows.reduce((sum, item) => sum + item.count, 0);
-    return { totalForms, filledForms, pendingForms, totalRecords };
-  }, [formCompletionRows]);
-
   const activePhysicalPayments = useMemo(
     () =>
       filteredPhysicalPayments.filter((item) => {
@@ -4368,143 +4370,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       .slice(0, 6);
   }, [bolsaDerivatives, derivativeStandardVolumeGetter, filteredCropBoards, filteredSales, cultureLabelById]);
 
-  const upcomingMaturityRows = useMemo(() => {
-    const today = startOfDashboardDay(new Date());
-    if (!today) return [];
-
-    const formatValueLabel = (value, unitLabel = "") => {
-      const amount = Number(value || 0);
-      const unit = String(unitLabel || "").trim();
-      if (!Number.isFinite(amount) || amount === 0) {
-        return unit || "—";
-      }
-      if (isUsdCurrency(unit)) {
-        return `U$ ${formatCurrency2(amount)}`;
-      }
-      if (isEuroCurrency(unit)) {
-        return `€ ${formatCurrency2(amount)}`;
-      }
-      if (isBrlCurrency(unit)) {
-        return `R$ ${formatCurrency2(amount)}`;
-      }
-      return `${formatNumber0(amount)}${unit ? ` ${unit}` : ""}`;
-    };
-
-    const formatStrikeLabel = (value, unitLabel = "") => {
-      const strike = Number(value || 0);
-      if (!Number.isFinite(strike) || strike === 0) return "";
-      const unit = String(unitLabel || "").trim();
-      if (isUsdCurrency(unit)) {
-        return `Strike ${formatCurrency2(strike)} U$`;
-      }
-      if (isEuroCurrency(unit)) {
-        return `Strike ${formatCurrency2(strike)} €`;
-      }
-      if (isBrlCurrency(unit)) {
-        return `Strike ${formatCurrency2(strike)} R$`;
-      }
-      return `Strike ${formatCurrency2(strike)}${unit ? ` ${unit}` : ""}`;
-    };
-
-    const salesRows = filteredSales
-      .map((item) => {
-        const dueDate = startOfDashboardDay(item.data_pagamento);
-        if (!dueDate || dueDate < today) return null;
-        return {
-          recordId: item.id,
-          resourceKey: "physical-sales",
-          app: "Vendas Fisico",
-          title: item.cultura_produto || resolveCultureLabel(item.cultura || item.cultura_texto) || "Contrato fisico",
-          summaryLabel: item.cultura_produto || resolveCultureLabel(item.cultura || item.cultura_texto) || "Contrato fisico",
-          dateLabel: "Pagamento",
-          dateText: formatBrazilianDate(dueDate, "—"),
-          dateKey: toIsoDate(dueDate),
-          date: dueDate,
-          valueLabel: formatValueLabel(
-            Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0),
-            item.moeda_contrato || "",
-          ),
-        };
-      })
-      .filter(Boolean);
-
-    const physicalPaymentRows = filteredPhysicalPayments
-      .map((item) => {
-        const dueDate = startOfDashboardDay(item.data_pagamento);
-        if (!dueDate || dueDate < today) return null;
-        return {
-          recordId: item.id,
-          resourceKey: "physical-payments",
-          app: "Pgtos Fisico",
-          title: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento fisico",
-          summaryLabel: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento fisico",
-          dateLabel: "Pagamento",
-          dateText: formatBrazilianDate(dueDate, "—"),
-          dateKey: toIsoDate(dueDate),
-          date: dueDate,
-          valueLabel: formatValueLabel(item.volume, item.unidade || ""),
-        };
-      })
-      .filter(Boolean);
-
-    const cashPaymentRows = filteredCashPayments
-      .map((item) => {
-        const dueDate = startOfDashboardDay(item.data_pagamento);
-        if (!dueDate || dueDate < today) return null;
-        return {
-          recordId: item.id,
-          resourceKey: "cash-payments",
-          app: "Pgtos Caixa",
-          title: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento caixa",
-          summaryLabel: item.descricao || resolveCultureLabel(item.fazer_frente_com || item.cultura || item.cultura_texto) || "Pagamento caixa",
-          dateLabel: "Pagamento",
-          dateText: formatBrazilianDate(dueDate, "—"),
-          dateKey: toIsoDate(dueDate),
-          date: dueDate,
-          valueLabel: formatValueLabel(item.volume, item.moeda || ""),
-        };
-      })
-      .filter(Boolean);
-
-    const derivativeRows = filteredDerivatives
-      .map((item) => {
-        const dueDate = startOfDashboardDay(item.data_liquidacao);
-        if (!dueDate || dueDate < today) return null;
-        const operationLabel = item.nome_da_operacao || item.contrato_derivativo || item.cod_operacao_mae || "Operacao derivativa";
-        const strikeLabel = formatStrikeLabel(
-          item.strike_montagem || item.strike_liquidacao,
-          item.volume_financeiro_moeda || item.moeda_unidade || "",
-        );
-        const institutionLabel =
-          item.bolsa_ref ||
-          item.ctrbolsa ||
-          item.instituicao ||
-          item.bolsa?.nome ||
-          item.bolsa ||
-          "";
-        return {
-          recordId: item.id,
-          resourceKey: "derivative-operations",
-          app: "Derivativos",
-          title: operationLabel,
-          summaryLabel: [operationLabel, institutionLabel, strikeLabel].filter(Boolean).join(" - "),
-          dateLabel: "Liquidacao",
-          dateText: formatBrazilianDate(dueDate, "—"),
-          dateKey: toIsoDate(dueDate),
-          date: dueDate,
-          valueLabel: formatValueLabel(
-            item.volume_financeiro_valor || item.volume_financeiro_valor_moeda_original || item.volume_fisico_valor || item.numero_lotes,
-            item.volume_financeiro_moeda || item.volume_fisico_unidade || item.moeda_unidade || "",
-          ),
-        };
-      })
-      .filter(Boolean);
-
-    return [...salesRows, ...physicalPaymentRows, ...cashPaymentRows, ...derivativeRows]
-      .sort((left, right) => left.date - right.date)
-      .slice(0, 8);
-  }, [filteredCashPayments, filteredDerivatives, filteredPhysicalPayments, filteredSales]);
-
   const openQuotesPage = () => {
     navigateFromSummary(navigate, "/mercado/cotacoes", "Cotações");
   };
@@ -4569,81 +4434,96 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
         <article className="card stat-card">
           <h1 className="stat-card-primary-title risk-kpi-card-title">Produção líquida</h1>
-          <strong>{formatNumber0(netProductionVolume)} sc</strong>
+          <strong>{formatNumber0(displayedNetProductionVolume)} sc</strong>
           <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
-          <strong className="stat-card-secondary-value">{formatNumber0(physicalPaymentVolume)} sc</strong>
+          <strong className="stat-card-secondary-value">{formatNumber0(displayedPhysicalPaymentVolume)} sc</strong>
           <span className="stat-card-secondary-label">Produção total</span>
           <strong className="stat-card-secondary-value">
-            {formatNumber0(productionTotal)} sc ({formatNumber0(totalArea)} ha | {formatNumber0(totalArea > 0 ? productionTotal / totalArea : 0)} sc/ha)
+            {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
           </strong>
         </article>
         <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} />
         <CommercialRiskNewsSummaryCard rows={marketNewsPosts} onOpen={openBlogNewsPage} onOpenPost={openMarketNewsPreview} />
       </section>
 
-      <section className="stats-grid risk-kpi-grid risk-kpi-grid-summary">
-        <HedgeSummaryGaugeCards
-          totalPercent={totalSalesPercent}
-          totalMetricValue={totalCommercializedVolume}
-          totalMetricLabel={totalArea > 0 ? `${formatNumber2(totalScPerHa)} scs/ha` : null}
-          physicalPercent={totalCommercializedVolume > 0 ? (activePhysicalCommercializedVolume / totalCommercializedVolume) * 100 : physicalSalesPercent}
-          physicalMetricValue={activePhysicalCommercializedVolume}
-          physicalMetricLabel={totalArea > 0 ? `${formatNumber2(physicalScPerHa)} scs/ha` : `${formatNumber0(activePhysicalCommercializedVolume)} sc`}
-          physicalDetailLines={
-            physicalPriceLines.length
-              ? physicalPriceLines.map((item) => `${formatNumber0(item.volume)} sc | ${formatCurrency2(item.averagePrice)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
-              : []
-          }
-          derivativePercent={totalCommercializedVolume > 0 ? (activeDerivativeCommercializedVolume / totalCommercializedVolume) * 100 : derivativeSalesPercent}
-          derivativeMetricValue={activeDerivativeCommercializedVolume}
-          derivativeMetricLabel={totalArea > 0 ? `${formatNumber2(derivativeScPerHa)} scs/ha` : `${formatNumber0(activeDerivativeCommercializedVolume)} sc`}
-          derivativeDetailLines={
-            derivativePriceLines.length
-              ? derivativePriceLines.map((item) => `${formatNumber0(item.volume)} sc | Strike ${formatCurrency2(item.averageStrike)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
-              : []
-          }
-          policyMinPercent={activePolicyMinPercent}
-          policyMaxPercent={activePolicyMaxPercent}
-        />
-        {hedgeRealizadoSummaryCard}
-      </section>
+      {analyticsReady ? (
+        <>
+          <section className="stats-grid risk-kpi-grid risk-kpi-grid-summary">
+            <HedgeSummaryGaugeCards
+              totalPercent={totalSalesPercent}
+              totalMetricValue={totalCommercializedVolume}
+              totalMetricLabel={totalArea > 0 ? `${formatNumber2(totalScPerHa)} scs/ha` : null}
+              physicalPercent={totalCommercializedVolume > 0 ? (activePhysicalCommercializedVolume / totalCommercializedVolume) * 100 : physicalSalesPercent}
+              physicalMetricValue={activePhysicalCommercializedVolume}
+              physicalMetricLabel={totalArea > 0 ? `${formatNumber2(physicalScPerHa)} scs/ha` : `${formatNumber0(activePhysicalCommercializedVolume)} sc`}
+              physicalDetailLines={
+                physicalPriceLines.length
+                  ? physicalPriceLines.map((item) => `${formatNumber0(item.volume)} sc | ${formatCurrency2(item.averagePrice)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+                  : []
+              }
+              derivativePercent={totalCommercializedVolume > 0 ? (activeDerivativeCommercializedVolume / totalCommercializedVolume) * 100 : derivativeSalesPercent}
+              derivativeMetricValue={activeDerivativeCommercializedVolume}
+              derivativeMetricLabel={totalArea > 0 ? `${formatNumber2(derivativeScPerHa)} scs/ha` : `${formatNumber0(activeDerivativeCommercializedVolume)} sc`}
+              derivativeDetailLines={
+                derivativePriceLines.length
+                  ? derivativePriceLines.map((item) => `${formatNumber0(item.volume)} sc | Strike ${formatCurrency2(item.averageStrike)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+                  : []
+              }
+              policyMinPercent={activePolicyMinPercent}
+              policyMaxPercent={activePolicyMaxPercent}
+            />
+            {hedgeRealizadoSummaryCard}
+          </section>
 
-      <section className="risk-kpi-long-short-grid risk-kpi-hedge-chart-row">
-        {hedgeProductionChartNode}
-      </section>
+          <section className="risk-kpi-long-short-grid risk-kpi-hedge-chart-row">
+            {hedgeProductionChartNode}
+          </section>
 
-      <section className="risk-kpi-long-short-grid">
-        <CommercialRiskLongShortChart
-          rows={longShortRows}
-          cultureButtons={options.cropBoardCrops || []}
-          selectedCultureIds={filter.cultura}
-          onToggleCulture={(value) => toggleFilterValue("cultura", value)}
-          onClearCultures={() => updateFilter("cultura", [])}
-          referenceDate={hedgeSummaryReferenceDate}
-          onOpenDetailTable={openCommercialRiskLongShortDetail}
-        />
-      </section>
+          <section className="risk-kpi-long-short-grid">
+            <CommercialRiskLongShortChart
+              rows={longShortRows}
+              cultureButtons={options.cropBoardCrops || []}
+              selectedCultureIds={filter.cultura}
+              onToggleCulture={(value) => toggleFilterValue("cultura", value)}
+              onClearCultures={() => updateFilter("cultura", [])}
+              referenceDate={hedgeSummaryReferenceDate}
+              onOpenDetailTable={openCommercialRiskLongShortDetail}
+            />
+          </section>
 
-      <section className="risk-kpi-derivative-donuts">
-        <DonutChart
-          centerLabel="Derivativos"
-          centerValue={`${filteredDerivatives.length} ops`}
-          slices={derivativeExchangeSlices}
-          onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "all")}
-        />
-        <DonutChart
-          centerLabel="Em aberto"
-          centerValue={`${filteredDerivatives.filter((item) => !normalizeText(item.status_operacao).includes("encerr")).length} ops`}
-          slices={derivativeExchangeOpenSlices}
-          onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "open")}
-        />
-        <DonutChart
-          centerLabel="Encerrado"
-          centerValue={`${filteredDerivatives.filter((item) => normalizeText(item.status_operacao).includes("encerr")).length} ops`}
-          slices={derivativeExchangeClosedSlices}
-          onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "closed")}
-        />
-      </section>
+          <section className="risk-kpi-derivative-donuts">
+            <DonutChart
+              centerLabel="Derivativos"
+              centerValue={`${filteredDerivatives.length} ops`}
+              slices={derivativeExchangeSlices}
+              onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "all")}
+            />
+            <DonutChart
+              centerLabel="Em aberto"
+              centerValue={`${filteredDerivatives.filter((item) => !normalizeText(item.status_operacao).includes("encerr")).length} ops`}
+              slices={derivativeExchangeOpenSlices}
+              onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "open")}
+            />
+            <DonutChart
+              centerLabel="Encerrado"
+              centerValue={`${filteredDerivatives.filter((item) => normalizeText(item.status_operacao).includes("encerr")).length} ops`}
+              slices={derivativeExchangeClosedSlices}
+              onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "closed")}
+            />
+          </section>
+        </>
+      ) : (
+        <section className="stats-grid risk-kpi-grid risk-kpi-grid-summary">
+          <article className="chart-card">
+            <div className="chart-card-header">
+              <div>
+                <h3>Carregando análise</h3>
+                <p className="muted">Os blocos analíticos entram depois do resumo principal para acelerar a abertura da página.</p>
+              </div>
+            </div>
+          </article>
+        </section>
+      )}
 
       <section className="risk-kpi-forms-grid">
         <article className="chart-card risk-kpi-forms-card">

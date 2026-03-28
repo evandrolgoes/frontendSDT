@@ -48,20 +48,7 @@ const warmDashboardKind = (kind) => {
     case "componentSales":
       return warmResources("physical-sales", "derivative-operations", "counterparties");
     case "commercialRisk":
-      return Promise.all([
-        warmResources(
-          "physical-sales",
-          "derivative-operations",
-          "crop-boards",
-          "physical-quotes",
-          "hedge-policies",
-          "budget-costs",
-          "physical-payments",
-          "cash-payments",
-          "market-news-posts",
-        ),
-        warmTradingviewQuotes(),
-      ]);
+      return resourceService.getCommercialRiskSummary().catch(() => null);
     case "strategiesTriggers":
       return warmResources("strategies", "strategy-triggers");
     case "simulations":

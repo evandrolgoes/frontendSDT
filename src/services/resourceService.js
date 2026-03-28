@@ -158,6 +158,15 @@ export const resourceService = {
       api.get(`/${resource}/${id}/attachments/`).then((response) => response.data),
     );
   },
+  getOne: (resource, id, options = {}) => {
+    const cacheKey = buildCacheKey("detail", `${resource}/${id}`, {});
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get(`/${resource}/${id}/`).then((response) => response.data),
+    );
+  },
   listDerivativeContracts: (secao) =>
     remember(buildCacheKey("lookup", "derivative-contracts", { secao }), () =>
       api.get("derivative-contracts/", { params: { secao } }).then((response) => response.data),
@@ -202,6 +211,15 @@ export const resourceService = {
     }
     return remember(cacheKey, () =>
       api.get("market-news-posts/categories/").then((response) => response.data),
+    );
+  },
+  getCommercialRiskSummary: (params = {}, options = {}) => {
+    const cacheKey = buildCacheKey("dashboard", "commercial-risk-summary", params);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("dashboard/commercial-risk-summary/", { params }).then((response) => response.data),
     );
   },
   fetchJsonCached: (cacheKey, url, options = {}) =>
