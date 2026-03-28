@@ -6,29 +6,62 @@ import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { getNavigationSections } from "../routes/routes";
 import { resourceService } from "../services/resourceService";
 
+const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [], localidade: [] };
+
+const normalizeValues = (value) => {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item != null && item !== "").map((item) => String(item));
+  }
+  if (value == null || value === "") {
+    return [];
+  }
+  return [String(value)];
+};
+
+const normalizeFilterDraft = (value) => ({
+  grupo: normalizeValues(value?.grupo),
+  subgrupo: normalizeValues(value?.subgrupo),
+  cultura: normalizeValues(value?.cultura),
+  safra: normalizeValues(value?.safra),
+  localidade: normalizeValues(value?.localidade),
+});
+
 function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
+  const selectedCount = selectedValues.length;
+
   return (
     <section className="dashboard-chip-group dashboard-chip-group-popup">
       <div className="dashboard-chip-group-header">
-        <strong>{title}</strong>
-        {selectedValues.length ? (
-          <button type="button" className="dashboard-chip-clear" onClick={onClear}>
+        <div className="dashboard-chip-group-title-wrap">
+          <strong>{title}</strong>
+          <span className="dashboard-chip-group-count">{selectedCount ? `${selectedCount} selecionado(s)` : `${items.length} opcoes`}</span>
+        </div>
+        {selectedCount ? (
+          <button type="button" className="dashboard-chip-clear dashboard-chip-clear-popup" onClick={onClear}>
             Limpar
           </button>
         ) : null}
       </div>
-      <div className="dashboard-chip-list">
-        {items.map((item) => (
-          <button
-            key={`${title}-${item.id}`}
-            type="button"
-            className={`dashboard-chip${selectedValues.includes(String(item.id)) ? " active" : ""}`}
-            onClick={() => onToggle(String(item.id))}
-          >
-            {item[labelKey]}
-          </button>
-        ))}
-      </div>
+      {items.length ? (
+        <div className="dashboard-filter-option-list" role="list" aria-label={title}>
+          {items.map((item) => (
+            <button
+              key={`${title}-${item.id}`}
+              type="button"
+              className={`dashboard-filter-option${selectedValues.includes(String(item.id)) ? " active" : ""}`}
+              onClick={() => onToggle(String(item.id))}
+              role="listitem"
+            >
+              <span className="dashboard-filter-option-check" aria-hidden="true">
+                {selectedValues.includes(String(item.id)) ? "✓" : ""}
+              </span>
+              <span className="dashboard-filter-option-label">{item[labelKey]}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="dashboard-filter-empty-state">Nenhuma opcao disponivel para a combinacao atual.</div>
+      )}
     </section>
   );
 }
@@ -36,7 +69,7 @@ function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onCl
 export function AdminLayout({ children }) {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const { filter, hasActiveFilter, options, panelOpen, setPanelOpen, toggleFilterValue, updateFilter, clearFilter } = useDashboardFilter();
+  const { filter, hasActiveFilter, options, panelOpen, setPanelOpen, saveFilter, isSaving } = useDashboardFilter();
   const isCashflowDashboard = location.pathname === "/dashboard/fluxo-caixa";
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
   const [marketNewsCategories, setMarketNewsCategories] = useState([]);
@@ -49,14 +82,16 @@ export function AdminLayout({ children }) {
     Object.fromEntries(navigationSections.map((section) => [section.label, false])),
   );
   const [openItems, setOpenItems] = useState({});
+  const [draftFilter, setDraftFilter] = useState(() => normalizeFilterDraft(filter));
+
   const filterSummary = useMemo(() => {
-    const summarize = (values, source, labelKey, prefix) => {
+    const summarize = (values, source, labelKey, prefix, { fallback = null } = {}) => {
       if (!values.length) return null;
       const names = source
         .filter((item) => values.includes(String(item.id)))
         .map((item) => item[labelKey])
         .filter(Boolean);
-      if (!names.length) return null;
+      if (!names.length) return fallback;
       return `${prefix}: ${names.slice(0, 2).join(", ")}${names.length > 2 ? " +" + (names.length - 2) : ""}`;
     };
 
@@ -68,8 +103,36 @@ export function AdminLayout({ children }) {
       !isCashflowDashboard ? summarize(filter.localidade, options.localities, "label", "Localidade") : null,
     ].filter(Boolean);
 
-    return parts.length ? parts : ["Consolidado geral"];
+    return parts.length ? parts : ["Aplique um Filtro"];
   }, [filter, isCashflowDashboard, options]);
+
+  const floatingFilterMessage = useMemo(() => {
+    const resolveNames = (values, source, labelKey) =>
+      source
+        .filter((item) => values.includes(String(item.id)))
+        .map((item) => item[labelKey])
+        .filter(Boolean);
+
+    const compactNames = (items) => {
+      if (!items.length) return "";
+      return items.length > 2 ? `${items.slice(0, 2).join(", ")} +${items.length - 2}` : items.join(", ");
+    };
+
+    const groupNames = compactNames(resolveNames(filter.grupo, options.groups, "grupo"));
+    const subgroupNames = compactNames(resolveNames(filter.subgrupo, options.subgroups, "subgrupo"));
+    const cropNames = compactNames(resolveNames(filter.cultura, options.crops, "ativo"));
+    const seasonNames = compactNames(resolveNames(filter.safra, options.seasons, "safra"));
+
+    const primaryLine = [groupNames, subgroupNames].filter(Boolean).join(" / ") || "Grupos: todos";
+    const secondaryLine = [cropNames, seasonNames].filter(Boolean).join(" ") || "Culturas e safras: todas";
+
+    return [primaryLine, secondaryLine];
+  }, [filter, options.crops, options.groups, options.seasons, options.subgroups]);
+
+  useEffect(() => {
+    if (!panelOpen) return;
+    setDraftFilter(normalizeFilterDraft(filter));
+  }, [filter, panelOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -107,6 +170,37 @@ export function AdminLayout({ children }) {
     if (isMobileSidebar) {
       setMobileSidebarOpen(false);
     }
+  };
+
+  const toggleDraftFilterValue = (field, value) => {
+    const normalizedValue = String(value ?? "");
+    setDraftFilter((current) => {
+      const currentValues = normalizeValues(current?.[field]);
+      const nextValues = currentValues.includes(normalizedValue)
+        ? currentValues.filter((item) => item !== normalizedValue)
+        : [...currentValues, normalizedValue];
+      return { ...current, [field]: nextValues };
+    });
+  };
+
+  const updateDraftFilter = (field, value) => {
+    setDraftFilter((current) => ({ ...current, [field]: normalizeValues(value) }));
+  };
+
+  const applyDraftFilter = async () => {
+    const nextFilter = normalizeFilterDraft(draftFilter);
+    await saveFilter(nextFilter);
+    setPanelOpen(false);
+  };
+
+  const handlePanelToggle = () => {
+    setPanelOpen((current) => {
+      const nextOpen = !current;
+      if (!current) {
+        setDraftFilter(normalizeFilterDraft(filter));
+      }
+      return nextOpen;
+    });
   };
 
   useEffect(() => {
@@ -300,25 +394,25 @@ export function AdminLayout({ children }) {
             <div className="sidebar-filter-modal-header">
               <strong>Filtro dashboards</strong>
               <div className="sidebar-filter-modal-header-actions">
-                <button type="button" className="sidebar-filter-clear top" onClick={clearFilter}>
+                <button type="button" className="sidebar-filter-clear top" onClick={() => setDraftFilter(EMPTY_FILTER)} disabled={isSaving}>
                   Limpar tudo
                 </button>
-                <button type="button" className="sidebar-filter-close" onClick={() => setPanelOpen(false)} aria-label="Fechar filtro">
-                  ×
+                <button type="button" className="sidebar-filter-save" onClick={() => void applyDraftFilter()} disabled={isSaving}>
+                  {isSaving ? "Salvando..." : "Salvar e fechar"}
                 </button>
               </div>
             </div>
             <div className="sidebar-filter-panel modal dashboard-filter-popup-grid">
-              <PopupChipGroup title="Grupos" items={options.groups} selectedValues={filter.grupo} labelKey="grupo" onToggle={(value) => toggleFilterValue("grupo", value)} onClear={() => updateFilter("grupo", [])} />
-              <PopupChipGroup title="Subgrupos" items={options.subgroups} selectedValues={filter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleFilterValue("subgrupo", value)} onClear={() => updateFilter("subgrupo", [])} />
+              <PopupChipGroup title="Grupos" items={options.groups} selectedValues={draftFilter.grupo} labelKey="grupo" onToggle={(value) => toggleDraftFilterValue("grupo", value)} onClear={() => updateDraftFilter("grupo", [])} />
+              <PopupChipGroup title="Subgrupos" items={options.subgroups} selectedValues={draftFilter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleDraftFilterValue("subgrupo", value)} onClear={() => updateDraftFilter("subgrupo", [])} />
               {!isCashflowDashboard ? (
-                <PopupChipGroup title="Ativos" items={options.cropBoardCrops || []} selectedValues={filter.cultura} labelKey="ativo" onToggle={(value) => toggleFilterValue("cultura", value)} onClear={() => updateFilter("cultura", [])} />
+                <PopupChipGroup title="Ativos" items={options.cropBoardCrops || []} selectedValues={draftFilter.cultura} labelKey="ativo" onToggle={(value) => toggleDraftFilterValue("cultura", value)} onClear={() => updateDraftFilter("cultura", [])} />
               ) : null}
               {!isCashflowDashboard ? (
-                <PopupChipGroup title="Safras" items={options.cropBoardSeasons || []} selectedValues={filter.safra} labelKey="safra" onToggle={(value) => toggleFilterValue("safra", value)} onClear={() => updateFilter("safra", [])} />
+                <PopupChipGroup title="Safras" items={options.cropBoardSeasons || []} selectedValues={draftFilter.safra} labelKey="safra" onToggle={(value) => toggleDraftFilterValue("safra", value)} onClear={() => updateDraftFilter("safra", [])} />
               ) : null}
               {!isCashflowDashboard ? (
-                <PopupChipGroup title="Localidade de Referência" items={options.localities} selectedValues={filter.localidade} labelKey="label" onToggle={(value) => toggleFilterValue("localidade", value)} onClear={() => updateFilter("localidade", [])} />
+                <PopupChipGroup title="Localidade de Referência" items={options.localities} selectedValues={draftFilter.localidade} labelKey="label" onToggle={(value) => toggleDraftFilterValue("localidade", value)} onClear={() => updateDraftFilter("localidade", [])} />
               ) : null}
             </div>
           </div>
@@ -328,10 +422,14 @@ export function AdminLayout({ children }) {
         <button
           type="button"
           className={`dashboard-floating-filter-trigger${hasActiveFilter ? "" : " is-empty"}`}
-          onClick={() => setPanelOpen((current) => !current)}
+          onClick={handlePanelToggle}
           aria-label="Abrir filtros dos dashboards"
           title={filterSummary.join(" | ")}
         >
+          <span className="dashboard-floating-filter-copy">
+            <span className="dashboard-floating-filter-text">{floatingFilterMessage[0]}</span>
+            <span className="dashboard-floating-filter-text secondary">{floatingFilterMessage[1]}</span>
+          </span>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
               d="M3 6h18l-7 8v4l-4 2v-6L3 6z"

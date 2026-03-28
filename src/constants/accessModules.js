@@ -45,6 +45,7 @@ export const moduleOptions = [
   { value: "sys_accounts_payable", label: "Sistema: Contas a Pagar" },
   { value: "sys_logs", label: "Sistema: Logs" },
   { value: "sys_json_import", label: "Sistema: Importador JSON" },
+  { value: "sys_copy_base", label: "Sistema: Copy Base" },
   { value: "sys_mass_update", label: "Sistema: Alteracao em Massa" },
 ];
 

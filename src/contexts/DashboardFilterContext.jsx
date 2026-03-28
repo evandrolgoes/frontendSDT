@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "./AuthContext";
+import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
 
-const STORAGE_KEY = "sdt_dashboard_filter";
 const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [], localidade: [] };
 
 const DashboardFilterContext = createContext(null);
@@ -30,6 +30,9 @@ const sortByLabel = (items = [], labelGetter) =>
     String(labelGetter(left) || "").localeCompare(String(labelGetter(right) || ""), "pt-BR", { sensitivity: "base" }),
   );
 
+const isSameArray = (left = [], right = []) =>
+  left.length === right.length && left.every((item, index) => String(item) === String(right[index]));
+
 const normalizeDashboardFilter = (value) => ({
   grupo: normalizeValues(value?.grupo),
   subgrupo: normalizeValues(value?.subgrupo),
@@ -37,22 +40,6 @@ const normalizeDashboardFilter = (value) => ({
   safra: normalizeValues(value?.safra),
   localidade: normalizeValues(value?.localidade),
 });
-
-const readStoredFilter = () => {
-  if (typeof window === "undefined") return EMPTY_FILTER;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY_FILTER;
-    return normalizeDashboardFilter(JSON.parse(raw));
-  } catch {
-    return EMPTY_FILTER;
-  }
-};
-
-const writeStoredFilter = (value) => {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeDashboardFilter(value)));
-};
 
 const extractIds = (row, keys) => {
   for (const key of keys) {
@@ -92,6 +79,16 @@ const normalizeLocality = (value) => {
     .filter(Boolean)
     .map((part) => part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase());
   return (parts.length ? parts : [text.toLowerCase()]).sort().join("|");
+};
+
+const formatLocalityLabel = (value) => {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    const uf = String(value.uf || value.sigla || "").trim();
+    const city = String(value.cidade || value.nome || "").trim();
+    return [uf, city].filter(Boolean).join("/") || city || uf;
+  }
+  return String(value).trim();
 };
 
 const extractLocalities = (row, keys) => {
@@ -150,8 +147,8 @@ export const rowMatchesDashboardFilter = (
 };
 
 export function DashboardFilterProvider({ children }) {
-  const { isAuthenticated } = useAuth();
-  const [filter, setFilter] = useState(readStoredFilter);
+  const { isAuthenticated, loading: authLoading, user, updateCurrentUser } = useAuth();
+  const [filter, setFilter] = useState(() => normalizeDashboardFilter(user?.dashboard_filter));
   const [options, setOptions] = useState({
     groups: [],
     subgroups: [],
@@ -163,20 +160,16 @@ export function DashboardFilterProvider({ children }) {
     exchanges: [],
   });
   const [panelOpen, setPanelOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    writeStoredFilter(filter);
-  }, [filter]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const handleStorage = (event) => {
-      if (event.key !== STORAGE_KEY) return;
-      setFilter(readStoredFilter());
-    };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+    if (authLoading) return;
+    if (!isAuthenticated) {
+      setFilter(EMPTY_FILTER);
+      return;
+    }
+    setFilter(normalizeDashboardFilter(user?.dashboard_filter));
+  }, [authLoading, isAuthenticated, user?.dashboard_filter]);
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
@@ -187,12 +180,13 @@ export function DashboardFilterProvider({ children }) {
       resourceService.listAll("crops"),
       resourceService.listAll("seasons"),
       resourceService.listAll("crop-boards"),
-      resourceService.listAll("physical-quotes"),
       resourceService.listAll("exchanges"),
-    ]).then(([groups, subgroups, crops, seasons, cropBoards, physicalQuotes, exchanges]) => {
+    ]).then(([groups, subgroups, crops, seasons, cropBoards, exchanges]) => {
       if (!isMounted) return;
       const cropBoardCultureIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["cultura"])))];
       const cropBoardSeasonIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["safra"])))];
+      const selectedGroupIds = new Set(normalizeValues(filter?.grupo));
+      const selectedSubgroupIds = new Set(normalizeValues(filter?.subgrupo));
       const selectedCultureIds = new Set(normalizeValues(filter?.cultura));
       const selectedSeasonIds = new Set(normalizeValues(filter?.safra));
       const cropMapById = new Map((crops || []).map((item) => [String(item.id), item]));
@@ -215,20 +209,28 @@ export function DashboardFilterProvider({ children }) {
         if (!selectedSeasonIds.size) return true;
         return extractIds(item, ["safra", "safras"]).some((id) => selectedSeasonIds.has(String(id)));
       };
-      const buildLocalityOption = (item) => {
-        const raw = typeof item === "string" ? item.trim() : [item?.uf, item?.cidade].filter(Boolean).join("/");
-        const normalized = normalizeLocality(item);
-        return raw && normalized ? { id: normalized, label: raw } : null;
+      const matchesSelectedGroup = (item) => {
+        if (!selectedGroupIds.size) return true;
+        return extractIds(item, ["grupo", "grupos"]).some((id) => selectedGroupIds.has(String(id)));
       };
-      const localities = [
-        ...(cropBoards || [])
-          .filter((item) => matchesSelectedCulture(item) && matchesSelectedSeason(item))
-          .flatMap((item) => (Array.isArray(item.localidade) ? item.localidade : [])),
-        ...(physicalQuotes || [])
-          .filter((item) => matchesSelectedCulture(item) && matchesSelectedSeason(item))
-          .map((item) => item.localidade)
-          .filter(Boolean),
-      ]
+      const matchesSelectedSubgroup = (item) => {
+        if (!selectedSubgroupIds.size) return true;
+        return extractIds(item, ["subgrupo", "subgrupos"]).some((id) => selectedSubgroupIds.has(String(id)));
+      };
+      const buildLocalityOption = (value) => {
+        const label = formatLocalityLabel(value);
+        const normalized = normalizeLocality(value);
+        return label && normalized ? { id: normalized, label } : null;
+      };
+      const localities = (cropBoards || [])
+        .filter(
+          (item) =>
+            matchesSelectedGroup(item) &&
+            matchesSelectedSubgroup(item) &&
+            matchesSelectedCulture(item) &&
+            matchesSelectedSeason(item),
+        )
+        .flatMap((item) => (Array.isArray(item.localidade) ? item.localidade : []))
         .map(buildLocalityOption)
         .filter(Boolean)
         .reduce((acc, item) => {
@@ -258,7 +260,7 @@ export function DashboardFilterProvider({ children }) {
     return () => {
       isMounted = false;
     };
-  }, [filter?.cultura, filter?.safra, isAuthenticated]);
+  }, [filter?.grupo, filter?.subgrupo, filter?.cultura, filter?.safra, isAuthenticated]);
 
   useEffect(() => {
     setFilter((current) => {
@@ -278,11 +280,11 @@ export function DashboardFilterProvider({ children }) {
       };
 
       const hasChanged =
-        JSON.stringify(normalizeValues(current?.grupo)) !== JSON.stringify(nextFilter.grupo) ||
-        JSON.stringify(normalizeValues(current?.subgrupo)) !== JSON.stringify(nextFilter.subgrupo) ||
-        JSON.stringify(normalizeValues(current?.cultura)) !== JSON.stringify(nextFilter.cultura) ||
-        JSON.stringify(normalizeValues(current?.safra)) !== JSON.stringify(nextFilter.safra) ||
-        JSON.stringify(normalizeValues(current?.localidade)) !== JSON.stringify(nextFilter.localidade);
+        !isSameArray(normalizeValues(current?.grupo), nextFilter.grupo) ||
+        !isSameArray(normalizeValues(current?.subgrupo), nextFilter.subgrupo) ||
+        !isSameArray(normalizeValues(current?.cultura), nextFilter.cultura) ||
+        !isSameArray(normalizeValues(current?.safra), nextFilter.safra) ||
+        !isSameArray(normalizeValues(current?.localidade), nextFilter.localidade);
 
       return hasChanged ? nextFilter : current;
     });
@@ -299,6 +301,7 @@ export function DashboardFilterProvider({ children }) {
       hasActiveFilter,
       options,
       panelOpen,
+      isSaving,
       setPanelOpen,
       updateFilter(field, value) {
         setFilter((current) => ({ ...current, [field]: normalizeValues(value) }));
@@ -316,9 +319,22 @@ export function DashboardFilterProvider({ children }) {
       clearFilter() {
         setFilter(EMPTY_FILTER);
       },
+      async saveFilter(nextFilter) {
+        const normalized = normalizeDashboardFilter(nextFilter);
+        setIsSaving(true);
+        try {
+          const { data } = await api.put("/auth/dashboard-filter/", normalized);
+          const savedFilter = normalizeDashboardFilter(data);
+          setFilter(savedFilter);
+          updateCurrentUser?.({ dashboard_filter: savedFilter });
+          return savedFilter;
+        } finally {
+          setIsSaving(false);
+        }
+      },
       matchesDashboardFilter: rowMatchesDashboardFilter,
     }),
-    [filter, hasActiveFilter, options, panelOpen],
+    [filter, hasActiveFilter, isSaving, options, panelOpen, updateCurrentUser],
   );
 
   return <DashboardFilterContext.Provider value={value}>{children}</DashboardFilterContext.Provider>;

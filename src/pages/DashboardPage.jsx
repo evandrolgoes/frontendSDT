@@ -20,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import { DatePickerField } from "../components/DatePickerField";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
+import { ResourceTable } from "../components/ResourceTable";
 import { ResourceForm } from "../components/ResourceForm";
 import { rowMatchesDashboardFilter, useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
@@ -119,7 +120,42 @@ const parseLocalizedNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const useViewportMatch = (query) => {
+  const getMatches = () => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return false;
+    }
+    return window.matchMedia(query).matches;
+  };
+
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
+    const mediaQuery = window.matchMedia(query);
+    const handleChange = (event) => {
+      setMatches(event.matches);
+    };
+
+    setMatches(mediaQuery.matches);
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => mediaQuery.removeEventListener("change", handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, [query]);
+
+  return matches;
+};
+
 function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
+  const marqueeRepeatCount = 7;
+  const marqueeCenterSequenceIndex = Math.floor(marqueeRepeatCount / 2);
   const marqueeRef = useRef(null);
   const marqueeTrackRef = useRef(null);
   const marqueeSequenceRef = useRef(null);
@@ -155,7 +191,10 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
       firstRow: item.firstRow,
     }));
   }, [rows]);
-  const marqueeRows = carouselRows.length > 1 ? [carouselRows, carouselRows, carouselRows] : [carouselRows];
+  const marqueeRows = useMemo(
+    () => (carouselRows.length > 1 ? Array.from({ length: marqueeRepeatCount }, () => carouselRows) : [carouselRows]),
+    [carouselRows, marqueeRepeatCount],
+  );
 
   const getMarqueeLoopWidth = () => {
     const track = marqueeTrackRef.current;
@@ -176,11 +215,14 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
       return;
     }
 
-    while (container.scrollLeft >= loopWidth * 2) {
+    const minScroll = loopWidth;
+    const maxScroll = Math.max(loopWidth * (marqueeRows.length - 2), minScroll);
+
+    while (container.scrollLeft >= maxScroll) {
       container.scrollLeft -= loopWidth;
     }
 
-    while (container.scrollLeft < loopWidth) {
+    while (container.scrollLeft < minScroll) {
       container.scrollLeft += loopWidth;
     }
   };
@@ -259,6 +301,9 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
       marqueeDragStateRef.current = { ...drag, moved: true };
       setIsMarqueeInteracting(true);
     }
+    if (event.cancelable) {
+      event.preventDefault();
+    }
     container.scrollLeft = drag.startScrollLeft - deltaX;
     normalizeMarqueeScroll();
   };
@@ -310,8 +355,9 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
     };
 
     const loopWidth = getMarqueeLoopWidth();
+    const startingScroll = loopWidth * marqueeCenterSequenceIndex;
     if (loopWidth && container.scrollLeft < loopWidth) {
-      container.scrollLeft = loopWidth;
+      container.scrollLeft = startingScroll;
     }
     normalizeMarqueeScroll();
     animationFrameId = window.requestAnimationFrame(step);
@@ -321,7 +367,7 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
       window.cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", handleResize);
     };
-  }, [carouselRows.length, isMarqueeHovered]);
+  }, [carouselRows.length, isMarqueeHovered, marqueeCenterSequenceIndex, marqueeRows.length]);
 
   return (
     <section className="resource-filter-panel risk-kpi-quotes-strip">
@@ -379,7 +425,7 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
   );
 }
 
-function CommercialRiskNewsSummaryCard({ rows, onOpen }) {
+function CommercialRiskNewsSummaryCard({ rows, onOpen, onOpenPost }) {
   const latestPosts = useMemo(() => {
     const published = (Array.isArray(rows) ? rows : []).filter((item) => item?.status_artigo !== "draft");
     const source = published.length ? published : (Array.isArray(rows) ? rows : []);
@@ -389,28 +435,19 @@ function CommercialRiskNewsSummaryCard({ rows, onOpen }) {
   }, [rows]);
 
   return (
-    <div
-      className="card stat-card risk-kpi-news-stat-card"
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onOpen();
-        }
-      }}
-    >
-      <span className="stat-card-primary-title">Blog/News</span>
+    <div className="card stat-card risk-kpi-news-stat-card">
+      <button type="button" className="stat-card-primary-title risk-kpi-card-title risk-kpi-news-stat-title" onClick={onOpen}>
+        Blog/News
+      </button>
       <div className="risk-kpi-news-stat-list">
         {latestPosts.length ? (
           latestPosts.map((post) => (
-            <article className="risk-kpi-news-stat-item" key={post.id}>
+            <button type="button" className="risk-kpi-news-stat-item" key={post.id} onClick={() => onOpenPost?.(post)}>
               <div className="risk-kpi-news-date">{formatCompactPostDate(post.data_publicacao || post.created_at) || "Sem data"}</div>
               <div className="risk-kpi-news-stat-content">
                 <strong>{post.titulo || "Sem título"}</strong>
               </div>
-            </article>
+            </button>
           ))
         ) : (
           <div className="risk-kpi-link-card-empty">Nenhum post disponível no momento.</div>
@@ -420,10 +457,144 @@ function CommercialRiskNewsSummaryCard({ rows, onOpen }) {
   );
 }
 
+const navigateFromSummary = (navigate, path, destinationLabel = "") => {
+  if (!path) return;
+  if (typeof window !== "undefined") {
+    const destination = destinationLabel || "destino";
+    const shouldNavigate = window.confirm(`Deseja ir para a página de ${destination}?`);
+    if (!shouldNavigate) {
+      return;
+    }
+  }
+  if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+  navigate(path);
+  if (typeof window !== "undefined") {
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
+  }
+};
+
+const formatMarketNewsPostDate = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+};
+
+const getMarketNewsAttachmentUrl = (attachment) => attachment?.file_url || attachment?.file || "";
+
+const isMarketNewsImageAttachment = (attachment) => /\.(png|jpe?g|gif|webp|svg)$/i.test(getMarketNewsAttachmentUrl(attachment));
+
+function MarketNewsPreviewModal({ post, attachments, attachmentsLoading, onClose }) {
+  const [audioRate, setAudioRate] = useState(1);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    setAudioRate(1);
+  }, [post?.id]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = audioRate;
+    }
+  }, [audioRate, post?.id]);
+
+  useEffect(() => {
+    if (!post) return undefined;
+    const handleEscape = (event) => {
+      if (event.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onClose, post]);
+
+  if (!post) return null;
+
+  return (
+    <div className="risk-kpi-news-preview-backdrop" onClick={onClose}>
+      <div className="risk-kpi-news-preview-modal" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="risk-kpi-news-preview-close" onClick={onClose} aria-label="Fechar artigo">
+          ×
+        </button>
+        <article className="market-news-detail risk-kpi-news-preview-article">
+          <header className="risk-kpi-news-preview-header">
+            <h2>{post.titulo || "News"}</h2>
+            <div className="market-news-detail-meta">
+              <div className="market-news-detail-badges">
+                {(Array.isArray(post.categorias) ? post.categorias : []).map((category) => (
+                  <span className="market-news-badge" key={category}>
+                    {category}
+                  </span>
+                ))}
+              </div>
+              <div className="market-news-detail-submeta">
+                <span>Por: {post.published_by_name || post.created_by_name || "Equipe"}</span>
+                <span>Publicado em: {formatMarketNewsPostDate(post.data_publicacao || post.created_at)}</span>
+              </div>
+            </div>
+          </header>
+
+          {attachmentsLoading ? <div className="market-news-empty">Carregando anexos...</div> : null}
+          {!attachmentsLoading && attachments.length ? (
+            <div className="market-news-attachments-card">
+              <strong>Anexos</strong>
+              <div className="market-news-attachments-list">
+                {attachments.map((attachment) => (
+                  <div key={attachment.id} className="market-news-attachment-item">
+                    {isMarketNewsImageAttachment(attachment) ? (
+                      <img className="market-news-attachment-preview" src={getMarketNewsAttachmentUrl(attachment)} alt={attachment.original_name} />
+                    ) : null}
+                    <a href={getMarketNewsAttachmentUrl(attachment)} target="_blank" rel="noreferrer" className="market-news-attachment-link">
+                      {attachment.original_name}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {post.audio ? (
+            <div className="market-news-audio-card">
+              <div className="market-news-audio-header">
+                <strong>Audio do post</strong>
+                <div className="market-news-audio-rates">
+                  {[1, 1.25, 1.5, 2].map((rate) => (
+                    <button
+                      key={rate}
+                      type="button"
+                      className={`market-news-audio-rate${audioRate === rate ? " is-active" : ""}`}
+                      onClick={() => setAudioRate(rate)}
+                    >
+                      {rate}x
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <audio ref={audioRef} controls src={post.audio} className="market-news-audio-player" />
+            </div>
+          ) : null}
+
+          <div className="market-news-content" dangerouslySetInnerHTML={{ __html: post.conteudo_html || "" }} />
+          {!stripHtml(post.conteudo_html || "").length ? <div className="market-news-empty">Este post ainda não possui conteúdo.</div> : null}
+        </article>
+      </div>
+    </div>
+  );
+}
+
 function UpcomingMaturitiesCard({ rows, onOpenItem }) {
   return (
     <article className="card stat-card risk-kpi-maturity-card">
-      <span className="stat-card-primary-title">Proximos vencimentos</span>
+      <h2 className="stat-card-primary-title risk-kpi-card-title">Próximos vencimentos</h2>
       <div className="risk-kpi-maturity-list">
         {rows.length ? (
           rows.map((item, index) => (
@@ -582,7 +753,7 @@ function StackedBarsChart({ data }) {
   );
 }
 
-function DonutChart({ slices, centerLabel, centerValue }) {
+function DonutChart({ slices, centerLabel, centerValue, onSliceClick }) {
   const option = useMemo(() => ({
     animationDuration: 250,
     tooltip: { trigger: "item" },
@@ -603,6 +774,17 @@ function DonutChart({ slices, centerLabel, centerValue }) {
     ],
   }), [centerLabel, centerValue, slices]);
 
+  const chartEvents = useMemo(() => {
+    if (!onSliceClick) return undefined;
+    return {
+      click: (params) => {
+        const sliceLabel = params?.name;
+        if (!sliceLabel) return;
+        onSliceClick(sliceLabel, params);
+      },
+    };
+  }, [onSliceClick]);
+
   return (
     <div className="chart-card">
       <div className="chart-card-header">
@@ -612,11 +794,318 @@ function DonutChart({ slices, centerLabel, centerValue }) {
         </div>
       </div>
       <div className="donut-wrap">
-        <ReactECharts option={option} style={{ height: 220, width: 220 }} opts={{ renderer: "svg" }} />
+        <ReactECharts
+          option={option}
+          style={{ height: 220, width: 220, cursor: onSliceClick ? "pointer" : "default" }}
+          opts={{ renderer: "svg" }}
+          onEvents={chartEvents}
+        />
         <MiniLegend items={slices} />
       </div>
     </div>
   );
+}
+
+function ComponentPopupEyeButton({ onClick, title = "Abrir operacao", disabled = false }) {
+  return (
+    <button
+      type="button"
+      className="component-popup-eye-button"
+      onClick={onClick}
+      aria-label={title}
+      title={title}
+      disabled={disabled}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path
+          d="M1.5 12s3.8-6 10.5-6 10.5 6 10.5 6-3.8 6-10.5 6S1.5 12 1.5 12Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      </svg>
+    </button>
+  );
+}
+
+function DashboardResourceTableModal({ title, definition, rows, onClose, onEdit }) {
+  const [searchValue, setSearchValue] = useState("");
+
+  useEffect(() => {
+    setSearchValue("");
+  }, [definition?.resource, rows, title]);
+
+  if (!definition) return null;
+
+  return (
+    <div className="component-popup-backdrop" onClick={onClose}>
+      <div className="component-popup dashboard-resource-table-modal" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="component-popup-close" onClick={onClose}>
+          ×
+        </button>
+        <div className="component-popup-header dashboard-resource-table-header">
+          <div>
+            <strong>{title}</strong>
+            <p className="muted">{rows.length} registro(s) no recorte selecionado.</p>
+          </div>
+        </div>
+        <ResourceTable
+          definition={definition}
+          rows={rows}
+          searchValue={searchValue}
+          searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
+          onSearchChange={setSearchValue}
+          onClear={() => setSearchValue("")}
+          onEdit={onEdit}
+          tableHeight="82vh"
+        />
+      </div>
+    </div>
+  );
+}
+
+function useDashboardOperationEditor({
+  sales = [],
+  setSales,
+  derivatives = [],
+  setDerivatives,
+  physicalPayments = [],
+  setPhysicalPayments,
+  cashPayments = [],
+  setCashPayments,
+}) {
+  const [editingOperationItem, setEditingOperationItem] = useState(null);
+  const [operationAttachments, setOperationAttachments] = useState([]);
+  const [operationFormError, setOperationFormError] = useState("");
+
+  const operationFormDefinition = useMemo(() => {
+    if (!editingOperationItem?.resourceKey) return null;
+    if (editingOperationItem.resourceKey === "derivative-operations") return resourceDefinitions.derivativeOperations;
+    if (editingOperationItem.resourceKey === "physical-sales") return resourceDefinitions.physicalSales;
+    if (editingOperationItem.resourceKey === "physical-payments") return resourceDefinitions.physicalPayments;
+    if (editingOperationItem.resourceKey === "cash-payments") return resourceDefinitions.cashPayments;
+    return null;
+  }, [editingOperationItem?.resourceKey]);
+
+  const operationFormFields = useMemo(() => {
+    if (!operationFormDefinition) return [];
+    return editingOperationItem
+      ? operationFormDefinition.editFields || operationFormDefinition.fields || []
+      : operationFormDefinition.fields || [];
+  }, [editingOperationItem, operationFormDefinition]);
+
+  const closeOperationForm = useCallback(() => {
+    setEditingOperationItem(null);
+    setOperationAttachments([]);
+    setOperationFormError("");
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const attachmentField = operationFormFields.find((field) => field.type === "file-multi") || operationFormDefinition?.attachmentField;
+
+    if (!editingOperationItem?.id || !operationFormDefinition?.resource || !attachmentField) {
+      setOperationAttachments([]);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    resourceService.listAttachments(operationFormDefinition.resource, editingOperationItem.id).then((items) => {
+      if (isMounted) setOperationAttachments(items);
+    }).catch(() => {
+      if (isMounted) setOperationAttachments([]);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [editingOperationItem?.id, operationFormDefinition?.resource, operationFormFields]);
+
+  const openOperationForm = useCallback((item) => {
+    if (!item?.recordId || !item?.resourceKey) return;
+
+    if (item.resourceKey === "derivative-operations") {
+      const current = derivatives.find((row) => String(row.id) === String(item.recordId));
+      if (!current) return;
+      setEditingOperationItem({
+        ...current,
+        resourceKey: item.resourceKey,
+        siblingRows: derivatives
+          .filter((candidate) => candidate.cod_operacao_mae === current.cod_operacao_mae)
+          .sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id),
+      });
+      setOperationFormError("");
+      return;
+    }
+
+    const sourceRows =
+      item.resourceKey === "physical-sales"
+        ? sales
+        : item.resourceKey === "physical-payments"
+          ? physicalPayments
+          : cashPayments;
+    const current = sourceRows.find((row) => String(row.id) === String(item.recordId));
+    if (!current) return;
+    setEditingOperationItem({ ...current, resourceKey: item.resourceKey });
+    setOperationFormError("");
+  }, [cashPayments, derivatives, physicalPayments, sales]);
+
+  const replaceRowById = useCallback((items, updated) => items.map((row) => (String(row.id) === String(updated.id) ? updated : row)), []);
+
+  const editorNode = (
+    <>
+      {editingOperationItem && operationFormDefinition?.customForm === "derivative-operation" ? (
+        <DerivativeOperationForm
+          title={`Editar ${operationFormDefinition.title}`}
+          initialValues={editingOperationItem}
+          existingAttachments={operationAttachments}
+          error={operationFormError}
+          onDeleteAttachment={async (attachment) => {
+            await resourceService.remove("attachments", attachment.id);
+            if (editingOperationItem?.id) {
+              const items = await resourceService.listAttachments(operationFormDefinition.resource, editingOperationItem.id);
+              setOperationAttachments(items);
+            }
+          }}
+          onClose={closeOperationForm}
+          onSubmit={async (payload, rawValues) => {
+            try {
+              const files = Array.isArray(rawValues.attachments) ? rawValues.attachments : [];
+              const siblingRows = Array.isArray(editingOperationItem?.siblingRows) ? editingOperationItem.siblingRows : [];
+              const cleanPayload = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "attachments" && key !== "itens"));
+              const itemPayloads = Array.isArray(payload.itens) ? payload.itens : [];
+              let primaryRecord = null;
+              const savedRows = [];
+              const removedIds = [];
+              const existingRows = siblingRows.length ? siblingRows : derivatives.filter((row) => row.cod_operacao_mae === editingOperationItem.cod_operacao_mae);
+              const keepIds = [];
+
+              for (let index = 0; index < itemPayloads.length; index += 1) {
+                const itemPayload = itemPayloads[index];
+                const existingRow = existingRows[index];
+                const rowPayload = {
+                  ...cleanPayload,
+                  grupo_montagem: itemPayload.grupo_montagem || "",
+                  tipo_derivativo: itemPayload.tipo_derivativo || "",
+                  numero_lotes: itemPayload.numero_lotes,
+                  strike_montagem: itemPayload.strike_montagem,
+                  custo_total_montagem_brl: itemPayload.custo_total_montagem_brl,
+                  strike_liquidacao: itemPayload.strike_liquidacao,
+                  ajustes_totais_brl: itemPayload.ajustes_totais_brl,
+                  ajustes_totais_usd: itemPayload.ajustes_totais_usd,
+                  ordem: index + 1,
+                  volume: itemPayload.volume,
+                  volume_financeiro_valor_moeda_original: itemPayload.volume_financeiro_valor_moeda_original,
+                };
+
+                if (existingRow?.id) {
+                  const updated = await resourceService.update(operationFormDefinition.resource, existingRow.id, rowPayload);
+                  savedRows.push(updated);
+                  keepIds.push(updated.id);
+                  if (!primaryRecord || String(updated.id) === String(editingOperationItem.id)) primaryRecord = updated;
+                } else {
+                  const created = await resourceService.create(operationFormDefinition.resource, rowPayload);
+                  savedRows.push(created);
+                  keepIds.push(created.id);
+                  if (!primaryRecord) primaryRecord = created;
+                }
+              }
+
+              const removableRows = existingRows.filter((row) => !keepIds.includes(row.id));
+              for (const removableRow of removableRows) {
+                await resourceService.remove(operationFormDefinition.resource, removableRow.id);
+                removedIds.push(removableRow.id);
+              }
+
+              if (savedRows.length && setDerivatives) {
+                setDerivatives((currentRows) => {
+                  const survivors = currentRows.filter((row) => !removedIds.includes(row.id));
+                  const nextRows = [...survivors];
+                  savedRows.forEach((savedRow) => {
+                    const index = nextRows.findIndex((row) => String(row.id) === String(savedRow.id));
+                    if (index >= 0) nextRows[index] = savedRow;
+                    else nextRows.push(savedRow);
+                  });
+                  return nextRows;
+                });
+              }
+
+              if (primaryRecord && files.length) {
+                await resourceService.uploadAttachments(operationFormDefinition.resource, primaryRecord.id, files);
+              }
+
+              closeOperationForm();
+            } catch (requestError) {
+              setOperationFormError(requestError?.response?.data?.detail || "Nao foi possivel salvar o derivativo.");
+            }
+          }}
+        />
+      ) : null}
+
+      {editingOperationItem && operationFormDefinition && operationFormDefinition.customForm !== "derivative-operation" ? (
+        <ResourceForm
+          title={`Editar ${operationFormDefinition.title}`}
+          fields={operationFormFields}
+          initialValues={editingOperationItem}
+          submitLabel={operationFormDefinition.submitLabel || "Salvar"}
+          existingAttachments={operationAttachments}
+          error={operationFormError}
+          onDeleteAttachment={async (attachment) => {
+            await resourceService.remove("attachments", attachment.id);
+            if (editingOperationItem?.id) {
+              const items = await resourceService.listAttachments(operationFormDefinition.resource, editingOperationItem.id);
+              setOperationAttachments(items);
+            }
+          }}
+          onClose={closeOperationForm}
+          onSubmit={async (payload, rawValues) => {
+            try {
+              const attachmentField = operationFormFields.find((field) => field.type === "file-multi");
+              const files = attachmentField && Array.isArray(rawValues[attachmentField.name]) ? rawValues[attachmentField.name] : [];
+              let cleanPayload = attachmentField
+                ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== attachmentField.name))
+                : payload;
+
+              if (operationFormDefinition.resource === "physical-sales" && cleanPayload.cultura_produto) {
+                const crops = await resourceService.listAll("crops");
+                const selectedCrop = crops.find((item) => (item.ativo || item.cultura) === cleanPayload.cultura_produto);
+                if (selectedCrop) {
+                  cleanPayload = {
+                    ...cleanPayload,
+                    cultura: selectedCrop.id,
+                  };
+                }
+              }
+
+              const saved = await resourceService.update(operationFormDefinition.resource, editingOperationItem.id, cleanPayload);
+
+              if (files.length) {
+                await resourceService.uploadAttachments(operationFormDefinition.resource, saved.id, files);
+              }
+
+              if (operationFormDefinition.resource === "physical-sales" && setSales) {
+                setSales((currentRows) => replaceRowById(currentRows, saved));
+              } else if (operationFormDefinition.resource === "physical-payments" && setPhysicalPayments) {
+                setPhysicalPayments((currentRows) => replaceRowById(currentRows, saved));
+              } else if (operationFormDefinition.resource === "cash-payments" && setCashPayments) {
+                setCashPayments((currentRows) => replaceRowById(currentRows, saved));
+              }
+
+              closeOperationForm();
+            } catch (requestError) {
+              setOperationFormError(requestError?.response?.data?.detail || "Nao foi possivel salvar o registro.");
+            }
+          }}
+        />
+      ) : null}
+    </>
+  );
+
+  return { openOperationForm, editorNode };
 }
 
 function ScenarioBars({ data }) {
@@ -770,7 +1259,41 @@ function DashboardQuickFilters() {
   );
 }
 
-function CommercialRiskLongShortChart({ rows, cultureButtons = [], selectedCultureIds = [], onToggleCulture, onClearCultures }) {
+function CommercialRiskLongShortChart({
+  rows,
+  cultureButtons = [],
+  selectedCultureIds = [],
+  onToggleCulture,
+  onClearCultures,
+  referenceDate = null,
+  onOpenDetailTable,
+}) {
+  const orderedSeries = [
+    { key: "nadaFeito", label: "Nada feito", color: "#ff6a2a", clickable: false },
+    { key: "derivatives", label: "Vendas via Derivativos", color: "#b8efb7", clickable: true },
+    { key: "physical", label: "Vendas via Físico (a termo)", color: "#48bf3b", clickable: true },
+    { key: "physicalPayments", label: "Pgtos Físico", color: "#355c35", clickable: true },
+  ];
+
+  const seriesByName = new Map(orderedSeries.map((item) => [item.label, item]));
+
+  const chartEvents = useMemo(
+    () => ({
+      click: (params) => {
+        const row = rows[params?.dataIndex];
+        const series = seriesByName.get(params?.seriesName);
+        if (!row || !series?.clickable || !(Number(row[series.key] || 0) > 0)) return;
+        onOpenDetailTable?.({
+          rowLabel: row.label,
+          series,
+          rows: row.detailRows?.[series.key] || [],
+          referenceDate,
+        });
+      },
+    }),
+    [onOpenDetailTable, referenceDate, rows, seriesByName],
+  );
+
   if (!rows.length) {
     return (
       <article className="chart-card chart-card-large risk-kpi-long-short-card">
@@ -785,18 +1308,9 @@ function CommercialRiskLongShortChart({ rows, cultureButtons = [], selectedCultu
     );
   }
 
-  const orderedSeries = [
-    { key: "nadaFeito", label: "Nada feito", color: "#ff6a2a" },
-    { key: "derivatives", label: "Vendas via Derivativos", color: "#b8efb7" },
-    { key: "physical", label: "Vendas via Físico (a termo)", color: "#48bf3b" },
-    { key: "barter", label: "Barter", color: "#567552" },
-    { key: "paymentTerras", label: "Pagamento Terras", color: "#1d221d" },
-    { key: "arrendamento", label: "Arrendamento", color: "#355c35" },
-  ];
-
   const option = {
     animationDuration: 250,
-    grid: { top: 18, right: 18, bottom: 28, left: 18, containLabel: true },
+    grid: { top: 18, right: 36, bottom: 28, left: 36, containLabel: true },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
@@ -833,6 +1347,7 @@ function CommercialRiskLongShortChart({ rows, cultureButtons = [], selectedCultu
         color: "#334155",
         fontWeight: 800,
         fontSize: 13,
+        margin: 36,
       },
     },
     series: orderedSeries.map((series) => ({
@@ -843,23 +1358,42 @@ function CommercialRiskLongShortChart({ rows, cultureButtons = [], selectedCultu
       itemStyle: { color: series.color },
       label: {
         show: true,
-        position: "inside",
         color: "#0f172a",
         fontWeight: 900,
         fontSize: 11,
         formatter: ({ value, dataIndex }) => {
           const numericValue = Number(value || 0);
           if (!numericValue) return "";
-          const production = rows[dataIndex]?.production || 0;
-          const percent = production > 0 ? Math.round((numericValue / production) * 100) : 0;
+          const baseValue = rows[dataIndex]?.totalForShare || 0;
+          const percent = baseValue > 0 ? Math.round((numericValue / baseValue) * 100) : 0;
           if (percent < 6 && numericValue < 5000) return "";
           return `${formatNumber0(numericValue)} (${percent}%)`;
         },
       },
+      labelLayout: {
+        hideOverlap: true,
+        moveOverlap: "shiftY",
+      },
       emphasis: { focus: "series" },
       data: rows.map((item) => {
         const value = Number(item[series.key] || 0);
-        return value > 0 ? value : null;
+        if (!(value > 0)) return null;
+
+        const rowTotal = Math.max(Number(item.production || 0), Number(item.covered || 0), 0);
+        const shouldPlaceOutside = rowTotal > 0 && value / rowTotal < 0.12;
+
+        return {
+          value,
+          label: {
+            position: shouldPlaceOutside ? "right" : "inside",
+            distance: shouldPlaceOutside ? 26 : 0,
+            padding: shouldPlaceOutside ? [2, 4] : 0,
+            backgroundColor: shouldPlaceOutside ? "rgba(255,255,255,0.92)" : "transparent",
+            borderColor: shouldPlaceOutside ? "rgba(148, 163, 184, 0.45)" : "transparent",
+            borderWidth: shouldPlaceOutside ? 1 : 0,
+            borderRadius: shouldPlaceOutside ? 4 : 0,
+          },
+        };
       }),
     })),
   };
@@ -892,7 +1426,12 @@ function CommercialRiskLongShortChart({ rows, cultureButtons = [], selectedCultu
           </button>
         ) : null}
       </div>
-      <ReactECharts option={option} style={{ height: Math.max(280, rows.length * 62 + 84) }} opts={{ renderer: "svg" }} />
+      <ReactECharts
+        option={option}
+        onEvents={chartEvents}
+        style={{ height: Math.max(280, rows.length * 62 + 84) }}
+        opts={{ renderer: "svg" }}
+      />
     </article>
   );
 }
@@ -981,6 +1520,7 @@ function CommercialRiskGaugePanel({
             derivativeValueGetter={derivativeVolumeGetter}
             derivativeVolumeGetter={derivativeVolumeGetter}
             onFocusToggle={onOpenHedgePolicy || (() => {})}
+            showFloatingCard={false}
           />
         </div>
       ) : null}
@@ -1009,14 +1549,17 @@ function HedgeSummaryGaugeCards({
   physicalPercent,
   physicalMetricValue = 0,
   physicalMetricLabel = null,
+  physicalDetailLines = [],
   derivativePercent,
   derivativeMetricValue = 0,
   derivativeMetricLabel = null,
+  derivativeDetailLines = [],
   policyMinPercent = null,
   policyMaxPercent = null,
 }) {
   const safeValue = (value) => Math.max(0, Math.min(Number(value || 0), 100));
-  const totalValue = safeValue(totalPercent);
+  const rawTotalValue = Number(totalPercent || 0);
+  const totalValue = safeValue(rawTotalValue);
   const derivativeValue = safeValue(derivativePercent);
   const physicalValue = safeValue(physicalPercent);
   const hasPolicyBand = Number.isFinite(policyMinPercent) && Number.isFinite(policyMaxPercent);
@@ -1024,17 +1567,6 @@ function HedgeSummaryGaugeCards({
   const maxBand = hasPolicyBand ? safeValue(Math.max(policyMinPercent, policyMaxPercent)) : null;
   const warnLowBand = hasPolicyBand ? safeValue(Math.max(minBand - 10, 0)) : null;
   const warnHighBand = hasPolicyBand ? safeValue(Math.min(maxBand + 10, 100)) : null;
-  const totalAxisColors = hasPolicyBand
-    ? [
-        [Math.max(warnLowBand / 100, 0), "#ff1a1a"],
-        [Math.max(minBand / 100, Math.max(warnLowBand / 100, 0)), "#f5b82e"],
-        [Math.max(maxBand / 100, Math.max(minBand / 100, 0)), "#16a34a"],
-        [Math.max(warnHighBand / 100, Math.max(maxBand / 100, 0)), "#f5b82e"],
-        [1, "#ff1a1a"],
-      ]
-    : [
-        [1, "#9ca3af"],
-      ];
   const distributionSlices = [
     {
       label: "Derivativos",
@@ -1051,241 +1583,204 @@ function HedgeSummaryGaugeCards({
       color: "rgba(250, 204, 21, 0.75)",
     },
   ].filter((item) => item.value > 0);
-  const distributionOption = {
-    animationDuration: 250,
-    tooltip: {
-      trigger: "item",
-      formatter: ({ name, value }) => `${name}: ${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
-    },
-    legend: { show: false },
-    series: [
-      {
-        type: "pie",
-        radius: ["50%", "70%"],
-        center: ["50%", "48%"],
-        avoidLabelOverlap: true,
-        itemStyle: { borderColor: "#fff", borderWidth: 4 },
-        label: {
-          show: true,
-          position: "outside",
-          alignTo: "edge",
-          edgeDistance: 10,
-          bleedMargin: 8,
-          color: "#0f172a",
-          fontWeight: 800,
-          fontSize: 9,
-          lineHeight: 13,
-          width: 84,
-          overflow: "break",
-          formatter: ({ value, data }) =>
-            `${data?.name || ""}\n${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%\n${data?.metricLabel || "—"}`,
-        },
-        labelLayout: {
-          hideOverlap: true,
-          moveOverlap: "shiftY",
-        },
-        labelLine: {
-          show: true,
-          length: 10,
-          length2: 6,
-          lineStyle: { color: "#94a3b8", width: 1.5 },
-        },
-        data: (distributionSlices.length
-          ? distributionSlices
-          : [{ label: "Sem dados", value: 100, color: "#cbd5e1", metricValue: 0, metricLabel: "—" }]).map((slice) => ({
-          name: slice.label,
-          value: slice.value,
-          metricValue: slice.metricValue,
-          metricLabel: slice.metricLabel,
-          itemStyle: { color: slice.color },
-        })),
-      },
-    ],
-    graphic: distributionSlices.length
-      ? [
-          { type: "text", left: "center", top: "39%", style: { text: "Mix", fill: "#64748b", fontSize: 12, fontWeight: 700 } },
-          {
-            type: "text",
-            left: "center",
-            top: "47%",
-            style: {
-              text: `${Number(totalPercent || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
-              fill: "#0f172a",
-              fontSize: 20,
-              fontWeight: 900,
-            },
-          },
-        ]
-      : [],
+  const gaugeSegments = hasPolicyBand
+    ? [
+        { from: 0, to: warnLowBand, color: "#ff1a1a" },
+        { from: warnLowBand, to: minBand, color: "#f5b82e" },
+        { from: minBand, to: maxBand, color: "#16a34a" },
+        { from: maxBand, to: warnHighBand, color: "#f5b82e" },
+        { from: warnHighBand, to: 100, color: "#ff1a1a" },
+      ]
+    : [
+        { from: 0, to: 20, color: "#ff1a1a" },
+        { from: 20, to: 40, color: "#f5b82e" },
+        { from: 40, to: 70, color: "#16a34a" },
+        { from: 70, to: 85, color: "#f5b82e" },
+        { from: 85, to: 100, color: "#ff1a1a" },
+      ];
+
+  const gaugeCenterX = 150;
+  const gaugeCenterY = 108;
+  const gaugeArcRadius = 74;
+  const gaugeOuterTickRadius = 84;
+  const gaugeLabelRadius = 95;
+  const polarToCartesian = (cx, cy, radius, angleDeg) => {
+    const angleRad = ((angleDeg - 90) * Math.PI) / 180;
+    return {
+      x: cx + radius * Math.cos(angleRad),
+      y: cy + radius * Math.sin(angleRad),
+    };
   };
-  const policyOption = {
-    animationDuration: 220,
-    tooltip: { show: false },
-    grid: { top: 16, right: 12, bottom: 10, left: 12, containLabel: false },
-    xAxis: {
-      type: "value",
-      min: 0,
-      max: 100,
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: { show: false },
-      splitLine: { show: false },
-    },
-    yAxis: {
-      type: "category",
-      data: ["Politica"],
-      axisLine: { show: false },
-      axisTick: { show: false },
-      axisLabel: { show: false },
-    },
-    series: [
-      {
-        type: "bar",
-        data: [100],
-        barWidth: 18,
-        itemStyle: {
-          color: "rgba(226, 232, 240, 0.9)",
-          borderRadius: 999,
-        },
-        silent: true,
-        z: 1,
-      },
-      {
-        type: "bar",
-        data: [maxBand || 0],
-        barWidth: 18,
-        itemStyle: {
-          color: {
-            type: "linear",
-            x: 0,
-            y: 0,
-            x2: 1,
-            y2: 0,
-            colorStops: [
-              { offset: 0, color: minBand != null ? "rgba(226, 232, 240, 0)" : "rgba(226, 232, 240, 0)" },
-              { offset: minBand != null ? minBand / 100 : 0, color: "rgba(226, 232, 240, 0)" },
-              { offset: minBand != null ? minBand / 100 : 0, color: "#16a34a" },
-              { offset: maxBand != null ? maxBand / 100 : 1, color: "#16a34a" },
-              { offset: maxBand != null ? maxBand / 100 : 1, color: "rgba(226, 232, 240, 0)" },
-              { offset: 1, color: "rgba(226, 232, 240, 0)" },
-            ],
-          },
-          borderRadius: 999,
-        },
-        silent: true,
-        z: 2,
-      },
-      {
-        type: "scatter",
-        symbol: "circle",
-        symbolSize: 16,
-        data: [[totalValue, 0]],
-        itemStyle: {
-          color: "#ea580c",
-          borderColor: "#fff",
-          borderWidth: 3,
-        },
-        z: 3,
-        silent: true,
-      },
-    ],
-    graphic: hasPolicyBand
-      ? [
-          {
-            type: "text",
-            left: 12,
-            top: 0,
-            style: {
-              text: `${minBand.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}% - ${maxBand.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%`,
-              fill: "#64748b",
-              fontSize: 11,
-              fontWeight: 700,
-            },
-          },
-          {
-            type: "text",
-            right: 12,
-            top: 0,
-            style: {
-              text: `${Number(totalPercent || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`,
-              fill: "#0f172a",
-              fontSize: 11,
-              fontWeight: 800,
-            },
-          },
-        ]
-      : [],
+
+  const describeArc = (cx, cy, radius, startAngle, endAngle) => {
+    const start = polarToCartesian(cx, cy, radius, endAngle);
+    const end = polarToCartesian(cx, cy, radius, startAngle);
+    const largeArcFlag = Math.abs(endAngle - startAngle) <= 180 ? "0" : "1";
+    return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y}`;
   };
-  const mainOption = {
-    series: [
-      {
-        type: "gauge",
-        startAngle: 225,
-        endAngle: -45,
-        min: 0,
-        max: 100,
-        center: ["50%", "66%"],
-        radius: "88%",
-        axisLine: {
-          lineStyle: {
-            width: 16,
-            color: totalAxisColors,
-          },
-        },
-        splitLine: {
-          distance: -20,
-          length: 12,
-          lineStyle: { color: "#111827", width: 1.5 },
-        },
-        axisTick: {
-          distance: -20,
-          splitNumber: 2,
-          length: 5,
-          lineStyle: { color: "#a3a3a3", width: 1.1 },
-        },
-        axisLabel: {
-          distance: 0,
-          color: "#7c7c7c",
-          fontSize: 10,
-          formatter: (value) => (value % 10 === 0 ? `${value}` : ""),
-        },
-        pointer: {
-          icon: "path://M2 -80 L-2 -80 L-6 0 L6 0 Z",
-          length: "68%",
-          width: 9,
-          itemStyle: { color: "#111827" },
-        },
-        anchor: {
-          show: true,
-          showAbove: true,
-          size: 12,
-          itemStyle: { color: "#fff", borderColor: "#111827", borderWidth: 2.5 },
-        },
-        title: { show: false },
-        detail: { show: false },
-        data: [{ value: totalValue }],
-      },
-    ],
-  };
+
+  const gaugeStartAngle = -135;
+  const gaugeSweep = 270;
+  const gaugeAngleForValue = (value) => gaugeStartAngle + (safeValue(value) / 100) * gaugeSweep;
+  const valueToGaugePoint = (value, radius) => polarToCartesian(gaugeCenterX, gaugeCenterY, radius, gaugeAngleForValue(value));
+  const gaugePointerEnd = valueToGaugePoint(totalValue, 56);
+  const gaugeNeedleLeft = polarToCartesian(gaugeCenterX, gaugeCenterY, 9, gaugeAngleForValue(totalValue) - 90);
+  const gaugeNeedleRight = polarToCartesian(gaugeCenterX, gaugeCenterY, 9, gaugeAngleForValue(totalValue) + 90);
+  const gaugeTicks = Array.from({ length: 11 }, (_, index) => {
+    const value = index * 10;
+    const angle = gaugeAngleForValue(value);
+    const outer = polarToCartesian(gaugeCenterX, gaugeCenterY, gaugeOuterTickRadius, angle);
+    const inner = polarToCartesian(gaugeCenterX, gaugeCenterY, value % 20 === 0 ? 66 : 72, angle);
+    const label = polarToCartesian(gaugeCenterX, gaugeCenterY, gaugeLabelRadius, angle);
+    return { value, outer, inner, label };
+  });
+  const donutCircumference = 2 * Math.PI * 70;
+  const physicalArc = (physicalValue / 100) * donutCircumference;
+  const derivativeArc = (derivativeValue / 100) * donutCircumference;
+  const distributionRows = distributionSlices.length
+    ? distributionSlices
+    : [
+        { label: "Físico", value: 0, metricLabel: "—", color: "rgba(250, 204, 21, 0.75)" },
+        { label: "Derivativos", value: 0, metricLabel: "—", color: "rgba(251, 146, 60, 0.85)" },
+      ];
+  const physicalRow = distributionRows.find((item) => item.label === "Físico") || distributionRows[0];
+  const derivativeRow = distributionRows.find((item) => item.label === "Derivativos") || distributionRows.at(-1);
 
   return (
     <>
       <article className="chart-card risk-kpi-gauge-card">
-        <div className="risk-kpi-gauge-main">
-          <div className="risk-kpi-gauge-main-title">Vendas Realizadas</div>
-          <div className="risk-kpi-gauge-main-subtitle">{totalMetricLabel || " "}</div>
-          <ReactECharts option={mainOption} style={{ height: 156, width: "100%" }} opts={{ renderer: "svg" }} />
-          <div className="risk-kpi-gauge-main-value">
-            {Number(totalPercent || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-          </div>
+        <div className="risk-kpi-chart-card-head">
+          <h2 className="risk-kpi-chart-card-title risk-kpi-card-title">Hedge Realizado</h2>
+          <div className="risk-kpi-chart-card-volume">{formatNumber0(totalMetricValue)} sc</div>
+          <div className="risk-kpi-chart-card-subtitle">{totalMetricLabel || " "}</div>
+        </div>
+        <div className="risk-kpi-sales-gauge-shell">
+          <svg viewBox="0 0 300 180" className="risk-kpi-sales-gauge-svg" aria-hidden="true">
+            {gaugeSegments.map((segment) => (
+              <path
+                key={`${segment.from}-${segment.to}-${segment.color}`}
+                d={describeArc(gaugeCenterX, gaugeCenterY, gaugeArcRadius, gaugeAngleForValue(segment.from), gaugeAngleForValue(segment.to))}
+                fill="none"
+                stroke={segment.color}
+                strokeWidth="20"
+                strokeLinecap="butt"
+              />
+            ))}
+            {gaugeTicks.map((tick) => (
+              <g key={`tick-${tick.value}`}>
+                <line
+                  x1={tick.outer.x}
+                  y1={tick.outer.y}
+                  x2={tick.inner.x}
+                  y2={tick.inner.y}
+                  stroke="#0f172a"
+                  strokeWidth={tick.value % 20 === 0 ? 2.8 : 1.2}
+                  strokeLinecap="round"
+                />
+                <text
+                  x={tick.label.x}
+                  y={tick.label.y}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  className="risk-kpi-sales-gauge-tick"
+                >
+                  {tick.value}
+                </text>
+              </g>
+            ))}
+            <path
+              d={`M ${gaugeNeedleLeft.x} ${gaugeNeedleLeft.y} L ${gaugeNeedleRight.x} ${gaugeNeedleRight.y} L ${gaugePointerEnd.x} ${gaugePointerEnd.y} Z`}
+              fill="#0f172a"
+            />
+            <circle cx={gaugeCenterX} cy={gaugeCenterY} r="11" fill="#fff" stroke="#0f172a" strokeWidth="4" />
+            <text x={gaugeCenterX} y="166" textAnchor="middle" className="risk-kpi-sales-gauge-value">
+              {`${rawTotalValue.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+            </text>
+          </svg>
         </div>
       </article>
 
       <article className="chart-card risk-kpi-mini-gauge-card risk-kpi-distribution-card">
-        <div className="risk-kpi-mini-gauge-title">Distribuição</div>
-        <ReactECharts option={distributionOption} style={{ height: 156, width: "100%" }} opts={{ renderer: "svg" }} />
+        <div className="risk-kpi-chart-card-head">
+          <h2 className="risk-kpi-chart-card-title risk-kpi-card-title">Distribuição</h2>
+        </div>
+        <div className="risk-kpi-distribution-shell">
+          <div className="risk-kpi-distribution-meta risk-kpi-distribution-meta--left">
+            <strong>{physicalRow?.label || "Físico"}</strong>
+            <span>{Number(physicalRow?.value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</span>
+            <span>{physicalRow?.metricLabel || "—"}</span>
+            {physicalDetailLines.map((line, index) => (
+              <small key={`physical-detail-${index}`}>{line}</small>
+            ))}
+          </div>
+          <div className="risk-kpi-distribution-donut-wrap">
+            <svg viewBox="0 0 220 220" className="risk-kpi-distribution-svg" aria-hidden="true">
+              <circle cx="110" cy="110" r="70" fill="none" stroke="rgba(226, 232, 240, 0.85)" strokeWidth="20" />
+              <circle
+                cx="110"
+                cy="110"
+                r="70"
+                fill="none"
+                stroke={physicalRow?.color || "rgba(250, 204, 21, 0.75)"}
+                strokeWidth="20"
+                strokeDasharray={`${physicalArc} ${donutCircumference}`}
+                strokeDashoffset="0"
+                transform="rotate(-90 110 110)"
+              />
+              <circle
+                cx="110"
+                cy="110"
+                r="70"
+                fill="none"
+                stroke={derivativeRow?.color || "rgba(251, 146, 60, 0.85)"}
+                strokeWidth="20"
+                strokeDasharray={`${derivativeArc} ${donutCircumference}`}
+                strokeDashoffset={-physicalArc - 6}
+                transform="rotate(-90 110 110)"
+              />
+              <text x="110" y="104" textAnchor="middle" className="risk-kpi-distribution-mix-label">Mix</text>
+              <text x="110" y="136" textAnchor="middle" className="risk-kpi-distribution-mix-value">
+                {`${rawTotalValue.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+              </text>
+            </svg>
+          </div>
+          <div className="risk-kpi-distribution-meta risk-kpi-distribution-meta--right">
+            <strong>{derivativeRow?.label || "Derivativos"}</strong>
+            <span>{Number(derivativeRow?.value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</span>
+            <span>{derivativeRow?.metricLabel || "—"}</span>
+            {derivativeDetailLines.map((line, index) => (
+              <small key={`derivative-detail-${index}`}>{line}</small>
+            ))}
+          </div>
+        </div>
       </article>
     </>
+  );
+}
+
+function HedgeStatusSummaryCard({
+  title = "Resumo Hedge",
+  tone = "ok",
+  summaryLine = "—",
+  rows = [],
+}) {
+  return (
+    <article className={`chart-card risk-kpi-hedge-summary-card is-${tone}`}>
+      <div className="chart-card-header">
+        <div>
+          <h3 className="risk-kpi-card-title">{title}</h3>
+        </div>
+      </div>
+      <div className="risk-kpi-hedge-summary-lines">
+        <div className={`risk-kpi-hedge-summary-total ${tone}`}>{summaryLine}</div>
+        {rows.map((row) => (
+          <div key={row.label} className="hedge-floating-line risk-kpi-hedge-summary-line">
+            <span className="hedge-strong">{row.label}</span>
+            <span>{row.value}</span>
+          </div>
+        ))}
+      </div>
+    </article>
   );
 }
 
@@ -1479,6 +1974,61 @@ const formatHedgeTooltipLine = (label, value, unit, baseValue, areaBase) => {
     parts.push(scPerHa);
   }
   return `${label}: ${parts.join(" — ")}`;
+};
+
+const formatHedgeSummaryPercentValue = (value, baseValue) =>
+  `${((baseValue > 0 ? Number(value || 0) / baseValue : 0) * 100).toLocaleString("pt-BR", {
+    maximumFractionDigits: 0,
+  })}%`;
+
+const formatHedgeSummaryValue = (value, unit) => {
+  if (unit === "BRL") {
+    return `R$ ${Number(value || 0).toLocaleString("pt-BR", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    })}`;
+  }
+  return `${Number(value || 0).toLocaleString("pt-BR", {
+    maximumFractionDigits: 0,
+  })} sc`;
+};
+
+const formatHedgeSummaryScPerHaValue = (value, unit, areaBase) => {
+  if (unit !== "SC" || !(Number(areaBase || 0) > 0)) return null;
+  return `${(Number(value || 0) / Number(areaBase || 1)).toLocaleString("pt-BR", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} sc/ha`;
+};
+
+const formatHedgeSummaryLine = (label, value, unit, baseValue, areaBase) => {
+  const parts = [formatHedgeSummaryPercentValue(value, baseValue), formatHedgeSummaryValue(value, unit)];
+  const scPerHa = formatHedgeSummaryScPerHaValue(value, unit, areaBase);
+  if (scPerHa) {
+    parts.push(scPerHa);
+  }
+  return `${label}: ${parts.join(" — ")}`;
+};
+
+const getHedgeBandTone = (totalPercent, policyMinPercent = null, policyMaxPercent = null) => {
+  const safeValue = (value) => Math.max(0, Math.min(Number(value || 0), 100));
+  const safeTotal = safeValue(totalPercent);
+  const hasPolicyBand = Number.isFinite(policyMinPercent) && Number.isFinite(policyMaxPercent);
+
+  if (hasPolicyBand) {
+    const minBand = safeValue(Math.min(policyMinPercent, policyMaxPercent));
+    const maxBand = safeValue(Math.max(policyMinPercent, policyMaxPercent));
+    const warnLowBand = safeValue(Math.max(minBand - 10, 0));
+    const warnHighBand = safeValue(Math.min(maxBand + 10, 100));
+
+    if (safeTotal < warnLowBand || safeTotal > warnHighBand) return "bad";
+    if (safeTotal < minBand || safeTotal > maxBand) return "warn";
+    return "ok";
+  }
+
+  if (safeTotal < 20 || safeTotal > 85) return "bad";
+  if (safeTotal < 40 || safeTotal > 70) return "warn";
+  return "ok";
 };
 
 const formatHedgePercentValue = (value, baseValue) =>
@@ -1742,6 +2292,8 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
       if (!date) return null;
       const value = Math.abs(Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0));
       return {
+        recordId: item.id,
+        resourceKey: "physical-sales",
         categoria: "Venda Físico em U$",
         subcategoria: item.cultura_produto || "Outros",
         data: formatBrazilianDate(item.data_pagamento || date),
@@ -1778,6 +2330,8 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
       const operationLabel = compraVenda === "compra" && tipoDerivativo === "put" ? "Compra Put" : "Venda NDF";
       const marketLabel = normalizeText(item.moeda_ou_cmdtye) === "cmdtye" ? "Bolsa (Futuros)" : "Dólar";
       return {
+        recordId: item.id,
+        resourceKey: "derivative-operations",
         categoria: `${marketLabel} · ${operationLabel}`,
         categoriaBase: marketLabel,
         subcategoria: item.nome_da_operacao || "Outros",
@@ -1964,7 +2518,7 @@ function useComponentSalesSource(dashboardFilter, dateFrom, dateTo) {
     [counterparties],
   );
 
-  return useMemo(
+  const rows = useMemo(
     () =>
       buildComponentSalesRows({
         sales,
@@ -1977,9 +2531,11 @@ function useComponentSalesSource(dashboardFilter, dateFrom, dateTo) {
       }),
     [counterpartyMap, dashboardFilter, dateFrom, dateTo, derivatives, matchesDashboardFilter, sales],
   );
+
+  return { rows, sales, setSales, derivatives, setDerivatives };
 }
 
-function ComponentSalesDetailsPopup({ selectedBar, onClose }) {
+function ComponentSalesDetailsPopup({ selectedBar, onClose, onOpenOperation }) {
   const popupSummary = useMemo(() => {
     if (!selectedBar?.ops?.length) return null;
     const totalValor = selectedBar.ops.reduce((sum, item) => sum + Math.abs(Number(item.valor) || 0), 0);
@@ -1993,6 +2549,11 @@ function ComponentSalesDetailsPopup({ selectedBar, onClose }) {
   if (!selectedBar) {
     return null;
   }
+
+  const handleOpenOperation = (item) => {
+    onClose?.();
+    onOpenOperation?.(item);
+  };
 
   return (
     <div className="component-popup-backdrop" onClick={onClose}>
@@ -2011,6 +2572,7 @@ function ComponentSalesDetailsPopup({ selectedBar, onClose }) {
         <table className="component-popup-table">
           <thead>
             <tr>
+              <th className="component-popup-action-col" />
               <th>Data do vencimento</th>
               <th>Valor</th>
               <th>Volume</th>
@@ -2021,6 +2583,9 @@ function ComponentSalesDetailsPopup({ selectedBar, onClose }) {
           <tbody>
             {selectedBar.ops.map((item, index) => (
               <tr key={`${item.data}-${index}`}>
+                <td className="component-popup-action-cell">
+                  {item.recordId ? <ComponentPopupEyeButton onClick={() => handleOpenOperation(item)} /> : null}
+                </td>
                 <td>{item.data}</td>
                 <td>{formatCurrency0(Math.abs(item.valor || 0))}</td>
                 <td>
@@ -2036,6 +2601,7 @@ function ComponentSalesDetailsPopup({ selectedBar, onClose }) {
             ))}
             {popupSummary ? (
               <tr>
+                <td />
                 <td><strong>Total</strong></td>
                 <td><strong>{formatCurrency0(popupSummary.totalValor)}</strong></td>
                 <td><strong>{popupSummary.totalVolume.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</strong></td>
@@ -2118,32 +2684,7 @@ const stackTotalsPlugin = {
   },
 };
 
-const hedgeTodayLinePlugin = {
-  id: "hedgeTodayLine",
-  afterDatasetsDraw(chart, _args, pluginOptions) {
-    const todayIndex = Number(pluginOptions?.index);
-    if (!Number.isInteger(todayIndex) || todayIndex < 0) return;
-
-    const xScale = chart.scales?.x;
-    const { ctx, chartArea } = chart;
-    if (!xScale || !chartArea) return;
-
-    const x = xScale.getPixelForValue(todayIndex);
-    if (!Number.isFinite(x) || x < chartArea.left || x > chartArea.right) return;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.setLineDash([5, 4]);
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = "rgba(37, 99, 235, 0.7)";
-    ctx.moveTo(x, chartArea.top);
-    ctx.lineTo(x, chartArea.bottom);
-    ctx.stroke();
-    ctx.restore();
-  },
-};
-
-Chart.register(stackTotalsPlugin, hedgeTodayLinePlugin);
+Chart.register(stackTotalsPlugin);
 
 function ComponentSalesDashboard({ dashboardFilter }) {
   const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
@@ -2155,7 +2696,19 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   const [datasetVisibility, setDatasetVisibility] = useState(() =>
     Object.fromEntries(COMPONENT_DATASETS.map((dataset) => [dataset.key, true])),
   );
-  const rows = useComponentSalesSource(dashboardFilter, dateFrom, dateTo);
+  const {
+    rows,
+    sales,
+    setSales,
+    derivatives,
+    setDerivatives,
+  } = useComponentSalesSource(dashboardFilter, dateFrom, dateTo);
+  const { openOperationForm, editorNode } = useDashboardOperationEditor({
+    sales,
+    setSales,
+    derivatives,
+    setDerivatives,
+  });
   const chartState = useMemo(
     () => buildComponentSalesChartState(rows, interval, datasetVisibility),
     [datasetVisibility, interval, rows],
@@ -2290,7 +2843,8 @@ function ComponentSalesDashboard({ dashboardFilter }) {
         </div>
       </div>
 
-      <ComponentSalesDetailsPopup selectedBar={selectedBar} onClose={() => setSelectedBar(null)} />
+      <ComponentSalesDetailsPopup selectedBar={selectedBar} onClose={() => setSelectedBar(null)} onOpenOperation={openOperationForm} />
+      {editorNode}
     </section>
   );
 }
@@ -2302,7 +2856,19 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
   const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
   const [selectedBar, setSelectedBar] = useState(null);
 
-  const rows = useComponentSalesSource(dashboardFilter, dateFrom, dateTo);
+  const {
+    rows,
+    sales,
+    setSales,
+    derivatives,
+    setDerivatives,
+  } = useComponentSalesSource(dashboardFilter, dateFrom, dateTo);
+  const { openOperationForm, editorNode } = useDashboardOperationEditor({
+    sales,
+    setSales,
+    derivatives,
+    setDerivatives,
+  });
   const chartState = useMemo(() => buildComponentSalesChartState(rows, interval), [interval, rows]);
 
   const strongestPeriod = useMemo(() => {
@@ -2492,7 +3058,8 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
         </div>
       </div>
 
-      <ComponentSalesDetailsPopup selectedBar={selectedBar} onClose={() => setSelectedBar(null)} />
+      <ComponentSalesDetailsPopup selectedBar={selectedBar} onClose={() => setSelectedBar(null)} onOpenOperation={openOperationForm} />
+      {editorNode}
     </section>
   );
 }
@@ -2527,6 +3094,8 @@ const buildCashflowRows = ({
       const date = parseDate(item.data_pagamento);
       if (!date) return null;
       return {
+        recordId: item.id,
+        resourceKey: "cash-payments",
         categoryKey: "payments",
         category: `Pagamentos em ${currencyConfig.label}`,
         date,
@@ -2546,6 +3115,8 @@ const buildCashflowRows = ({
       const date = parseDate(item.data_pagamento || item.data_negociacao);
       if (!date) return null;
       return {
+        recordId: item.id,
+        resourceKey: "physical-sales",
         categoryKey: "physicalSales",
         category: `Vendas em ${currencyConfig.label}`,
         date,
@@ -2572,6 +3143,8 @@ const buildCashflowRows = ({
       if (!date) return null;
       const isPurchase = normalizeText(item.grupo_montagem) === "compra";
       return {
+        recordId: item.id,
+        resourceKey: "derivative-operations",
         categoryKey: isPurchase ? "purchaseDerivatives" : "saleDerivatives",
         category: `${isPurchase ? "Compra" : "Vendas"} em ${currencyConfig.label} via Derivativos`,
         date,
@@ -2666,7 +3239,7 @@ const buildCashflowChartState = (rows, interval) => {
   return { labels, datasets, opsIndex, totals, saldoData, saldoTotal, periodSummaries };
 };
 
-function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose }) {
+function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose, onOpenOperation }) {
   const summary = useMemo(() => {
     if (!selectedItem?.ops?.length) return null;
     const totalValor = selectedItem.ops.reduce((sum, item) => sum + Number(item.valor || 0), 0);
@@ -2675,6 +3248,11 @@ function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose }) {
   }, [selectedItem]);
 
   if (!selectedItem) return null;
+
+  const handleOpenOperation = (item) => {
+    onClose?.();
+    onOpenOperation?.(item);
+  };
 
   return (
     <div className="component-popup-backdrop" onClick={onClose}>
@@ -2690,6 +3268,7 @@ function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose }) {
         <table className="component-popup-table">
           <thead>
             <tr>
+              <th className="component-popup-action-col" />
               <th>Data</th>
               <th>Valor</th>
               <th>Volume</th>
@@ -2700,6 +3279,9 @@ function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose }) {
           <tbody>
             {selectedItem.ops.map((item, index) => (
               <tr key={`${item.data}-${index}`}>
+                <td className="component-popup-action-cell">
+                  {item.recordId ? <ComponentPopupEyeButton onClick={() => handleOpenOperation(item)} /> : null}
+                </td>
                 <td>{item.data}</td>
                 <td>{formatMoneyByCurrency(item.valor, currencyLabel)}</td>
                 <td>{Number(item.volume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td>
@@ -2713,6 +3295,7 @@ function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose }) {
             ))}
             {summary ? (
               <tr>
+                <td />
                 <td><strong>Total</strong></td>
                 <td><strong>{formatMoneyByCurrency(summary.totalValor, currencyLabel)}</strong></td>
                 <td><strong>{Number(summary.totalVolume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</strong></td>
@@ -2734,6 +3317,7 @@ function CashflowCurrencyChart({
   compact = false,
   isExpanded = false,
   onToggleExpand,
+  onOpenOperation,
 }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [hoveredPeriod, setHoveredPeriod] = useState(null);
@@ -2861,12 +3445,18 @@ function CashflowCurrencyChart({
       <div className={`component-chartjs-wrap cashflow-chartjs-wrap${compact ? " cashflow-chartjs-wrap--compact" : ""}${isExpanded ? " cashflow-chartjs-wrap--expanded" : ""}`}>
         <ReactECharts option={chartOption} onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "svg" }} />
       </div>
-      <CashflowOperationsPopup selectedItem={selectedItem} currencyLabel={currencyConfig.label} onClose={() => setSelectedItem(null)} />
+      <CashflowOperationsPopup
+        selectedItem={selectedItem}
+        currencyLabel={currencyConfig.label}
+        onClose={() => setSelectedItem(null)}
+        onOpenOperation={onOpenOperation}
+      />
     </div>
   );
 }
 
 function CashflowDashboard({ dashboardFilter, compact = false }) {
+  const isMobileViewport = useViewportMatch("(max-width: 768px)");
   const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
   const [interval, setInterval] = useState("monthly");
   const [expandedCurrencyKey, setExpandedCurrencyKey] = useState(null);
@@ -2878,6 +3468,14 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
   const [cashPayments, setCashPayments] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
   const [counterparties, setCounterparties] = useState([]);
+  const { openOperationForm, editorNode } = useDashboardOperationEditor({
+    sales,
+    setSales,
+    derivatives,
+    setDerivatives,
+    cashPayments,
+    setCashPayments,
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -2931,10 +3529,12 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
 
   const visibleCurrencies = useMemo(
     () =>
-      expandedCurrencyKey
+      compact && isMobileViewport
+        ? CASHFLOW_CURRENCY_CONFIGS
+        : expandedCurrencyKey
         ? CASHFLOW_CURRENCY_CONFIGS.filter((currencyConfig) => currencyConfig.key === expandedCurrencyKey)
         : CASHFLOW_CURRENCY_CONFIGS,
-    [expandedCurrencyKey],
+    [compact, expandedCurrencyKey, isMobileViewport],
   );
 
   return (
@@ -2979,7 +3579,7 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
         </div>
       ) : null}
       <section
-        className={`cashflow-dashboard-shell${compact ? " cashflow-dashboard-shell--compact" : ""}${expandedCurrencyKey ? " cashflow-dashboard-shell--expanded" : ""}`}
+        className={`cashflow-dashboard-shell${compact ? " cashflow-dashboard-shell--compact" : ""}${expandedCurrencyKey ? " cashflow-dashboard-shell--expanded" : ""}${compact && isMobileViewport ? " cashflow-dashboard-shell--mobile-stacked" : ""}`}
       >
       {visibleCurrencies.map((currencyConfig) => (
         <CashflowCurrencyChart
@@ -2988,14 +3588,16 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
           rows={currencyRows[currencyConfig.key] || []}
           interval={interval}
           compact={compact}
-          isExpanded={expandedCurrencyKey === currencyConfig.key}
+          isExpanded={compact && isMobileViewport ? true : expandedCurrencyKey === currencyConfig.key}
+          onOpenOperation={openOperationForm}
           onToggleExpand={
-            compact
+            compact && !isMobileViewport
               ? () => setExpandedCurrencyKey((current) => (current === currencyConfig.key ? null : currencyConfig.key))
               : undefined
           }
         />
       ))}
+      {editorNode}
       </section>
     </section>
   );
@@ -3021,9 +3623,13 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [cashPayments, setCashPayments] = useState([]);
   const [marketQuotes, setMarketQuotes] = useState([]);
   const [marketNewsPosts, setMarketNewsPosts] = useState([]);
+  const [selectedMarketNewsPost, setSelectedMarketNewsPost] = useState(null);
+  const [selectedMarketNewsAttachments, setSelectedMarketNewsAttachments] = useState([]);
+  const [selectedMarketNewsAttachmentsLoading, setSelectedMarketNewsAttachmentsLoading] = useState(false);
   const [editingMaturityItem, setEditingMaturityItem] = useState(null);
   const [maturityAttachments, setMaturityAttachments] = useState([]);
   const [maturityFormError, setMaturityFormError] = useState("");
+  const [resourceTableModal, setResourceTableModal] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -3066,6 +3672,37 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!selectedMarketNewsPost?.id) {
+      setSelectedMarketNewsAttachments([]);
+      setSelectedMarketNewsAttachmentsLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setSelectedMarketNewsAttachmentsLoading(true);
+    resourceService
+      .listAttachments("market-news-posts", selectedMarketNewsPost.id, { force: true })
+      .then((items) => {
+        if (!isMounted) return;
+        setSelectedMarketNewsAttachments(Array.isArray(items) ? items : []);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSelectedMarketNewsAttachments([]);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setSelectedMarketNewsAttachmentsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedMarketNewsPost?.id]);
 
   const filteredSales = useMemo(
     () => physicalSales.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
@@ -3408,6 +4045,58 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       .map((item) => ({ label: item.label, value: item.closed, color: item.color }));
     return slices.length ? slices : [{ label: "Sem operações", value: 1, color: "#cbd5e1" }];
   }, [derivativeOperationsByExchange]);
+  const derivativeExchangeOperationRows = useMemo(
+    () =>
+      filteredDerivatives.map((item) => {
+        const exchangeLabel =
+          item.bolsa_ref ||
+          item.ctrbolsa ||
+          item.instituicao ||
+          item.bolsa?.nome ||
+          item.bolsa ||
+          "Sem bolsa";
+        const status = normalizeText(item.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto";
+        return {
+          ...item,
+          exchangeLabel,
+          dashboard_status_label: status,
+        };
+      }),
+    [filteredDerivatives],
+  );
+  const openDerivativeExchangeDetail = useCallback((sliceLabel, statusFilter = "all") => {
+    if (!sliceLabel || sliceLabel === "Sem operações") return;
+    const rows = derivativeExchangeOperationRows.filter((item) => {
+      if (item.exchangeLabel !== sliceLabel) return false;
+      if (statusFilter === "open") return item.dashboard_status_label !== "Encerrado";
+      if (statusFilter === "closed") return item.dashboard_status_label === "Encerrado";
+      return true;
+    });
+    setResourceTableModal({
+      title:
+        statusFilter === "open"
+          ? `${sliceLabel} · Derivativos em aberto`
+          : statusFilter === "closed"
+            ? `${sliceLabel} · Derivativos encerrados`
+            : `${sliceLabel} · Derivativos`,
+      definition: resourceDefinitions.derivativeOperations,
+      rows,
+    });
+  }, [derivativeExchangeOperationRows]);
+  const openCommercialRiskLongShortDetail = useCallback(({ rowLabel, series, rows, referenceDate: detailReferenceDate }) => {
+    if (!series?.key || !rows?.length) return;
+    const definition =
+      series.key === "derivatives"
+        ? resourceDefinitions.derivativeOperations
+        : series.key === "physical"
+          ? resourceDefinitions.physicalSales
+          : resourceDefinitions.physicalPayments;
+    setResourceTableModal({
+      title: `${series.label} — ${rowLabel}${detailReferenceDate ? ` — ${formatHedgeTitleDate(detailReferenceDate)}` : ""}`,
+      definition,
+      rows,
+    });
+  }, []);
   const currentMonthPolicy = useMemo(() => {
     const currentMonth = startOfDashboardMonth(new Date());
     return (
@@ -3438,16 +4127,94 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const physicalScPerHa = totalArea > 0 ? activePhysicalCommercializedVolume / totalArea : 0;
   const currentPolicyMinPercent = currentMonthPolicy?.minRatio != null ? currentMonthPolicy.minRatio * 100 : null;
   const currentPolicyMaxPercent = currentMonthPolicy?.maxRatio != null ? currentMonthPolicy.maxRatio * 100 : null;
+  const activePolicyMinPercent = hedgeSummaryActivePoint?.minPct != null ? hedgeSummaryActivePoint.minPct * 100 : currentPolicyMinPercent;
+  const activePolicyMaxPercent = hedgeSummaryActivePoint?.maxPct != null ? hedgeSummaryActivePoint.maxPct * 100 : currentPolicyMaxPercent;
+  const hedgeSummaryStatusText = useMemo(() => {
+    const activeTotalValue = hedgeSummaryActivePoint?.total || 0;
+    if (Number.isFinite(hedgeSummaryActivePoint?.maxValue) && activeTotalValue > hedgeSummaryActivePoint.maxValue) {
+      return `${(((activeTotalValue - hedgeSummaryActivePoint.maxValue) / Math.max(netProductionBase, 1)) * 100).toLocaleString("pt-BR", {
+        maximumFractionDigits: 0,
+      })}% acima da politica`;
+    }
+    if (Number.isFinite(hedgeSummaryActivePoint?.minValue) && activeTotalValue < hedgeSummaryActivePoint.minValue) {
+      return `${(((hedgeSummaryActivePoint.minValue - activeTotalValue) / Math.max(netProductionBase, 1)) * 100).toLocaleString("pt-BR", {
+        maximumFractionDigits: 0,
+      })}% abaixo da politica`;
+    }
+    return "dentro da politica";
+  }, [hedgeSummaryActivePoint, netProductionBase]);
+  const hedgeSummaryCardTone = useMemo(() => {
+    const totalPercent = netProductionBase > 0 ? (Number(hedgeSummaryActivePoint?.total || 0) / netProductionBase) * 100 : 0;
+    return getHedgeBandTone(totalPercent, activePolicyMinPercent, activePolicyMaxPercent);
+  }, [activePolicyMaxPercent, activePolicyMinPercent, hedgeSummaryActivePoint, netProductionBase]);
+  const hedgeSummaryTooltipLines = useMemo(() => {
+    const activeTotalValue = hedgeSummaryActivePoint?.total || 0;
+    return [
+      `${formatHedgeSummaryPercentValue(activeTotalValue, netProductionBase)} - ${hedgeSummaryStatusText} - ${formatHedgeSummaryValue(activeTotalValue, "SC")}${
+        formatHedgeSummaryScPerHaValue(activeTotalValue, "SC", totalArea)
+          ? ` - ${formatHedgeSummaryScPerHaValue(activeTotalValue, "SC", totalArea)}`
+          : ""
+      }`,
+      formatHedgeSummaryLine("Vendas Fisico", activePhysicalCommercializedVolume, "SC", netProductionBase, totalArea),
+      formatHedgeSummaryLine("Derivativos", activeDerivativeCommercializedVolume, "SC", netProductionBase, totalArea),
+      hedgeSummaryActivePoint?.minValue != null
+        ? formatHedgeSummaryLine("Politica Min", hedgeSummaryActivePoint.minValue, "SC", netProductionBase, totalArea)
+        : "Politica Min: —",
+      hedgeSummaryActivePoint?.maxValue != null
+        ? formatHedgeSummaryLine("Politica Max", hedgeSummaryActivePoint.maxValue, "SC", netProductionBase, totalArea)
+        : "Politica Max: —",
+    ];
+  }, [
+    activeDerivativeCommercializedVolume,
+    activePhysicalCommercializedVolume,
+    hedgeSummaryActivePoint,
+    hedgeSummaryStatusText,
+    netProductionBase,
+    totalArea,
+  ]);
+  const hedgeSummaryCardRows = useMemo(
+    () => [
+      {
+        label: "Vendas Fisico",
+        value: formatHedgeSummaryLine("Vendas Fisico", activePhysicalCommercializedVolume, "SC", netProductionBase, totalArea).replace("Vendas Fisico: ", ""),
+      },
+      {
+        label: "Derivativos",
+        value: formatHedgeSummaryLine("Derivativos", activeDerivativeCommercializedVolume, "SC", netProductionBase, totalArea).replace("Derivativos: ", ""),
+      },
+      {
+        label: "Politica Min",
+        value:
+          hedgeSummaryActivePoint?.minValue != null
+            ? formatHedgeSummaryLine("Politica Min", hedgeSummaryActivePoint.minValue, "SC", netProductionBase, totalArea).replace("Politica Min: ", "")
+            : "—",
+      },
+      {
+        label: "Politica Max",
+        value:
+          hedgeSummaryActivePoint?.maxValue != null
+            ? formatHedgeSummaryLine("Politica Max", hedgeSummaryActivePoint.maxValue, "SC", netProductionBase, totalArea).replace("Politica Max: ", "")
+            : "—",
+      },
+    ],
+    [
+      activeDerivativeCommercializedVolume,
+      activePhysicalCommercializedVolume,
+      hedgeSummaryActivePoint,
+      netProductionBase,
+      totalArea,
+    ],
+  );
   const formCompletionRows = useMemo(
     () => [
-      { label: "Quadro Safra", count: filteredCropBoards.length, hint: "Base de produção e cobertura" },
-      { label: "Vendas Físico", count: filteredSales.length, hint: "Contratos físicos negociados" },
-      { label: "Derivativos", count: filteredDerivatives.length, hint: "Operações em bolsa e câmbio" },
-      { label: "Cotações Físico", count: filteredQuotes.length, hint: "Referência de mercado / MTM" },
-      { label: "Política de Hedge", count: filteredPolicies.length, hint: "Faixas e disciplina de risco" },
-      { label: "Custo Orçamento", count: filteredBudgetCosts.length, hint: "Base de margem e cobertura" },
-      { label: "Pgtos Físico", count: filteredPhysicalPayments.length, hint: "Fluxo operacional do físico" },
-      { label: "Pgtos Caixa", count: filteredCashPayments.length, hint: "Fluxo financeiro consolidado" },
+      { label: "Quadro Safra", path: "/quadro-safra", count: filteredCropBoards.length, hint: "Base de produção e cobertura" },
+      { label: "Vendas Físico", path: "/vendas-fisico", count: filteredSales.length, hint: "Contratos físicos negociados" },
+      { label: "Derivativos", path: "/derivativos", count: filteredDerivatives.length, hint: "Operações em bolsa e câmbio" },
+      { label: "Cotações Físico", path: "/cotacoes-fisico", count: filteredQuotes.length, hint: "Referência de mercado / MTM" },
+      { label: "Política de Hedge", path: "/politica-hedge", count: filteredPolicies.length, hint: "Faixas e disciplina de risco" },
+      { label: "Custo Orçamento", path: "/custo-orcamento", count: filteredBudgetCosts.length, hint: "Base de margem e cobertura" },
+      { label: "Pgtos Físico", path: "/pgtos-fisico", count: filteredPhysicalPayments.length, hint: "Fluxo operacional do físico" },
+      { label: "Pgtos Caixa", path: "/pgtos-caixa", count: filteredCashPayments.length, hint: "Fluxo financeiro consolidado" },
     ].map((item) => ({
       ...item,
       status: item.count > 0 ? "Preenchido" : "Pendente",
@@ -3471,15 +4238,16 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     return { totalForms, filledForms, pendingForms, totalRecords };
   }, [formCompletionRows]);
 
-  const longShortRows = useMemo(() => {
-    const classifyPaymentBucket = (description) => {
-      const normalized = normalizeText(description);
-      if (normalized.includes("arrendamento")) return "arrendamento";
-      if (normalized.includes("barter")) return "barter";
-      if (normalized.includes("terra")) return "paymentTerras";
-      return null;
-    };
+  const activePhysicalPayments = useMemo(
+    () =>
+      filteredPhysicalPayments.filter((item) => {
+        const paymentDate = startOfDashboardDay(item.data_pagamento || item.created_at);
+        return paymentDate && hedgeSummaryReferenceDate && paymentDate <= hedgeSummaryReferenceDate;
+      }),
+    [filteredPhysicalPayments, hedgeSummaryReferenceDate],
+  );
 
+  const longShortRows = useMemo(() => {
     const map = new Map();
     const ensureNode = (rawLabel) => {
       const label = resolveCultureLabel(rawLabel);
@@ -3490,9 +4258,12 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           production: 0,
           physical: 0,
           derivatives: 0,
-          barter: 0,
-          paymentTerras: 0,
-          arrendamento: 0,
+          physicalPayments: 0,
+          detailRows: {
+            derivatives: [],
+            physical: [],
+            physicalPayments: [],
+          },
         };
       map.set(label, current);
       return current;
@@ -3504,39 +4275,43 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       node.production += Math.abs(Number(item.producao_total || 0));
     });
 
-    filteredSales.forEach((item) => {
+    activePhysicalSales.forEach((item) => {
       const node = ensureNode(item.cultura || item.cultura_produto || item.cultura_texto);
       if (!node) return;
       node.physical += Math.abs(Number(item.volume_fisico || 0));
+      node.detailRows.physical.push({
+        ...item,
+        detailVolume: Math.abs(Number(item.volume_fisico || 0)),
+      });
     });
 
-    bolsaDerivatives.forEach((item) => {
+    activeBolsaDerivatives.forEach((item) => {
       const node = ensureNode(getDerivativeCultureValue(item));
       if (!node) return;
-      node.derivatives += derivativeStandardVolumeGetter(item);
+      const detailVolume = derivativeStandardVolumeGetter(item);
+      node.derivatives += detailVolume;
+      node.detailRows.derivatives.push({
+        ...item,
+        detailVolume,
+      });
     });
 
-    filteredPhysicalPayments.forEach((item) => {
-      const bucket = classifyPaymentBucket(item.descricao);
-      if (!bucket) return;
+    activePhysicalPayments.forEach((item) => {
       const node = ensureNode(item.fazer_frente_com || item.cultura || item.cultura_texto);
       if (!node) return;
-      node[bucket] += Math.abs(Number(item.volume || 0));
-    });
-
-    filteredCashPayments.forEach((item) => {
-      const bucket = classifyPaymentBucket(item.descricao);
-      if (!bucket) return;
-      const node = ensureNode(item.fazer_frente_com || item.cultura || item.cultura_texto);
-      if (!node) return;
-      node[bucket] += Math.abs(Number(item.volume || 0));
+      const detailVolume = Math.abs(Number(item.volume || 0));
+      node.physicalPayments += detailVolume;
+      node.detailRows.physicalPayments.push({
+        ...item,
+        detailVolume,
+      });
     });
 
     return Array.from(map.values())
       .map((item) => {
-        const covered = item.physical + item.derivatives + item.barter + item.paymentTerras + item.arrendamento;
+        const covered = item.physical + item.derivatives + item.physicalPayments;
         const nothingDone = Math.max(item.production - covered, 0);
-        const totalForShare = item.production > 0 ? item.production : covered;
+        const totalForShare = item.production;
         return {
           ...item,
           nadaFeito: nothingDone,
@@ -3552,7 +4327,13 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         const leftBase = Math.max(left.production, left.covered);
         return rightBase - leftBase;
       });
-  }, [bolsaDerivatives, derivativeStandardVolumeGetter, filteredCashPayments, filteredCropBoards, filteredPhysicalPayments, filteredSales, cultureLabelById]);
+  }, [
+    activeBolsaDerivatives,
+    activePhysicalPayments,
+    activePhysicalSales,
+    derivativeStandardVolumeGetter,
+    filteredCropBoards,
+  ]);
 
   const cultureRows = useMemo(() => {
     const map = new Map();
@@ -3725,20 +4506,69 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   }, [filteredCashPayments, filteredDerivatives, filteredPhysicalPayments, filteredSales]);
 
   const openQuotesPage = () => {
-    window.location.href = "/mercado/cotacoes";
+    navigateFromSummary(navigate, "/mercado/cotacoes", "Cotações");
   };
 
   const openBlogNewsPage = () => {
-    window.location.href = "/mercado/blog-news";
+    navigateFromSummary(navigate, "/mercado/blog-news", "Blog/News");
   };
+
+  const openMarketNewsPreview = useCallback((post) => {
+    if (!post) return;
+    setSelectedMarketNewsPost(post);
+  }, []);
+
+  const closeMarketNewsPreview = useCallback(() => {
+    setSelectedMarketNewsPost(null);
+    setSelectedMarketNewsAttachments([]);
+    setSelectedMarketNewsAttachmentsLoading(false);
+  }, []);
+
+  const openCommercialRiskResourceRow = useCallback((resourceKey, row) => {
+    if (!row?.id || !resourceKey) return;
+    openMaturityForm({
+      recordId: row.id,
+      resourceKey,
+    });
+  }, [openMaturityForm]);
+
+  const hedgeProductionChartNode = (
+    <HedgePolicyChart
+      title="Hedge produção liquida (sc)"
+      unit="SC"
+      frequency="monthly"
+      baseValue={netProductionBase}
+      areaBase={totalArea}
+      activeIndex={hedgeSummaryActiveIndex}
+      onActiveIndexChange={setHedgeSummaryActiveIndex}
+      physicalRows={filteredSales}
+      derivativeRows={bolsaDerivatives}
+      policies={filteredPolicies}
+      physicalValueGetter={getPhysicalVolumeValue}
+      derivativeValueGetter={derivativeStandardVolumeGetter}
+      derivativeVolumeGetter={derivativeStandardVolumeGetter}
+      onFocusToggle={() => navigateFromSummary(navigate, "/dashboard/politica-hedge", "Política de Hedge")}
+      onOpenResourceRow={openCommercialRiskResourceRow}
+      showFloatingCard={false}
+    />
+  );
+
+  const hedgeRealizadoSummaryCard = (
+    <HedgeStatusSummaryCard
+      title="Resumo Hedge"
+      tone={hedgeSummaryCardTone}
+      summaryLine={hedgeSummaryTooltipLines[0]}
+      rows={hedgeSummaryCardRows}
+    />
+  );
 
   return (
     <section className="risk-kpi-shell">
       <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
 
-      <section className="stats-grid risk-kpi-grid">
+      <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
         <article className="card stat-card">
-          <span className="stat-card-primary-title">Produção líquida</span>
+          <h1 className="stat-card-primary-title risk-kpi-card-title">Produção líquida</h1>
           <strong>{formatNumber0(netProductionVolume)} sc</strong>
           <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
           <strong className="stat-card-secondary-value">{formatNumber0(physicalPaymentVolume)} sc</strong>
@@ -3747,58 +4577,40 @@ function CommercialRiskDashboard({ dashboardFilter }) {
             {formatNumber0(productionTotal)} sc ({formatNumber0(totalArea)} ha | {formatNumber0(totalArea > 0 ? productionTotal / totalArea : 0)} sc/ha)
           </strong>
         </article>
-        <article className="card stat-card">
-          <span className="stat-card-primary-title">Hedge</span>
-          <strong>
-            {formatPercent1(commercializationCoverage)}
-            <span className="stat-card-primary-meta">({formatNumber0(hedgeCardCommercializedVolume)} sc)</span>
-          </strong>
-          <span className="stat-card-secondary-label">Venda física</span>
-          <strong className="stat-card-secondary-value">
-            {physicalPriceLines.length
-              ? physicalPriceLines.map((item) => (
-                  <span key={`physical-${item.unitLabel || "sem-unidade"}`} className="stat-card-secondary-line">
-                    {formatNumber0(item.volume)} sc | {formatCurrency2(item.averagePrice)}
-                    {item.unitLabel ? ` ${item.unitLabel}` : ""}
-                  </span>
-                ))
-              : `${formatNumber0(hedgeSummaryActivePoint?.physicalRaw || 0)} sc`}
-          </strong>
-          <span className="stat-card-secondary-label">Hedge em bolsa</span>
-          <strong className="stat-card-secondary-value">
-            {derivativePriceLines.length
-              ? derivativePriceLines.map((item) => (
-                  <span key={`derivative-${item.unitLabel || "sem-unidade"}`} className="stat-card-secondary-line">
-                    {formatNumber0(item.volume)} sc | Strike {formatCurrency2(item.averageStrike)}
-                    {item.unitLabel ? ` ${item.unitLabel}` : ""}
-                  </span>
-                ))
-              : `${formatNumber0(hedgeSummaryActivePoint?.derivativeRaw || 0)} sc`}
-          </strong>
-        </article>
         <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} />
-        <CommercialRiskNewsSummaryCard rows={marketNewsPosts} onOpen={openBlogNewsPage} />
+        <CommercialRiskNewsSummaryCard rows={marketNewsPosts} onOpen={openBlogNewsPage} onOpenPost={openMarketNewsPreview} />
       </section>
 
-      <CommercialRiskGaugePanel
-        totalPercent={totalSalesPercent}
-        totalScPerHa={totalScPerHa}
-        derivativePercent={derivativeSalesPercent}
-        derivativeScPerHa={derivativeScPerHa}
-        physicalPercent={physicalSalesPercent}
-        physicalScPerHa={physicalScPerHa}
-        policyMinPercent={currentPolicyMinPercent}
-        policyMaxPercent={currentPolicyMaxPercent}
-        productionBase={netProductionBase}
-        totalArea={totalArea}
-        physicalRows={filteredSales}
-        derivativeRows={bolsaDerivatives}
-        policies={filteredPolicies}
-        derivativeVolumeGetter={derivativeStandardVolumeGetter}
-        activeIndex={hedgeSummaryActiveIndex}
-        onActiveIndexChange={setHedgeSummaryActiveIndex}
-        onOpenHedgePolicy={() => navigate("/dashboard/politica-hedge")}
-      />
+      <section className="stats-grid risk-kpi-grid risk-kpi-grid-summary">
+        <HedgeSummaryGaugeCards
+          totalPercent={totalSalesPercent}
+          totalMetricValue={totalCommercializedVolume}
+          totalMetricLabel={totalArea > 0 ? `${formatNumber2(totalScPerHa)} scs/ha` : null}
+          physicalPercent={totalCommercializedVolume > 0 ? (activePhysicalCommercializedVolume / totalCommercializedVolume) * 100 : physicalSalesPercent}
+          physicalMetricValue={activePhysicalCommercializedVolume}
+          physicalMetricLabel={totalArea > 0 ? `${formatNumber2(physicalScPerHa)} scs/ha` : `${formatNumber0(activePhysicalCommercializedVolume)} sc`}
+          physicalDetailLines={
+            physicalPriceLines.length
+              ? physicalPriceLines.map((item) => `${formatNumber0(item.volume)} sc | ${formatCurrency2(item.averagePrice)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+              : []
+          }
+          derivativePercent={totalCommercializedVolume > 0 ? (activeDerivativeCommercializedVolume / totalCommercializedVolume) * 100 : derivativeSalesPercent}
+          derivativeMetricValue={activeDerivativeCommercializedVolume}
+          derivativeMetricLabel={totalArea > 0 ? `${formatNumber2(derivativeScPerHa)} scs/ha` : `${formatNumber0(activeDerivativeCommercializedVolume)} sc`}
+          derivativeDetailLines={
+            derivativePriceLines.length
+              ? derivativePriceLines.map((item) => `${formatNumber0(item.volume)} sc | Strike ${formatCurrency2(item.averageStrike)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+              : []
+          }
+          policyMinPercent={activePolicyMinPercent}
+          policyMaxPercent={activePolicyMaxPercent}
+        />
+        {hedgeRealizadoSummaryCard}
+      </section>
+
+      <section className="risk-kpi-long-short-grid risk-kpi-hedge-chart-row">
+        {hedgeProductionChartNode}
+      </section>
 
       <section className="risk-kpi-long-short-grid">
         <CommercialRiskLongShortChart
@@ -3807,6 +4619,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           selectedCultureIds={filter.cultura}
           onToggleCulture={(value) => toggleFilterValue("cultura", value)}
           onClearCultures={() => updateFilter("cultura", [])}
+          referenceDate={hedgeSummaryReferenceDate}
+          onOpenDetailTable={openCommercialRiskLongShortDetail}
         />
       </section>
 
@@ -3815,16 +4629,19 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           centerLabel="Derivativos"
           centerValue={`${filteredDerivatives.length} ops`}
           slices={derivativeExchangeSlices}
+          onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "all")}
         />
         <DonutChart
           centerLabel="Em aberto"
           centerValue={`${filteredDerivatives.filter((item) => !normalizeText(item.status_operacao).includes("encerr")).length} ops`}
           slices={derivativeExchangeOpenSlices}
+          onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "open")}
         />
         <DonutChart
           centerLabel="Encerrado"
           centerValue={`${filteredDerivatives.filter((item) => normalizeText(item.status_operacao).includes("encerr")).length} ops`}
           slices={derivativeExchangeClosedSlices}
+          onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "closed")}
         />
       </section>
 
@@ -3840,7 +4657,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
             {formCompletionRows.map((item) => (
               <div key={item.label} className="risk-kpi-form-row">
                 <div>
-                  <strong>{item.label}</strong>
+                  <button type="button" className="risk-kpi-form-link" onClick={() => navigateFromSummary(navigate, item.path, item.label)}>
+                    {item.label}
+                  </button>
                   <span>{item.hint}</span>
                 </div>
                 <div className="risk-kpi-form-meta">
@@ -4024,6 +4843,28 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           }}
         />
       ) : null}
+
+      {resourceTableModal ? (
+        <DashboardResourceTableModal
+          title={resourceTableModal.title}
+          definition={resourceTableModal.definition}
+          rows={resourceTableModal.rows}
+          onClose={() => setResourceTableModal(null)}
+          onEdit={(row) => {
+            setResourceTableModal(null);
+            openMaturityForm({
+              recordId: row.id,
+              resourceKey: resourceTableModal.definition.resource,
+            });
+          }}
+        />
+      ) : null}
+      <MarketNewsPreviewModal
+        post={selectedMarketNewsPost}
+        attachments={selectedMarketNewsAttachments}
+        attachmentsLoading={selectedMarketNewsAttachmentsLoading}
+        onClose={closeMarketNewsPreview}
+      />
     </section>
   );
 }
@@ -4611,16 +5452,25 @@ function HedgePolicyChart({
   activeIndex: controlledActiveIndex = null,
   onActiveIndexChange = null,
   onFocusToggle,
+  focusButtonIcon = "⛶",
+  focusButtonTitle = "Destacar gráfico",
   extraActions = null,
   simulatedIncrement = 0,
   simulatedLabel = null,
+  onOpenResourceRow = null,
+  showFloatingCard = true,
 }) {
   const chartRef = useRef(null);
+  const chartWrapRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const [internalActiveIndex, setInternalActiveIndex] = useState(0);
   const [detailIndex, setDetailIndex] = useState(null);
   const [showPhysical, setShowPhysical] = useState(true);
   const [showDerivatives, setShowDerivatives] = useState(true);
+  const [detailPhysicalSearch, setDetailPhysicalSearch] = useState("");
+  const [detailDerivativeSearch, setDetailDerivativeSearch] = useState("");
+  const [guideState, setGuideState] = useState({ today: null, hover: null });
+  const [hoverSnapshot, setHoverSnapshot] = useState(null);
 
   const chartState = useMemo(
     () =>
@@ -4648,6 +5498,34 @@ function HedgePolicyChart({
       simulatedIncrement,
       showDerivatives,
       showPhysical,
+      unit,
+    ],
+  );
+  const dailyChartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit,
+        frequency: "daily",
+        baseValue,
+        physicalRows,
+        derivativeRows,
+        policies,
+        physicalValueGetter,
+        derivativeValueGetter,
+        showPhysical,
+        showDerivatives,
+        simulatedIncrement,
+      }),
+    [
+      baseValue,
+      derivativeRows,
+      derivativeValueGetter,
+      physicalRows,
+      physicalValueGetter,
+      policies,
+      showDerivatives,
+      showPhysical,
+      simulatedIncrement,
       unit,
     ],
   );
@@ -4684,6 +5562,85 @@ function HedgePolicyChart({
       onActiveIndexChange(todayIndex);
     }
   }, [chartState.points.length, frequency, todayIndex]);
+
+  const resolveHoverSnapshot = useCallback(
+    (chart, nativeEvent) => {
+      const area = chart?.chartArea;
+      const dailyPoints = dailyChartState.points || [];
+      if (!area || dailyPoints.length < 1) return null;
+
+      const rawX = nativeEvent?.x;
+      if (!Number.isFinite(rawX)) return null;
+      const clampedX = Math.max(area.left, Math.min(rawX, area.right));
+      const range = Math.max(area.right - area.left, 1);
+      const ratio = (clampedX - area.left) / range;
+      const startTime = dailyPoints[0].date?.getTime?.() || 0;
+      const endTime = dailyPoints[dailyPoints.length - 1].date?.getTime?.() || startTime;
+      const targetTime = startTime + ratio * Math.max(endTime - startTime, 0);
+
+      let nearestPoint = dailyPoints[0];
+      let nearestDistance = Math.abs((nearestPoint?.date?.getTime?.() || startTime) - targetTime);
+      for (let index = 1; index < dailyPoints.length; index += 1) {
+        const candidate = dailyPoints[index];
+        const distance = Math.abs((candidate?.date?.getTime?.() || startTime) - targetTime);
+        if (distance < nearestDistance) {
+          nearestPoint = candidate;
+          nearestDistance = distance;
+        }
+      }
+
+      return {
+        point: nearestPoint,
+        x: clampedX,
+        label: nearestPoint?.date ? formatHedgeTitleDate(nearestPoint.date) : null,
+      };
+    },
+    [dailyChartState.points],
+  );
+
+  const syncGuideState = useCallback(
+    (chart, hoverIndex = activeIndex, hoverInfo = hoverSnapshot) => {
+      if (!chart) {
+        setGuideState({ today: null, hover: null });
+        return;
+      }
+
+      const meta = chart.getDatasetMeta(4);
+      const points = meta?.data || [];
+      const area = chart.chartArea;
+      if (!area || !points.length) {
+        setGuideState({ today: null, hover: null });
+        return;
+      }
+
+      const buildGuide = (index, label, variant) => {
+        if (!Number.isInteger(index) || index < 0 || index >= points.length) return null;
+        const x = points[index]?.x;
+        if (!Number.isFinite(x)) return null;
+        return {
+          left: x,
+          top: area.top,
+          height: area.bottom - area.top,
+          label,
+          variant,
+        };
+      };
+
+      setGuideState({
+        today: buildGuide(todayIndex, "Hoje", "today"),
+        hover: hoverInfo
+          ? {
+              left: hoverInfo.x,
+              top: area.top,
+              height: area.bottom - area.top,
+              label: hoverInfo.label,
+              variant: "hover",
+            }
+          : null,
+      });
+    },
+    [hoverSnapshot, todayIndex],
+  );
 
   useEffect(() => {
     const canvas = chartRef.current;
@@ -4757,7 +5714,11 @@ function HedgePolicyChart({
                 const totalPoints = chartState.points.length;
                 return context.dataIndex % datalabelStep === 0 || context.dataIndex === totalPoints - 1;
               },
-              align: (context) => (context.dataIndex % 2 === 0 ? "top" : "right"),
+              align: (context) => {
+                const totalPoints = chartState.points.length;
+                if (context.dataIndex === totalPoints - 1) return "left";
+                return context.dataIndex % 2 === 0 ? "top" : "right";
+              },
               anchor: "end",
               clip: false,
               clamp: true,
@@ -4788,7 +5749,9 @@ function HedgePolicyChart({
           if (!elements?.[0]) return;
           setDetailIndex(elements[0].index);
         },
-        onHover: (_, elements) => {
+        onHover: (event, elements, chart) => {
+          const nextHoverSnapshot = resolveHoverSnapshot(chart, event);
+          setHoverSnapshot(nextHoverSnapshot);
           if (elements?.[0]) {
             updateActiveIndex(elements[0].index);
           }
@@ -4799,15 +5762,16 @@ function HedgePolicyChart({
           datalabels: { display: false },
           fundPositionZeroLineAndLabels: { enabled: false },
           fundPositionLastValueLabel: { enabled: false },
-          hedgeTodayLine: { index: todayIndex },
         },
         layout: {
           padding: {
             top: 20,
+            right: 18,
           },
         },
         scales: {
           x: {
+            offset: true,
             ticks: {
               color: "#475569",
               font: { size: 11, weight: "700" },
@@ -4831,20 +5795,43 @@ function HedgePolicyChart({
     });
 
     const handleMouseLeave = () => {
+      setHoverSnapshot(null);
       updateActiveIndex(todayIndex);
     };
     canvas.addEventListener("mouseleave", handleMouseLeave);
 
     chartInstanceRef.current = nextChart;
+    syncGuideState(nextChart, activeIndex, hoverSnapshot);
+
+    const handleResize = () => {
+      window.requestAnimationFrame(() => {
+        syncGuideState(nextChart, controlledActiveIndex != null ? controlledActiveIndex : internalActiveIndex, hoverSnapshot);
+      });
+    };
+    window.addEventListener("resize", handleResize);
+
     return () => {
       canvas.removeEventListener("mouseleave", handleMouseLeave);
+      window.removeEventListener("resize", handleResize);
       nextChart.destroy();
     };
-  }, [chartState, frequency, todayIndex, unit, updateActiveIndex]);
+  }, [activeIndex, chartState, controlledActiveIndex, frequency, hoverSnapshot, internalActiveIndex, resolveHoverSnapshot, syncGuideState, todayIndex, unit, updateActiveIndex]);
 
-  const activePoint = chartState.points[activeIndex] || chartState.points.at(-1) || null;
+  useEffect(() => {
+    const chart = chartInstanceRef.current;
+    if (!chart) return;
+    syncGuideState(chart, activeIndex, hoverSnapshot);
+  }, [activeIndex, hoverSnapshot, syncGuideState]);
+
+  const activePoint = hoverSnapshot?.point || chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
-  const activeSimulation = activeIndex === chartState.points.length - 1 ? simulatedIncrement : 0;
+  const activeSimulation = hoverSnapshot?.point
+    ? hoverSnapshot.point === dailyChartState.points[dailyChartState.points.length - 1]
+      ? simulatedIncrement
+      : 0
+    : activeIndex === chartState.points.length - 1
+      ? simulatedIncrement
+      : 0;
   const statusSummary = useMemo(() => {
     if (!activePoint) return null;
     const activeTotal = activePoint.total + activeSimulation;
@@ -4885,86 +5872,39 @@ function HedgePolicyChart({
       .filter((item) => {
         const itemDate = startOfDashboardDay(item.data_negociacao || item.created_at);
         return itemDate && itemDate <= selectedDate;
-      })
-      .map((item) => ({
-        id: `physical-${item.id}`,
-        dataInicio: formatBrazilianDate(item.data_negociacao, ""),
-        dataPagamento: formatBrazilianDate(item.data_pagamento, ""),
-        volume: physicalVolumeGetter(item),
-        valor: physicalDetailValueGetter(item),
-        preco: Number(item.preco || 0),
-        moeda: item.moeda_contrato || "R$",
-        unidade: item.unidade_contrato || "sc",
-        localEntrega: item.data_entrega ? String(item.data_entrega) : "/",
-        obs: item.obs || "",
-      }));
+      });
 
     const derivativesIncluded = (derivativeRows || [])
       .filter((item) => {
         const startDate = startOfDashboardDay(item.data_contratacao || item.created_at);
         const endDate = startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at);
         return startDate && endDate && startDate <= selectedDate && selectedDate <= endDate;
-      })
-      .map((item) => ({
-        id: `derivative-${item.id}`,
-        dataInicio: formatBrazilianDate(item.data_contratacao, ""),
-        dataLiquidacao: formatBrazilianDate(item.data_liquidacao, ""),
-        tipo: item.nome_da_operacao || item.tipo_derivativo || "Derivativo",
-        volume: derivativeVolumeGetter(item),
-        valor: derivativeDetailValueGetter(item),
-        ajusteMtm: Number(item.ajustes_totais_brl || 0),
-        strike: Number(item.strike_montagem || 0),
-        unidade: unit === "SC" ? "sc" : item.unidade || item.volume_fisico_unidade || "",
-        moedaUnidade: item.moeda_unidade || "",
-        status: item.status_operacao || "",
-        obs: item.obs || "",
-      }));
-
-    const physicalTotalVolume = physical.reduce((sum, item) => sum + Number(item.volume || 0), 0);
-    const physicalTotalValue = physical.reduce((sum, item) => sum + Number(item.valor || 0), 0);
-    const physicalWeightedPrice =
-      physicalTotalVolume > 0
-        ? physical.reduce((sum, item) => sum + Number(item.preco || 0) * Number(item.volume || 0), 0) / physicalTotalVolume
-        : 0;
-
-    const derivativeTotalVolume = derivativesIncluded.reduce((sum, item) => sum + Number(item.volume || 0), 0);
-    const derivativeTotalValue = derivativesIncluded.reduce((sum, item) => sum + Number(item.valor || 0), 0);
-    const derivativeTotalMtm = derivativesIncluded.reduce((sum, item) => sum + Number(item.ajusteMtm || 0), 0);
-    const derivativeWeightedStrike =
-      derivativeTotalVolume > 0
-        ? derivativesIncluded.reduce((sum, item) => sum + Number(item.strike || 0) * Number(item.volume || 0), 0) / derivativeTotalVolume
-        : 0;
+      });
 
     return {
       physical,
       derivatives: derivativesIncluded,
-      physicalTotals: {
-        volume: physicalTotalVolume,
-        value: physicalTotalValue,
-        price: physicalWeightedPrice,
-      },
-      derivativeTotals: {
-        volume: derivativeTotalVolume,
-        value: derivativeTotalValue,
-        mtm: derivativeTotalMtm,
-        strike: derivativeWeightedStrike,
-      },
     };
-  }, [derivativeDetailValueGetter, derivativeRows, derivativeVolumeGetter, detailPoint, physicalDetailValueGetter, physicalRows, physicalVolumeGetter]);
+  }, [detailPoint, derivativeRows, physicalRows]);
+
+  useEffect(() => {
+    setDetailPhysicalSearch("");
+    setDetailDerivativeSearch("");
+  }, [detailIndex]);
 
   return (
-    <article className="hedge-chart-card">
+    <article className={`hedge-chart-card${showFloatingCard && activePoint ? " has-floating-card" : " is-chart-fill"}`}>
       <div className="hedge-chart-card-header">
-        <h3>{title}</h3>
+        <h2>{title}</h2>
         <div className="hedge-chart-actions">
           {extraActions}
-          <button type="button" className="hedge-chart-icon-btn" onClick={onFocusToggle} title="Destacar gráfico">
-            ⛶
+          <button type="button" className="hedge-chart-icon-btn" onClick={onFocusToggle} title={focusButtonTitle}>
+            {focusButtonIcon}
           </button>
         </div>
       </div>
 
-      {activePoint ? (
+      {showFloatingCard && activePoint ? (
         <aside className="hedge-floating-card">
           <div className="hedge-floating-topline">
             <div className="hedge-floating-title">{formatHedgeTitleDate(activePoint.date)}</div>
@@ -4997,8 +5937,24 @@ function HedgePolicyChart({
         </aside>
       ) : null}
 
-      <div className="hedge-chart-wrap">
+      <div className="hedge-chart-wrap" ref={chartWrapRef}>
         <canvas ref={chartRef} />
+        {guideState.today ? (
+          <div
+            className="hedge-chart-guide hedge-chart-guide--today"
+            style={{ left: `${guideState.today.left}px`, top: `${guideState.today.top}px`, height: `${guideState.today.height}px` }}
+          >
+            <div className="hedge-chart-guide-label hedge-chart-guide-label--today">{guideState.today.label}</div>
+          </div>
+        ) : null}
+        {guideState.hover ? (
+          <div
+            className="hedge-chart-guide hedge-chart-guide--hover"
+            style={{ left: `${guideState.hover.left}px`, top: `${guideState.hover.top}px`, height: `${guideState.hover.height}px` }}
+          >
+            <div className="hedge-chart-guide-label hedge-chart-guide-label--hover">{guideState.hover.label}</div>
+          </div>
+        ) : null}
       </div>
 
       <div className="hedge-legend">
@@ -5031,125 +5987,31 @@ function HedgePolicyChart({
             </div>
             <section className="hedge-detail-section">
               <h4>Vendas Físico (≤ dia)</h4>
-              <table className="hedge-detail-table">
-                <thead>
-                  <tr>
-                    <th>Data Início</th>
-                    <th>Data Pagamento</th>
-                    <th>Volume</th>
-                    <th>Valor</th>
-                    <th>Preço/Moeda</th>
-                    <th>Local Entrega</th>
-                    <th>Obs</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailRows.physical.length ? (
-                    <>
-                      {detailRows.physical.map((row) => (
-                        <tr key={row.id}>
-                          <td>{row.dataInicio || "—"}</td>
-                          <td>{row.dataPagamento || "—"}</td>
-                          <td>
-                            {Number(row.volume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}
-                            {row.unidade ? ` ${row.unidade}` : ""}
-                          </td>
-                          <td>R$ {formatCurrency2(row.valor)}</td>
-                          <td>
-                            {row.moeda} {Number(row.preco || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            /{row.unidade}
-                          </td>
-                          <td>{row.localEntrega || "—"}</td>
-                          <td>{row.obs || ""}</td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td colSpan="2"><strong>Total</strong></td>
-                        <td>
-                          <strong>
-                            {Number(detailRows.physicalTotals.volume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 })} sc
-                          </strong>
-                        </td>
-                        <td><strong>R$ {formatCurrency2(detailRows.physicalTotals.value)}</strong></td>
-                        <td>
-                          <strong>
-                            R$ {Number(detailRows.physicalTotals.price || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/sc
-                          </strong>
-                        </td>
-                        <td colSpan="2" />
-                      </tr>
-                    </>
-                  ) : (
-                    <tr>
-                      <td colSpan="7">Nenhuma venda físico considerada nessa data.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              <ResourceTable
+                definition={resourceDefinitions.physicalSales}
+                rows={detailRows.physical}
+                searchValue={detailPhysicalSearch}
+                searchPlaceholder={resourceDefinitions.physicalSales.searchPlaceholder || "Buscar..."}
+                onSearchChange={setDetailPhysicalSearch}
+                onClear={() => setDetailPhysicalSearch("")}
+                onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.physicalSales.resource, row) : undefined}
+                tableHeight="34vh"
+                showClearButton={false}
+              />
             </section>
             <section className="hedge-detail-section">
               <h4>Derivativos (dia entre início e liquidação — inclusivo)</h4>
-              <table className="hedge-detail-table">
-                <thead>
-                  <tr>
-                    <th>Data Início</th>
-                    <th>Liquidação</th>
-                    <th>tipo</th>
-                    <th>Volume</th>
-                    <th>Valor</th>
-                    <th>Ajuste MTM (R$)</th>
-                    <th>Strike</th>
-                    <th>Status</th>
-                    <th>Obs</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailRows.derivatives.length ? (
-                    <>
-                      {detailRows.derivatives.map((row) => (
-                        <tr key={row.id}>
-                          <td>{row.dataInicio || "—"}</td>
-                          <td>{row.dataLiquidacao || "—"}</td>
-                          <td>{row.tipo}</td>
-                          <td>
-                            {Number(row.volume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}
-                            {row.unidade ? ` ${row.unidade}` : ""}
-                          </td>
-                          <td>R$ {formatCurrency2(row.valor)}</td>
-                          <td>R$ {formatCurrency2(row.ajusteMtm)}</td>
-                          <td>
-                            {Number(row.strike || 0).toLocaleString("pt-BR", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
-                            {row.moedaUnidade ? ` ${row.moedaUnidade}` : ""}
-                          </td>
-                          <td>{row.status || "—"}</td>
-                          <td>{row.obs || ""}</td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td colSpan="3"><strong>Total</strong></td>
-                        <td>
-                          <strong>
-                            {Number(detailRows.derivativeTotals.volume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 4 })}
-                            {detailRows.derivatives.find((row) => row.unidade)?.unidade ? ` ${detailRows.derivatives.find((row) => row.unidade)?.unidade}` : ""}
-                          </strong>
-                        </td>
-                        <td><strong>R$ {formatCurrency2(detailRows.derivativeTotals.value)}</strong></td>
-                        <td><strong>R$ {formatCurrency2(detailRows.derivativeTotals.mtm)}</strong></td>
-                        <td>
-                          <strong>
-                            {Number(detailRows.derivativeTotals.strike || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </strong>
-                        </td>
-                        <td colSpan="2" />
-                      </tr>
-                    </>
-                  ) : (
-                    <tr>
-                      <td colSpan="9">Nenhum derivativo considerado nessa data.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+              <ResourceTable
+                definition={resourceDefinitions.derivativeOperations}
+                rows={detailRows.derivatives}
+                searchValue={detailDerivativeSearch}
+                searchPlaceholder={resourceDefinitions.derivativeOperations.searchPlaceholder || "Buscar..."}
+                onSearchChange={setDetailDerivativeSearch}
+                onClear={() => setDetailDerivativeSearch("")}
+                onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.derivativeOperations.resource, row) : undefined}
+                tableHeight="34vh"
+                showClearButton={false}
+              />
             </section>
           </div>
         </div>
@@ -5259,14 +6121,14 @@ function HedgePolicyRangeChart({
   return (
     <article className="hedge-chart-card">
       <div className="hedge-chart-card-header">
-        <h3>{title}</h3>
+        <h2>{title}</h2>
         <div className="hedge-chart-actions">
           <button type="button" className="hedge-chart-icon-btn" onClick={onFocusToggle} title="Destacar gráfico">
             ⛶
           </button>
         </div>
       </div>
-      {latestPoint ? (
+      {showFloatingCard && latestPoint ? (
         <aside className="hedge-floating-card">
           <div className="hedge-floating-topline">
             <div className="hedge-floating-title">{formatHedgeTitleDate(latestPoint.date)}</div>
@@ -5400,9 +6262,9 @@ function HedgePolicyPercentChart({
   }), [chartState.bandPctDataset, chartState.labels, chartState.maxPctDataset, chartState.minPctDataset, chartState.totalPctDataset]);
 
   return (
-    <article className="hedge-chart-card">
+    <article className="hedge-chart-card has-floating-card">
       <div className="hedge-chart-card-header">
-        <h3>{title}</h3>
+        <h2>{title}</h2>
         <div className="hedge-chart-actions">
           <button type="button" className="hedge-chart-icon-btn" onClick={onFocusToggle} title="Destacar gráfico">
             ⛶
@@ -5621,6 +6483,70 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     productionChartState.points[productionTodayIndex] ||
     productionChartState.points.at(-1) ||
     null;
+  const focusedReferenceDate =
+    focusedChart === "cost"
+      ? activeCostPoint?.date || null
+      : focusedChart === "production"
+        ? activeProductionPoint?.date || null
+        : null;
+  const focusedActivePhysicalSales = useMemo(
+    () =>
+      filteredPhysicalSales.filter((item) => {
+        const saleDate = startOfDashboardDay(item.data_negociacao || item.created_at);
+        return saleDate && focusedReferenceDate && saleDate <= focusedReferenceDate;
+      }),
+    [filteredPhysicalSales, focusedReferenceDate],
+  );
+  const focusedActiveDerivatives = useMemo(() => {
+    const sourceRows = focusedChart === "production" ? filteredCommodityDerivatives : filteredDerivatives;
+    return sourceRows.filter((item) => {
+      const startDate = startOfDashboardDay(item.data_contratacao || item.created_at);
+      const endDate = startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at);
+      return startDate && endDate && focusedReferenceDate && startDate <= focusedReferenceDate && focusedReferenceDate < endDate;
+    });
+  }, [filteredCommodityDerivatives, filteredDerivatives, focusedChart, focusedReferenceDate]);
+  const focusedPhysicalPriceLines = useMemo(() => {
+    const groups = new Map();
+    focusedActivePhysicalSales.forEach((item) => {
+      const volume = Math.abs(Number(item.volume_fisico || 0));
+      const price = Number(item.preco || 0);
+      if (!volume || !price) return;
+      const unitLabel =
+        item.moeda_unidade ||
+        (item.moeda_contrato && item.unidade_contrato ? `${item.moeda_contrato}/${item.unidade_contrato}` : item.moeda_contrato || item.unidade_contrato || "");
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedPrice: 0 };
+      current.volume += volume;
+      current.weightedPrice += volume * price;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({
+        ...item,
+        averagePrice: item.volume > 0 ? item.weightedPrice / item.volume : 0,
+      }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [focusedActivePhysicalSales]);
+  const focusedDerivativePriceLines = useMemo(() => {
+    const groups = new Map();
+    focusedActiveDerivatives.forEach((item) => {
+      const volume = derivativeStandardVolumeGetter(item);
+      const strike = Number(item.strike_montagem || item.strike_liquidacao || 0);
+      if (!volume || !strike) return;
+      const unitLabel = item.moeda_unidade || item.volume_financeiro_moeda || "";
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedStrike: 0 };
+      current.volume += volume;
+      current.weightedStrike += volume * strike;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({
+        ...item,
+        averageStrike: item.volume > 0 ? item.weightedStrike / item.volume : 0,
+      }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [derivativeStandardVolumeGetter, focusedActiveDerivatives]);
 
   const focusedSummaryProps = useMemo(() => {
     if (focusedChart === "cost") {
@@ -5635,8 +6561,14 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         totalMetricLabel: `R$ ${formatCurrency2(activeTotalValue)}`,
         physicalPercent: activePhysicalPercent,
         physicalMetricLabel: `R$ ${formatCurrency2(activePhysicalValue)}`,
+        physicalDetailLines: focusedPhysicalPriceLines.length
+          ? focusedPhysicalPriceLines.map((item) => `${formatNumber0(item.volume)} sc | ${formatCurrency2(item.averagePrice)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+          : [],
         derivativePercent: activeDerivativePercent,
         derivativeMetricLabel: `R$ ${formatCurrency2(activeDerivativeValue)}`,
+        derivativeDetailLines: focusedDerivativePriceLines.length
+          ? focusedDerivativePriceLines.map((item) => `${formatNumber0(item.volume)} sc | Strike ${formatCurrency2(item.averageStrike)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+          : [],
         policyMinPercent: activeCostPoint?.minPct != null ? activeCostPoint.minPct * 100 : null,
         policyMaxPercent: activeCostPoint?.maxPct != null ? activeCostPoint.maxPct * 100 : null,
       };
@@ -5654,8 +6586,14 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         totalMetricLabel: totalArea > 0 ? `${formatNumber2(activeTotalValue / totalArea)} scs/ha` : `${formatNumber0(activeTotalValue)} sc`,
         physicalPercent: activePhysicalPercent,
         physicalMetricLabel: totalArea > 0 ? `${formatNumber2(activePhysicalValue / totalArea)} scs/ha` : `${formatNumber0(activePhysicalValue)} sc`,
+        physicalDetailLines: focusedPhysicalPriceLines.length
+          ? focusedPhysicalPriceLines.map((item) => `${formatNumber0(item.volume)} sc | ${formatCurrency2(item.averagePrice)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+          : [],
         derivativePercent: activeDerivativePercent,
         derivativeMetricLabel: totalArea > 0 ? `${formatNumber2(activeDerivativeValue / totalArea)} scs/ha` : `${formatNumber0(activeDerivativeValue)} sc`,
+        derivativeDetailLines: focusedDerivativePriceLines.length
+          ? focusedDerivativePriceLines.map((item) => `${formatNumber0(item.volume)} sc | Strike ${formatCurrency2(item.averageStrike)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+          : [],
         policyMinPercent: activeProductionPoint?.minPct != null ? activeProductionPoint.minPct * 100 : null,
         policyMaxPercent: activeProductionPoint?.maxPct != null ? activeProductionPoint.maxPct * 100 : null,
       };
@@ -5667,12 +6605,90 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     costActiveIndex,
     costChartState.points.length,
     focusedChart,
+    focusedDerivativePriceLines,
+    focusedPhysicalPriceLines,
     parsedSimulationVolume,
     productionActiveIndex,
     productionChartState.points.length,
     productionBase,
     simulatedCostValue,
     costBase,
+    totalArea,
+  ]);
+  const focusedStatusSummaryProps = useMemo(() => {
+    if (!focusedChart) return null;
+    const isCost = focusedChart === "cost";
+    const activePoint = isCost ? activeCostPoint : activeProductionPoint;
+    const chartPointsLength = isCost ? costChartState.points.length : productionChartState.points.length;
+    const activeIndex = isCost ? costActiveIndex : productionActiveIndex;
+    const extraValue = isCost
+      ? activeIndex === chartPointsLength - 1
+        ? simulatedCostValue
+        : 0
+      : activeIndex === chartPointsLength - 1
+        ? parsedSimulationVolume
+        : 0;
+    const unit = isCost ? "BRL" : "SC";
+    const baseValue = isCost ? costBase : productionBase;
+    const totalValue = (activePoint?.total || 0) + extraValue;
+    const physicalValue = activePoint?.physicalRaw || 0;
+    const derivativeValue = activePoint?.derivativeRaw || 0;
+    const totalPercent = baseValue > 0 ? (totalValue / baseValue) * 100 : 0;
+    const policyMinPercent = activePoint?.minPct != null ? activePoint.minPct * 100 : null;
+    const policyMaxPercent = activePoint?.maxPct != null ? activePoint.maxPct * 100 : null;
+    const tone = getHedgeBandTone(totalPercent, policyMinPercent, policyMaxPercent);
+    const statusText = (() => {
+      if (Number.isFinite(activePoint?.maxValue) && totalValue > activePoint.maxValue) {
+        return `${(((totalValue - activePoint.maxValue) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
+          maximumFractionDigits: 0,
+        })}% acima da politica`;
+      }
+      if (Number.isFinite(activePoint?.minValue) && totalValue < activePoint.minValue) {
+        return `${(((activePoint.minValue - totalValue) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
+          maximumFractionDigits: 0,
+        })}% abaixo da politica`;
+      }
+      return "dentro da politica";
+    })();
+    const totalLine = `${formatHedgeSummaryPercentValue(totalValue, baseValue)} - ${statusText} - ${formatHedgeSummaryValue(totalValue, unit)}${
+      formatHedgeSummaryScPerHaValue(totalValue, unit, totalArea) ? ` - ${formatHedgeSummaryScPerHaValue(totalValue, unit, totalArea)}` : ""
+    }`;
+
+    return {
+      title: "Resumo Hedge",
+      tone,
+      summaryLine: totalLine,
+      rows: [
+        { label: "Vendas Fisico", value: formatHedgeSummaryLine("Vendas Fisico", physicalValue, unit, baseValue, totalArea).replace("Vendas Fisico: ", "") },
+        { label: "Derivativos", value: formatHedgeSummaryLine("Derivativos", derivativeValue, unit, baseValue, totalArea).replace("Derivativos: ", "") },
+        {
+          label: "Politica Min",
+          value:
+            activePoint?.minValue != null
+              ? formatHedgeSummaryLine("Politica Min", activePoint.minValue, unit, baseValue, totalArea).replace("Politica Min: ", "")
+              : "—",
+        },
+        {
+          label: "Politica Max",
+          value:
+            activePoint?.maxValue != null
+              ? formatHedgeSummaryLine("Politica Max", activePoint.maxValue, unit, baseValue, totalArea).replace("Politica Max: ", "")
+              : "—",
+        },
+      ],
+    };
+  }, [
+    activeCostPoint,
+    activeProductionPoint,
+    costActiveIndex,
+    costBase,
+    costChartState.points.length,
+    focusedChart,
+    parsedSimulationVolume,
+    productionActiveIndex,
+    productionBase,
+    productionChartState.points.length,
+    simulatedCostValue,
     totalArea,
   ]);
 
@@ -5690,8 +6706,11 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       activeIndex={costActiveIndex}
       onActiveIndexChange={setCostActiveIndex}
       onFocusToggle={() => setFocusedChart((current) => (current === "cost" ? null : "cost"))}
+      focusButtonIcon={focusedChart === "cost" ? "↩" : "⛶"}
+      focusButtonTitle={focusedChart === "cost" ? "Voltar" : "Maximizar gráfico"}
       simulatedIncrement={simulatedCostValue}
       simulatedLabel={simulationLabel}
+      showFloatingCard={focusedChart !== "cost"}
       extraActions={
         <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
           <option value="daily">Diario</option>
@@ -5720,8 +6739,11 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       activeIndex={productionActiveIndex}
       onActiveIndexChange={setProductionActiveIndex}
       onFocusToggle={() => setFocusedChart((current) => (current === "production" ? null : "production"))}
+      focusButtonIcon={focusedChart === "production" ? "↩" : "⛶"}
+      focusButtonTitle={focusedChart === "production" ? "Voltar" : "Maximizar gráfico"}
       simulatedIncrement={parsedSimulationVolume}
       simulatedLabel="adicionado em volume"
+      showFloatingCard={focusedChart !== "production"}
     />
   );
 
@@ -5791,6 +6813,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
             <div className="hedge-focus-side">
               <div className="hedge-focus-side-panels">
                 {focusedSummaryProps ? <HedgeSummaryGaugeCards {...focusedSummaryProps} /> : null}
+                {focusedStatusSummaryProps ? <HedgeStatusSummaryCard {...focusedStatusSummaryProps} /> : null}
               </div>
             </div>
           </div>
@@ -6687,7 +7710,7 @@ const getSignedPriceCompositionColor = (value, tone = "solid") => {
   return tone === "soft" ? PRICE_COMPOSITION_WATERFALL_COLORS.positiveSoft : PRICE_COMPOSITION_WATERFALL_COLORS.positive;
 };
 
-function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar }) {
+function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar, valueFormatter = formatCurrency2 }) {
   const plotHeight = 278;
   const plotAreaHeight = plotHeight - 1;
   const labelSpace = 30;
@@ -6738,7 +7761,7 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar }) 
     return ticks;
   }, [maxValue, minValue]);
   const getVerticalPosition = (value) => Math.min(Math.max(((maxValue - value) / range) * plotAreaHeight, 0), plotAreaHeight);
-  const formatTooltipValue = (value) => `${value >= 0 ? "" : "-"}${unitLabel} ${formatCurrency2(Math.abs(value))}`;
+  const formatTooltipValue = (value) => `${value >= 0 ? "" : "-"}${unitLabel} ${valueFormatter(Math.abs(value))}`;
   const updateTooltip = (event, bar) => {
     const chartRect = chartRef.current?.getBoundingClientRect();
     if (!chartRect) return;
@@ -6786,7 +7809,7 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar }) 
                 onMouseLeave={clearTooltip}
               >
                 {bar.totalValue >= 0 ? "" : "-"}
-                {unitLabel} {formatCurrency2(Math.abs(bar.totalValue))}
+                {unitLabel} {valueFormatter(Math.abs(bar.totalValue))}
               </div>
             ))}
           </div>
@@ -6794,7 +7817,7 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar }) 
             {tickValues.map((value) => (
               <div key={value} className="price-comp-y-tick" style={{ top: `${getVerticalPosition(value)}px` }}>
                 {value < 0 ? "-" : ""}
-                {unitLabel} {formatCurrency2(Math.abs(value))}
+                {unitLabel} {valueFormatter(Math.abs(value))}
               </div>
             ))}
           </div>
@@ -6842,7 +7865,7 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar }) 
                             key={`${bar.label}-${segment.label}-${index}`}
                             className={`price-comp-column-segment ${isPositive ? "positive" : "negative"}`}
                             style={style}
-                            title={`${segment.label}: ${formatCurrency2(segment.value)}`}
+                            title={`${segment.label}: ${valueFormatter(Math.abs(segment.value))}`}
                           />
                         );
                       })}
@@ -6859,7 +7882,8 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar }) 
   );
 }
 
-function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
+function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFormatter = formatCurrency2 }) {
+  const isMobileViewport = useViewportMatch("(max-width: 640px)");
   const normalizedBars = useMemo(
     () =>
       bars.map((bar) => {
@@ -6880,7 +7904,7 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
   const option = useMemo(
     () => ({
       animationDuration: 250,
-      grid: { top: 18, right: 12, bottom: 38, left: 56, containLabel: false },
+      grid: { top: 18, right: isMobileViewport ? 4 : 12, bottom: isMobileViewport ? 56 : 38, left: isMobileViewport ? 6 : 56, containLabel: true },
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow" },
@@ -6890,10 +7914,10 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
           const lines = bar.segments
             .map(
               (segment) =>
-                `<span style="display:inline-block;margin-right:6px;border-radius:999px;width:8px;height:8px;background:${segment.color}"></span>${segment.label}: ${segment.value >= 0 ? "" : "-"}${unitLabel} ${formatCurrency2(Math.abs(segment.value))}`,
+                `<span style="display:inline-block;margin-right:6px;border-radius:999px;width:8px;height:8px;background:${segment.color}"></span>${segment.label}: ${segment.value >= 0 ? "" : "-"}${unitLabel} ${valueFormatter(Math.abs(segment.value))}`,
             )
             .join("<br/>");
-          return `<strong>${bar.label}</strong><br/>Total: ${bar.totalValue >= 0 ? "" : "-"}${unitLabel} ${formatCurrency2(Math.abs(bar.totalValue))}${lines ? `<br/>${lines}` : ""}`;
+          return `<strong>${bar.label}</strong><br/>Total: ${bar.totalValue >= 0 ? "" : "-"}${unitLabel} ${valueFormatter(Math.abs(bar.totalValue))}${lines ? `<br/>${lines}` : ""}`;
         },
       },
       xAxis: {
@@ -6901,7 +7925,13 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
         data: categories,
         axisTick: { show: false },
         axisLine: { lineStyle: { color: "rgba(100, 116, 139, 0.75)" } },
-        axisLabel: { color: "#475569", fontWeight: 700, fontSize: 18, margin: 18 },
+        axisLabel: {
+          color: "#475569",
+          fontWeight: 700,
+          fontSize: isMobileViewport ? 12 : 18,
+          margin: isMobileViewport ? 10 : 18,
+          interval: 0,
+        },
       },
       yAxis: {
         type: "value",
@@ -6909,9 +7939,10 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
         axisTick: { show: false },
         axisLabel: {
           color: "#475569",
+          show: !isMobileViewport,
           fontSize: 12,
           fontWeight: 700,
-          formatter: (value) => `${value < 0 ? "-" : ""}${unitLabel} ${formatCurrency2(Math.abs(value))}`,
+          formatter: (value) => `${value < 0 ? "-" : ""}${unitLabel} ${valueFormatter(Math.abs(value))}`,
         },
         splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.16)" } },
       },
@@ -6919,7 +7950,7 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
         name: seriesLabel,
         type: "bar",
         stack: "price-comp",
-        barWidth: "58%",
+        barWidth: isMobileViewport ? "72%" : "58%",
         emphasis: { focus: "series" },
         itemStyle: {
           borderRadius: [18, 18, 0, 0],
@@ -6938,7 +7969,7 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
         }),
       })),
     }),
-    [categories, normalizedBars, uniqueSeries, unitLabel],
+    [categories, isMobileViewport, normalizedBars, uniqueSeries, unitLabel, valueFormatter],
   );
   const chartEvents = useMemo(
     () => ({
@@ -6953,15 +7984,18 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar }) {
   return (
     <article className="price-comp-pane">
       <div className="price-comp-vertical-chart">
-        <div className="price-comp-column-totals" style={{ gridTemplateColumns: `repeat(${normalizedBars.length}, minmax(0, 1fr))`, marginBottom: 12, marginLeft: 56 }}>
+        <div
+          className={`price-comp-column-totals${isMobileViewport ? " is-mobile" : ""}`}
+          style={{ gridTemplateColumns: `repeat(${normalizedBars.length}, minmax(0, 1fr))`, marginBottom: 12, marginLeft: isMobileViewport ? 0 : 56 }}
+        >
           {normalizedBars.map((bar) => (
             <div key={bar.label} className="price-comp-column-total">
               {bar.totalValue >= 0 ? "" : "-"}
-              {unitLabel} {formatCurrency2(Math.abs(bar.totalValue))}
+              {unitLabel} {valueFormatter(Math.abs(bar.totalValue))}
             </div>
           ))}
         </div>
-        <ReactECharts option={option} onEvents={chartEvents} style={{ height: 320 }} opts={{ renderer: "svg" }} />
+        <ReactECharts option={option} onEvents={chartEvents} style={{ height: isMobileViewport ? 280 : 320, width: "100%" }} opts={{ renderer: "svg" }} />
       </div>
     </article>
   );
@@ -7056,6 +8090,16 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   const [detailModal, setDetailModal] = useState(null);
   const [includeClosedDerivatives, setIncludeClosedDerivatives] = useState(true);
   const [includeOpenDerivatives, setIncludeOpenDerivatives] = useState(true);
+  const { openOperationForm, editorNode } = useDashboardOperationEditor({
+    sales: physicalSales,
+    setSales: setPhysicalSales,
+    derivatives,
+    setDerivatives,
+  });
+  const openPriceCompositionOperation = useCallback((row) => {
+    setDetailModal(null);
+    openOperationForm(row);
+  }, [openOperationForm]);
 
   useEffect(() => {
     let isMounted = true;
@@ -7294,6 +8338,8 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     () =>
       filteredSales.map((item) => ({
         id: `physical-${item.id}`,
+        recordId: item.id,
+        resourceKey: "physical-sales",
         subgrupo:
           item.subgrupo?.subgrupo ||
           item.subgrupos?.map?.((entry) => entry?.subgrupo || entry).filter(Boolean).join(", ") ||
@@ -7315,6 +8361,8 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     () =>
       normalizedDerivatives.map((item) => ({
         id: `derivative-${item.id}`,
+        recordId: item.id,
+        resourceKey: "derivative-operations",
         subgrupo: "—",
         tipo: "Derivativo",
         classificacao: item.classificacao,
@@ -7531,13 +8579,22 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
       <div className="price-comp-main-grid">
         <section className="price-comp-pair-card card">
           <div className="price-comp-pair-row">
-            <VerticalChartComponent bars={verticalRowsG1} unitLabel={selectedCurrencyLabel} onSelectBar={(row) => openVerticalDetail("G1", row)} />
+            <VerticalChartComponent
+              bars={verticalRowsG1}
+              unitLabel={selectedCurrencyLabel}
+              onSelectBar={(row) => openVerticalDetail("G1", row)}
+            />
           </div>
         </section>
 
         <section className="price-comp-pair-card card">
           <div className="price-comp-pair-row">
-            <VerticalChartComponent bars={verticalRowsG5} unitLabel={selectedCurrencyLabel} onSelectBar={(row) => openVerticalDetail("G5", row)} />
+            <VerticalChartComponent
+              bars={verticalRowsG5}
+              unitLabel={selectedCurrencyLabel}
+              onSelectBar={(row) => openVerticalDetail("G5", row)}
+              valueFormatter={formatNumber0}
+            />
           </div>
         </section>
       </div>
@@ -7623,6 +8680,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
               <table className="component-popup-table">
                 <thead>
                   <tr>
+                    <th className="component-popup-action-col" />
                     <th>Subgrupo</th>
                     <th>Tipo</th>
                     <th>Classificacao</th>
@@ -7639,6 +8697,9 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
                     <>
                       {detailModal.rows.map((row) => (
                         <tr key={row.id}>
+                          <td className="component-popup-action-cell">
+                            {row.recordId ? <ComponentPopupEyeButton onClick={() => openPriceCompositionOperation(row)} /> : null}
+                          </td>
                           <td>{row.subgrupo || "—"}</td>
                           <td>{row.tipo}</td>
                           <td>{row.classificacao || "—"}</td>
@@ -7651,6 +8712,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
                         </tr>
                       ))}
                       <tr>
+                        <td />
                         <td><strong>Total</strong></td>
                         <td />
                         <td />
@@ -7664,7 +8726,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
                     </>
                   ) : (
                     <tr>
-                      <td colSpan="9">Nenhuma operacao encontrada para esta coluna.</td>
+                      <td colSpan="10">Nenhuma operacao encontrada para esta coluna.</td>
                     </tr>
                   )}
                 </tbody>
@@ -7673,6 +8735,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
           </div>
         </div>
       ) : null}
+      {editorNode}
     </section>
   );
 }
@@ -8044,7 +9107,7 @@ const dashboardContent = {
   },
 };
 
-export function DashboardPage({ kind = "cashflow" }) {
+export function DashboardPage({ kind = "cashflow", chartEngine }) {
   const content = dashboardContent[kind] || dashboardContent.cashflow;
   const { filter, options } = useDashboardFilter();
   const cashflowFilter = useMemo(
@@ -8124,7 +9187,7 @@ export function DashboardPage({ kind = "cashflow" }) {
     return (
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
-        <PriceCompositionDashboard dashboardFilter={filter} />
+        <PriceCompositionDashboard dashboardFilter={filter} chartEngine={chartEngine} />
       </div>
     );
   }

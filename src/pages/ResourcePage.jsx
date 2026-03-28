@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { DataTable } from "../components/DataTable";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
+import { ResourceTable, usePreparedResourceTable } from "../components/ResourceTable";
 import { ResourceForm } from "../components/ResourceForm";
 import { useAuth } from "../contexts/AuthContext";
 import { useResourceCrud } from "../hooks/useResourceCrud";
 import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate, formatBrazilianDateTime } from "../utils/date";
-
-const TRADINGVIEW_REFRESH_MS = 60000;
 
 const relationResourceLabels = {
   groups: "grupo",
@@ -422,9 +420,6 @@ export function ResourcePage({ definition }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [detailItem, setDetailItem] = useState(null);
   const [attachments, setAttachments] = useState([]);
-  const [derivativeQuotes, setDerivativeQuotes] = useState({});
-  const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
-  const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
   const [accessRequestValues, setAccessRequestValues] = useState([""]);
   const [isAccessRequestOpen, setIsAccessRequestOpen] = useState(false);
   const [pendingAccessRequests, setPendingAccessRequests] = useState([]);
@@ -451,7 +446,7 @@ export function ResourcePage({ definition }) {
     const value = new URLSearchParams(location.search).get("open");
     return value ? String(value) : "";
   }, [location.search]);
-  const tableColumns = useMemo(() => buildTableColumns(definition), [definition]);
+  const { normalizedRows, effectiveTableColumns, displayRows } = usePreparedResourceTable(definition, rows);
   const supportsAccessWorkflow = definition.resource === "groups" || definition.resource === "subgroups";
   const summaryCards = useMemo(() => {
     if (definition.resource === "groups") {
@@ -698,8 +693,6 @@ export function ResourcePage({ definition }) {
     setIsModalOpen(false);
     setDetailItem(null);
     setAttachments([]);
-    setDerivativeQuotes({});
-    setEditingDerivativeStrike({});
     setAccessRequestValues([""]);
     setIsAccessRequestOpen(false);
     setPendingAccessRequests([]);
@@ -736,52 +729,6 @@ export function ResourcePage({ definition }) {
     if (logFilters.search) params.search = logFilters.search;
     return params;
   };
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadDerivativeQuotes = async (force = false) => {
-      if (definition.customForm !== "derivative-operation") {
-        return;
-      }
-
-      try {
-        const sourceRows = await resourceService.listTradingviewQuotes(force ? { force: true } : {});
-        const nextQuotes = sourceRows.reduce((acc, item) => {
-          const key = String(item?.ticker || "").trim();
-          if (key) {
-            acc[key] = parseLocalizedNumber(item?.price);
-          }
-          return acc;
-        }, {});
-        if (isMounted) {
-          setDerivativeQuotes(nextQuotes);
-        }
-      } catch {
-        if (isMounted) {
-          setDerivativeQuotes({});
-        }
-      }
-    };
-
-    loadDerivativeQuotes();
-    const intervalId = window.setInterval(() => loadDerivativeQuotes(true), TRADINGVIEW_REFRESH_MS);
-    const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === "visible") {
-        loadDerivativeQuotes(true);
-      }
-    };
-
-    window.addEventListener("focus", handleVisibilityOrFocus);
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleVisibilityOrFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
-    };
-  }, [definition.customForm]);
 
   useEffect(() => {
     let isMounted = true;
@@ -897,139 +844,6 @@ export function ResourcePage({ definition }) {
     };
   }, [definition.resource, filterCards, isMarqueeHovered]);
 
-  const normalizedRows = useMemo(() => {
-    if (definition.customForm !== "derivative-operation") {
-      return rows;
-    }
-    return rows.map((row) => ({
-      ...row,
-      volume: row.volume ?? row.volume_fisico_valor,
-      unidade: row.unidade ?? row.volume_fisico_unidade,
-      moeda_unidade: row.moeda_unidade ?? row.strike_moeda_unidade,
-      volume_financeiro_valor_moeda_original: row.volume_financeiro_valor_moeda_original ?? row.volume_financeiro_valor,
-      siblingRows: rows
-        .filter((candidate) => candidate.cod_operacao_mae === row.cod_operacao_mae)
-        .sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id),
-      quantidade_derivativos: rows.filter((candidate) => candidate.cod_operacao_mae === row.cod_operacao_mae).length,
-      strike_liquid_mtm:
-        editingDerivativeStrike[row.id] !== undefined
-          ? editingDerivativeStrike[row.id]
-          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
-      ajustes_mtm: calculateDerivativeMtm(
-        row,
-        editingDerivativeStrike[row.id] !== undefined
-          ? editingDerivativeStrike[row.id]
-          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
-      ).usd,
-      ajustes_mtm_brl: calculateDerivativeMtm(
-        row,
-        editingDerivativeStrike[row.id] !== undefined
-          ? editingDerivativeStrike[row.id]
-          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
-      ).brl,
-    }));
-  }, [definition.customForm, rows, derivativeQuotes, editingDerivativeStrike]);
-
-  const effectiveTableColumns = useMemo(() => {
-    if (definition.customForm !== "derivative-operation") {
-      return tableColumns;
-    }
-
-    return [
-      { key: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
-      { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "ativo", label: "Ativo", type: "relation", resource: "crops", labelKey: "ativo" },
-      { key: "safra", label: "Safra" },
-      { key: "cod_operacao_mae", label: "Cod operacao mae" },
-      { key: "nome_da_operacao", label: "Operacao" },
-      { key: "status_operacao", label: "Status" },
-      { key: "bolsa_ref", label: "Bolsa" },
-      { key: "contrato_derivativo", label: "Contrato bolsa" },
-      { key: "data_contratacao", label: "Data contratacao", type: "date" },
-      { key: "tipo_derivativo", label: "Tipo derivativo" },
-      {
-        key: "volume",
-        label: "Volume",
-        type: "number",
-        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.unidade ? ` ${row.unidade}` : ""}`,
-      },
-      {
-        key: "strike_montagem",
-        label: "Strike montagem",
-        type: "number",
-        render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda_unidade ? ` ${row.moeda_unidade}` : ""}`,
-      },
-      {
-        key: "strike_liquid_mtm",
-        label: "Strike liquid (MTM)",
-        type: "number",
-        render: (value, row) =>
-          String(row.status_operacao || "").trim().toLowerCase() === "em aberto" ? (
-            <input
-              className="bubble-cell-input"
-              inputMode="decimal"
-              value={
-                editingDerivativeStrikeInput[row.id] !== undefined
-                  ? editingDerivativeStrikeInput[row.id]
-                  : formatBrazilianNumber(value, 4)
-              }
-              onClick={(event) => event.stopPropagation()}
-              onFocus={() => {
-                setEditingDerivativeStrikeInput((currentState) => ({
-                  ...currentState,
-                  [row.id]: formatBrazilianNumber(value, 4),
-                }));
-              }}
-              onChange={(event) => {
-                const raw = event.target.value;
-                setEditingDerivativeStrikeInput((currentState) => ({
-                  ...currentState,
-                  [row.id]: raw,
-                }));
-                setEditingDerivativeStrike((currentState) => ({
-                  ...currentState,
-                  [row.id]: parseLocalizedNumber(raw),
-                }));
-              }}
-              onBlur={async () => {
-                const strikeValue =
-                  editingDerivativeStrike[row.id] ??
-                  parseLocalizedNumber(editingDerivativeStrikeInput[row.id]) ??
-                  parseLocalizedNumber(value);
-                setEditingDerivativeStrike((currentState) => {
-                  const nextState = {
-                    ...currentState,
-                    [row.id]: strikeValue,
-                  };
-                  return nextState;
-                });
-                setEditingDerivativeStrikeInput((currentState) => {
-                  const nextState = { ...currentState };
-                  delete nextState[row.id];
-                  return nextState;
-                });
-              }}
-            />
-          ) : (
-            formatBrazilianNumber(row.strike_liquidacao, 4)
-          ),
-      },
-      {
-        key: "ajustes_mtm",
-        label: "Ajustes MTM",
-        type: "number",
-        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.volume_financeiro_moeda ? ` ${row.volume_financeiro_moeda}` : ""}`,
-      },
-      {
-        key: "ajustes_mtm_brl",
-        label: "Ajustes MTM R$",
-        type: "number",
-        render: (value) => formatBrazilianNumber(value, 0),
-      },
-      { key: "id", label: "ID" },
-    ];
-  }, [definition.customForm, tableColumns, editingDerivativeStrike, editingDerivativeStrikeInput, definition.resource]);
-  const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
   const clearOpenQuery = () => {
     if (!requestedOpenId) {
       return;
@@ -1652,9 +1466,9 @@ export function ResourcePage({ definition }) {
           onTickerClick={(row) => openTradingviewPopupWindow(buildTradingviewChartUrl(row))}
         />
       ) : (
-        <DataTable
-          columns={effectiveTableColumns}
-          rows={displayRows}
+        <ResourceTable
+          definition={definition}
+          rows={rows}
           searchValue={filters.search || ""}
           searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
           onSearchChange={(value) => setFilters((currentFilters) => ({ ...currentFilters, search: value, page: 1 }))}
@@ -1673,11 +1487,6 @@ export function ResourcePage({ definition }) {
           toolbarActions={toolbarActions}
           showClearButton={definition.showClearButton !== false}
           tableHeight={definition.tableHeight}
-          getRowClassName={
-            definition.customForm === "derivative-operation"
-              ? (row) => (String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "")
-              : undefined
-          }
         />
       )}
 

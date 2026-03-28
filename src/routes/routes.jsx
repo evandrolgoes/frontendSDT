@@ -7,11 +7,11 @@ const loadDashboardPageModule = () => import("../pages/DashboardPage");
 const loadDerivativeOperationsPageModule = () => import("../pages/DerivativeOperationsPage");
 const loadAnotacoesPageModule = () => import("../pages/AnotacoesPage");
 const loadJsonImportPageModule = () => import("../pages/JsonImportPage");
+const loadCopyBasePageModule = () => import("../pages/CopyBasePage");
 const loadMassImportPageModule = () => import("../pages/MassImportPage");
 const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
 const loadMercadoPageModule = () => import("../pages/MercadoPage");
 const loadMarketNewsPageModule = () => import("../pages/MarketNewsPage");
-const loadPriceCompositionNovoPageModule = () => import("../pages/PriceCompositionNovoPage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
 
@@ -31,12 +31,11 @@ const DashboardPage = lazyNamedExport(loadDashboardPageModule, "DashboardPage");
 const DerivativeOperationsPage = lazyNamedExport(loadDerivativeOperationsPageModule, "DerivativeOperationsPage");
 const AnotacoesPage = lazyNamedExport(loadAnotacoesPageModule, "AnotacoesPage");
 const JsonImportPage = lazyNamedExport(loadJsonImportPageModule, "JsonImportPage");
+const CopyBasePage = lazyNamedExport(loadCopyBasePageModule, "CopyBasePage");
 const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage");
 const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage");
 const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
 const MarketNewsPage = lazyNamedExport(loadMarketNewsPageModule, "MarketNewsPage");
-const PriceCompositionNovoPage = lazyNamedExport(loadPriceCompositionNovoPageModule, "PriceCompositionNovoPage");
-
 const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
 const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
 const warmMarketNewsCategories = () => resourceService.listMarketNewsCategories().catch(() => []);
@@ -84,14 +83,17 @@ const warmDashboardKind = (kind) => {
   }
 };
 
-const dashboardRoute = (path, kind, module, extra = {}) => ({
-  path,
-  element: <DashboardPage kind={kind} />,
-  module,
-  preload: loadDashboardPageModule,
-  warmup: () => warmDashboardKind(kind),
-  ...extra,
-});
+const dashboardRoute = (path, kind, module, extra = {}) => {
+  const { pageProps, ...routeExtra } = extra;
+  return {
+    path,
+    element: <DashboardPage kind={kind} {...(pageProps || {})} />,
+    module,
+    preload: loadDashboardPageModule,
+    warmup: () => warmDashboardKind(kind),
+    ...routeExtra,
+  };
+};
 
 const resourceRoute = (path, definitionKey, resource, extra = {}) => {
   const ResourceComponent = lazyResourcePage(definitionKey);
@@ -169,6 +171,7 @@ const baseNavigationSections = [
       { path: "/importacao-em-massa", label: "Importacao em Massa", module: "sys_mass_update", superuserOnly: true },
       { path: "/alteracao-em-massa", label: "Alteracao em Massa", module: "sys_mass_update", superuserOnly: true },
       { path: "/importador-json", label: "Importador JSON", module: "sys_json_import", superuserOnly: true },
+      { path: "/copy-base", label: "Copy Base", module: "sys_copy_base", superuserOnly: true },
     ],
   },
   {
@@ -207,13 +210,9 @@ export const appRoutes = [
   dashboardRoute("/dashboard/kpis-risco-comercial", "commercialRisk", "dashboard_summary"),
   dashboardRoute("/dashboard/estrategias-gatilhos", "strategiesTriggers", "dashboard_strategies_triggers"),
   dashboardRoute("/dashboard/politica-hedge", "hedgePolicy", "dashboard_hedge_policy"),
-  {
-    path: "/dashboard/composicao-precos",
-    element: <PriceCompositionNovoPage />,
-    module: "dashboard_price_composition",
-    preload: loadPriceCompositionNovoPageModule,
-    warmup: () => warmDashboardKind("priceComposition"),
-  },
+  dashboardRoute("/dashboard/composicao-precos", "priceComposition", "dashboard_price_composition", {
+    pageProps: { chartEngine: "echarts" },
+  }),
   dashboardRoute("/dashboard/venda-componentes", "componentSales", "dashboard_component_sales"),
   dashboardRoute("/dashboard/exposicao-hedge-cambial", "currencyExposure", "dashboard_currency_exposure"),
   dashboardRoute("/dashboard/simulacoes", "simulations", "dashboard_simulations"),
@@ -288,6 +287,7 @@ export const appRoutes = [
   { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassImportPageModule },
   { path: "/alteracao-em-massa", element: <MassUpdatePage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassUpdatePageModule },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true, preload: loadJsonImportPageModule },
+  { path: "/copy-base", element: <CopyBasePage />, module: "sys_copy_base", superuserOnly: true, preload: loadCopyBasePageModule },
 ];
 
 export function getAccessibleRoutePath(user) {

@@ -1,124 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { DataTable } from "../components/DataTable";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
+import { ResourceTable } from "../components/ResourceTable";
 import { useAuth } from "../contexts/AuthContext";
 import { useResourceCrud } from "../hooks/useResourceCrud";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
 
 const definition = resourceDefinitions.derivativeOperations;
-const TRADINGVIEW_REFRESH_MS = resourceDefinitions.tradingviewWatchlistQuotes.autoRefreshIntervalMs || 60000;
-
-const relationResourceLabels = {
-  groups: "grupo",
-  subgroups: "subgrupo",
-};
-
-const parseLocalizedNumber = (value) => {
-  if (value === null || value === undefined || value === "") return 0;
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  const raw = String(value).trim().replace(/\s+/g, "");
-  if (!raw) return 0;
-  const hasComma = raw.includes(",");
-  const hasDot = raw.includes(".");
-  let normalized = raw;
-  if (hasComma && hasDot) normalized = raw.replace(/\./g, "").replace(/,/g, ".");
-  else if (hasComma) normalized = raw.replace(/,/g, ".");
-  else if (hasDot) normalized = raw.split(".").length === 2 ? raw : raw.replace(/\./g, "");
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const formatBrazilianNumber = (value, digits = 4) =>
-  parseLocalizedNumber(value).toLocaleString("pt-BR", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-
-const resolveStrikeFactor = (currencyUnit) => {
-  const normalized = String(currencyUnit || "").trim().toLowerCase();
-  return normalized.startsWith("c") ? 0.01 : 1;
-};
-
-const calculateDerivativeMtm = (row, strikeMtm) => {
-  const status = String(row.status_operacao || "").trim().toLowerCase();
-  if (status !== "em aberto") {
-    return {
-      usd: parseLocalizedNumber(row.ajustes_totais_usd),
-      brl: parseLocalizedNumber(row.ajustes_totais_brl),
-    };
-  }
-
-  const operationName = String(row.nome_da_operacao || "");
-  const volume = parseLocalizedNumber(row.volume ?? row.volume_fisico);
-  const strikeFactor = resolveStrikeFactor(row.moeda_unidade);
-  const strikeMontagem = parseLocalizedNumber(row.strike_montagem) * strikeFactor;
-  const strikeMercado = parseLocalizedNumber(strikeMtm) * strikeFactor;
-  let usd = 0;
-
-  if (operationName.includes("Venda NDF")) usd = (strikeMontagem - strikeMercado) * volume;
-  else if (operationName.includes("Compra NDF")) usd = (strikeMercado - strikeMontagem) * volume;
-  else if (operationName.includes("Compra Call")) usd = strikeMercado > strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
-  else if (operationName.includes("Compra Put")) usd = strikeMercado < strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
-  else if (operationName.includes("Venda Call")) usd = strikeMercado > strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
-  else if (operationName.includes("Venda Put")) usd = strikeMercado < strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
-
-  const fx = String(row.volume_financeiro_moeda || "").trim() === "U$" ? parseLocalizedNumber(row.dolar_ptax_vencimento) : 1;
-  return { usd, brl: String(row.volume_financeiro_moeda || "").trim() === "U$" ? usd * fx : usd };
-};
-
-function useLookupRows(columns, rows) {
-  const [lookupCache, setLookupCache] = useState({});
-  const resources = useMemo(
-    () => [...new Set(columns.filter((column) => column.type === "relation").map((column) => column.resource).filter(Boolean))],
-    [columns],
-  );
-
-  useEffect(() => {
-    let isMounted = true;
-    const missingResources = resources.filter((resource) => !lookupCache[resource]);
-
-    if (!missingResources.length) {
-      return () => {
-        isMounted = false;
-      };
-    }
-
-    Promise.all(
-      missingResources.map(async (resource) => {
-        const items = await resourceService.listAll(resource);
-        return [resource, items];
-      }),
-    ).then((entries) => {
-      if (isMounted && entries.length) {
-        setLookupCache((current) => ({ ...current, ...Object.fromEntries(entries) }));
-      }
-    });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [lookupCache, resources]);
-
-  return useMemo(
-    () =>
-      rows.map((row) => {
-        const nextRow = { ...row };
-        columns.forEach((column) => {
-          if (column.type === "relation" && column.resource && row[column.key]) {
-            const options = lookupCache[column.resource] || [];
-            const option = options.find((item) => item.id === row[column.key]);
-            nextRow[column.key] = option?.[column.labelKey || relationResourceLabels[column.resource]] || row[column.key];
-          }
-        });
-        return nextRow;
-      }),
-    [columns, lookupCache, rows],
-  );
-}
 
 export function DerivativeOperationsPage() {
   const location = useLocation();
@@ -128,13 +19,35 @@ export function DerivativeOperationsPage() {
   const [current, setCurrent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [attachments, setAttachments] = useState([]);
-  const [derivativeQuotes, setDerivativeQuotes] = useState({});
-  const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
-  const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
   const requestedOpenId = useMemo(() => {
     const value = new URLSearchParams(location.search).get("open");
     return value ? String(value) : "";
   }, [location.search]);
+  const siblingRowsByCode = useMemo(() => {
+    const groupedRows = new Map();
+    rows.forEach((row) => {
+      const code = row.cod_operacao_mae ?? "";
+      if (!groupedRows.has(code)) {
+        groupedRows.set(code, []);
+      }
+      groupedRows.get(code).push(row);
+    });
+    groupedRows.forEach((items) => {
+      items.sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id);
+    });
+    return groupedRows;
+  }, [rows]);
+
+  const resolveTableRow = (item) => {
+    if (!item) {
+      return item;
+    }
+    const siblingRows = siblingRowsByCode.get(item.cod_operacao_mae ?? "") || [item];
+    return {
+      ...item,
+      siblingRows,
+    };
+  };
 
   const nextDerivativeOperationCode = useMemo(() => {
     const highestNumber = rows.reduce((maxValue, row) => {
@@ -143,42 +56,6 @@ export function DerivativeOperationsPage() {
     }, 0);
     return `DRV-${String(highestNumber + 1).padStart(3, "0")}`;
   }, [rows]);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadDerivativeQuotes = async (force = false) => {
-      try {
-        const sourceRows = await resourceService.listTradingviewQuotes(force ? { force: true } : {});
-        const nextQuotes = sourceRows.reduce((acc, item) => {
-          const key = String(item?.ticker || "").trim();
-          if (key) acc[key] = parseLocalizedNumber(item?.price);
-          return acc;
-        }, {});
-        if (isMounted) setDerivativeQuotes(nextQuotes);
-      } catch {
-        if (isMounted) setDerivativeQuotes({});
-      }
-    };
-
-    loadDerivativeQuotes();
-    const intervalId = window.setInterval(() => loadDerivativeQuotes(true), TRADINGVIEW_REFRESH_MS);
-    const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === "visible") {
-        loadDerivativeQuotes(true);
-      }
-    };
-
-    window.addEventListener("focus", handleVisibilityOrFocus);
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
-
-    return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
-      window.removeEventListener("focus", handleVisibilityOrFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
-    };
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -199,136 +76,6 @@ export function DerivativeOperationsPage() {
     };
   }, [current?.id, isModalOpen]);
 
-  const normalizedRows = useMemo(
-    () =>
-      rows.map((row) => ({
-        ...row,
-        volume: row.volume ?? row.volume_fisico_valor,
-        unidade: row.unidade ?? row.volume_fisico_unidade,
-        moeda_unidade: row.moeda_unidade ?? row.strike_moeda_unidade,
-        volume_financeiro_valor_moeda_original: row.volume_financeiro_valor_moeda_original ?? row.volume_financeiro_valor,
-        siblingRows: rows
-        .filter((candidate) => candidate.cod_operacao_mae === row.cod_operacao_mae)
-        .sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id),
-      strike_liquid_mtm:
-        editingDerivativeStrike[row.id] !== undefined
-          ? editingDerivativeStrike[row.id]
-          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
-      ajustes_mtm: calculateDerivativeMtm(
-        row,
-        editingDerivativeStrike[row.id] !== undefined
-          ? editingDerivativeStrike[row.id]
-          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
-      ).usd,
-      ajustes_mtm_brl: calculateDerivativeMtm(
-        row,
-        editingDerivativeStrike[row.id] !== undefined
-          ? editingDerivativeStrike[row.id]
-          : (derivativeQuotes[row.contrato_derivativo] ?? 0),
-      ).brl,
-    })),
-    [rows, derivativeQuotes, editingDerivativeStrike],
-  );
-
-  const columns = useMemo(
-    () => [
-      { key: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
-      { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
-      { key: "ativo", label: "Ativo", type: "relation", resource: "crops", labelKey: "ativo" },
-      { key: "safra", label: "Safra" },
-      { key: "cod_operacao_mae", label: "Cod operacao mae" },
-      { key: "nome_da_operacao", label: "Operacao" },
-      { key: "status_operacao", label: "Status" },
-      { key: "bolsa_ref", label: "Bolsa" },
-      { key: "contrato_derivativo", label: "Contrato bolsa" },
-      { key: "data_contratacao", label: "Data contratacao", type: "date" },
-      { key: "tipo_derivativo", label: "Tipo derivativo" },
-      {
-        key: "volume",
-        label: "Volume",
-        type: "number",
-        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.unidade ? ` ${row.unidade}` : ""}`,
-      },
-      {
-        key: "strike_montagem",
-        label: "Strike montagem",
-        type: "number",
-        render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda_unidade ? ` ${row.moeda_unidade}` : ""}`,
-      },
-      {
-        key: "strike_liquid_mtm",
-        label: "Strike liquid (MTM)",
-        type: "number",
-        render: (value, row) =>
-          String(row.status_operacao || "").trim().toLowerCase() === "em aberto" ? (
-            <input
-              className="bubble-cell-input"
-              inputMode="decimal"
-              value={
-                editingDerivativeStrikeInput[row.id] !== undefined
-                  ? editingDerivativeStrikeInput[row.id]
-                  : formatBrazilianNumber(value, 4)
-              }
-              onClick={(event) => event.stopPropagation()}
-              onFocus={() => {
-                setEditingDerivativeStrikeInput((currentState) => ({
-                  ...currentState,
-                  [row.id]: formatBrazilianNumber(value, 4),
-                }));
-              }}
-              onChange={(event) => {
-                const raw = event.target.value;
-                setEditingDerivativeStrikeInput((currentState) => ({
-                  ...currentState,
-                  [row.id]: raw,
-                }));
-                setEditingDerivativeStrike((currentState) => ({
-                  ...currentState,
-                  [row.id]: parseLocalizedNumber(raw),
-                }));
-              }}
-              onBlur={async () => {
-                const strikeValue =
-                  editingDerivativeStrike[row.id] ??
-                  parseLocalizedNumber(editingDerivativeStrikeInput[row.id]) ??
-                  parseLocalizedNumber(value);
-                setEditingDerivativeStrike((currentState) => {
-                  const nextState = {
-                    ...currentState,
-                    [row.id]: strikeValue,
-                  };
-                  return nextState;
-                });
-                setEditingDerivativeStrikeInput((currentState) => {
-                  const nextState = { ...currentState };
-                  delete nextState[row.id];
-                  return nextState;
-                });
-              }}
-            />
-          ) : (
-            formatBrazilianNumber(row.strike_liquidacao, 4)
-          ),
-      },
-      {
-        key: "ajustes_mtm",
-        label: "Ajustes MTM",
-        type: "number",
-        render: (value, row) => `${formatBrazilianNumber(value, 0)}${row.volume_financeiro_moeda ? ` ${row.volume_financeiro_moeda}` : ""}`,
-      },
-      {
-        key: "ajustes_mtm_brl",
-        label: "Ajustes MTM R$",
-        type: "number",
-        render: (value) => formatBrazilianNumber(value, 0),
-      },
-      { key: "id", label: "ID" },
-    ],
-    [editingDerivativeStrike, editingDerivativeStrikeInput],
-  );
-
-  const displayRows = useLookupRows(columns, normalizedRows);
-
   const closeModal = () => {
     setIsModalOpen(false);
     setCurrent(null);
@@ -347,15 +94,15 @@ export function DerivativeOperationsPage() {
       return;
     }
 
-    const match = normalizedRows.find((item) => String(item?.id || "") === requestedOpenId);
+    const match = rows.find((item) => String(item?.id || "") === requestedOpenId);
     if (!match) {
       return;
     }
 
-    setCurrent(match);
+    setCurrent(resolveTableRow(match));
     setError("");
     setIsModalOpen(true);
-  }, [current?.id, isModalOpen, loading, normalizedRows, requestedOpenId]);
+  }, [current?.id, isModalOpen, loading, requestedOpenId, rows, setError, siblingRowsByCode]);
 
   const handleDeleteSelected = async (items) => {
     if (!Array.isArray(items) || !items.length) {
@@ -378,9 +125,9 @@ export function DerivativeOperationsPage() {
   return (
     <div className="resource-page">
       <PageHeader title={definition.title} description={definition.description} />
-      <DataTable
-        columns={columns}
-        rows={displayRows}
+      <ResourceTable
+        definition={definition}
+        rows={rows}
         searchValue={filters.search || ""}
         searchPlaceholder={definition.searchPlaceholder || "Buscar..."}
         onSearchChange={(value) => setFilters((currentFilters) => ({ ...currentFilters, search: value, page: 1 }))}
@@ -391,13 +138,13 @@ export function DerivativeOperationsPage() {
         }}
         onClear={() => setFilters({ page: 1, search: "" })}
         onEdit={(item) => {
-          const rawItem = normalizedRows.find((row) => row.id === item.id) || item;
-          setCurrent(rawItem);
+          const rawItem = rows.find((row) => row.id === item.id) || item;
+          setCurrent(resolveTableRow(rawItem));
           setError("");
           setIsModalOpen(true);
         }}
         onDuplicate={(item) => {
-          const rawItem = normalizedRows.find((row) => row.id === item.id) || item;
+          const rawItem = resolveTableRow(rows.find((row) => row.id === item.id) || item);
           const { id, ...copy } = rawItem;
           const nextCode = nextDerivativeOperationCode;
           setCurrent({
@@ -425,7 +172,6 @@ export function DerivativeOperationsPage() {
         }
         onDeleteSelected={user?.is_superuser ? handleDeleteSelected : undefined}
         selectedId={current?.id}
-        getRowClassName={(row) => (String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "")}
       />
 
       {isModalOpen ? (
@@ -512,6 +258,7 @@ export function DerivativeOperationsPage() {
                 if (!primaryRecord) primaryRecord = created;
               }
             }
+
             if (savedRows.length) {
               upsertRows(savedRows);
             }

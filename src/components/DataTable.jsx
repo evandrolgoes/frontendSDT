@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { formatBrazilianDate, formatBrazilianDateTime, isBrazilianDate, isIsoDate } from "../utils/date";
 
@@ -195,6 +195,18 @@ const getUniqueValues = (rows, key) =>
     left.localeCompare(right, "pt-BR"),
   );
 
+const toSearchableText = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => toSearchableText(item)).join(" ");
+  }
+  if (value && typeof value === "object") {
+    return Object.values(value)
+      .map((item) => toSearchableText(item))
+      .join(" ");
+  }
+  return String(value ?? "");
+};
+
 const formatCellValue = (column, value, row) => {
   if (column.render) {
     return column.render(value, row);
@@ -261,7 +273,12 @@ export function DataTable({
   const [actionRowId, setActionRowId] = useState(null);
   const [selectionAnchorId, setSelectionAnchorId] = useState(null);
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
-  const [autoTableShellHeight, setAutoTableShellHeight] = useState(null);
+  const [autoTableShellHeight, setAutoTableShellHeight] = useState(() => {
+    if (tableHeight || typeof window === "undefined") {
+      return null;
+    }
+    return Math.max(280, Math.floor(window.innerHeight - 220));
+  });
   const shellRef = useRef(null);
 
   useEffect(() => {
@@ -292,9 +309,9 @@ export function DataTable({
     return () => window.removeEventListener("keydown", handleEscape);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (tableHeight || typeof window === "undefined") {
-      setAutoTableHeight(null);
+      setAutoTableShellHeight(null);
       return undefined;
     }
 
@@ -356,24 +373,63 @@ export function DataTable({
     [columns, rows],
   );
 
+  const preparedColumnsByKey = useMemo(
+    () => new Map(preparedColumns.map((column) => [column.key, column])),
+    [preparedColumns],
+  );
+
+  const searchTerms = useMemo(
+    () => String(searchValue || "").toLowerCase().trim().split(/\s+/).filter(Boolean),
+    [searchValue],
+  );
+
+  const activeColumnFilters = useMemo(
+    () =>
+      Object.entries(columnFilters).filter(([, config]) =>
+        Boolean(
+          config &&
+            ((config.values && config.values.length > 0) ||
+              config.min !== "" ||
+              config.max !== "" ||
+              String(config.query || "").trim() !== ""),
+        ),
+      ),
+    [columnFilters],
+  );
+
+  const rowSearchIndex = useMemo(() => {
+    if (!searchTerms.length) {
+      return null;
+    }
+
+    return new Map(
+      rows.map((row) => [
+        row.id,
+        preparedColumns
+          .map((column) => toSearchableText(row?.[column.key]))
+          .join(" ")
+          .toLowerCase(),
+      ]),
+    );
+  }, [preparedColumns, rows, searchTerms.length]);
+
   const weightKey = useMemo(() => detectWeightKey(preparedColumns), [preparedColumns]);
 
   const filteredRows = useMemo(() => {
-    const terms = searchValue.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (!searchTerms.length && !activeColumnFilters.length && !sortConfig.key) {
+      return rows;
+    }
 
     const nextRows = rows.filter((row) => {
-      const globalMatch =
-        terms.length === 0 ||
-        terms.every((term) =>
-          Object.values(row).some((value) => String(Array.isArray(value) ? value.join(", ") : value ?? "").toLowerCase().includes(term)),
-        );
+      const searchableText = rowSearchIndex?.get(row.id) || "";
+      const globalMatch = searchTerms.length === 0 || searchTerms.every((term) => searchableText.includes(term));
 
       if (!globalMatch) {
         return false;
       }
 
-      return Object.entries(columnFilters).every(([key, config]) => {
-        const column = preparedColumns.find((item) => item.key === key);
+      return activeColumnFilters.every(([key, config]) => {
+        const column = preparedColumnsByKey.get(key);
         if (!column) {
           return true;
         }
@@ -399,7 +455,7 @@ export function DataTable({
       return nextRows;
     }
 
-    const sortColumn = preparedColumns.find((column) => column.key === sortConfig.key);
+    const sortColumn = preparedColumnsByKey.get(sortConfig.key);
     const sortType = sortColumn?.detectedType || "string";
 
     return [...nextRows].sort((left, right) => {
@@ -413,7 +469,7 @@ export function DataTable({
       }
       return leftValue < rightValue ? 1 : -1;
     });
-  }, [columnFilters, preparedColumns, rows, searchValue, sortConfig]);
+  }, [activeColumnFilters, preparedColumnsByKey, rowSearchIndex, rows, searchTerms, sortConfig]);
 
   const actionColumnWidth = useMemo(() => {
     if (!showActions) {
@@ -456,20 +512,12 @@ export function DataTable({
   }, [filteredRows, preparedColumns, selectedIds, weightKey]);
 
   const hasActiveFilters = useMemo(() => {
-    if (String(searchValue || "").trim() !== "") {
+    if (searchTerms.length > 0) {
       return true;
     }
 
-    return Object.values(columnFilters).some((config) =>
-      Boolean(
-        config &&
-          ((config.values && config.values.length > 0) ||
-            config.min !== "" ||
-            config.max !== "" ||
-            String(config.query || "").trim() !== ""),
-      ),
-    );
-  }, [columnFilters, searchValue]);
+    return activeColumnFilters.length > 0;
+  }, [activeColumnFilters, searchTerms.length]);
 
   const toggleSelection = (rowId) => {
     setSelectedIds((current) => {

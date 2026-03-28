@@ -49,6 +49,16 @@ const parseFieldValue = (field, rawValue) => {
 };
 
 const getSelectableOptions = (field, lookupOptions) => {
+  if (typeof field?.getOptions === "function") {
+    return field
+      .getOptions({
+        lookupOptions,
+        values: {},
+        getOptionLabel: (optionField, option) => getOptionLabel(optionField, option),
+      })
+      .filter((option) => String(option?.value ?? "").trim() && String(option?.label ?? "").trim());
+  }
+
   if (Array.isArray(field?.options) && field.options.length) {
     return field.options.map((option) => ({
       value: option.value,
@@ -56,18 +66,78 @@ const getSelectableOptions = (field, lookupOptions) => {
     }));
   }
 
+  if (field?.resource) {
+    let options = lookupOptions[field.resource] || [];
+
+    const mapped = field.listField
+      ? options.flatMap((option) => {
+          const valuesList = Array.isArray(option[field.listField]) ? option[field.listField] : [];
+          return valuesList.map((item) => ({
+            value: item,
+            label: item,
+          }));
+        })
+      : options.map((option) => ({
+          value: option[field.valueKey || "id"] ?? option.id,
+          label: getOptionLabel(field, option),
+        }));
+
+    const filtered = mapped.filter((option) => String(option.value ?? "").trim() && String(option.label ?? "").trim());
+
+    if (field.dedupeByValue) {
+      return filtered.filter((option, index, self) => self.findIndex((item) => item.value === option.value) === index);
+    }
+
+    return filtered;
+  }
+
   if (!field?.resource) {
     return [];
   }
-
-  return (lookupOptions[field.resource] || []).map((option) => ({
-    value: option[field.valueKey || "id"] ?? option.id,
-    label: getOptionLabel(field, option),
-  }));
+  return [];
 };
 
 function ValueInput({ field, value, onChange, lookupOptions, disabled = false, placeholder = "Selecione" }) {
-  return <input type="text" className="mass-update-input" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
+  if (!field) {
+    return <input type="text" className="mass-update-input" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
+  }
+
+  if (field.type === "select" || field.type === "relation" || field.type === "boolean") {
+    const options = getSelectableOptions(field, lookupOptions);
+    return (
+      <select className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+        <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={String(option.value)} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (field.type === "date") {
+    return <input type="date" className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
+  }
+
+  if (field.type === "number") {
+    return (
+      <input
+        type="text"
+        inputMode="decimal"
+        className="mass-update-input"
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+      />
+    );
+  }
+
+  return <input type="text" className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
+}
+
+function FilterValueInput({ value, onChange, disabled = false }) {
+  return <input type="text" className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
 }
 
 export function MassUpdatePage() {
@@ -169,13 +239,15 @@ export function MassUpdatePage() {
       const definitionField = mappedDefinitionFields[field.name] || mappedColumns[field.name] || {};
       return {
         ...field,
+        ...definitionField,
         name: field.name,
         label: definitionField.label || field.label,
-        type: field.type,
-        resource: field.relatedResource || field.resource,
-        options: field.options,
-        labelKey: field.labelKey,
-        valueKey: field.valueKey,
+        type: definitionField.type || field.type,
+        resource: definitionField.resource || field.relatedResource || field.resource,
+        resources: definitionField.resources,
+        options: definitionField.options || field.options,
+        labelKey: definitionField.labelKey || field.labelKey,
+        valueKey: definitionField.valueKey || field.valueKey,
       };
     };
 
@@ -188,6 +260,7 @@ export function MassUpdatePage() {
         label: definitionField.label || field.label,
         type: definitionField.type || field.type,
         resource: definitionField.resource || field.relatedResource || field.resource,
+        resources: definitionField.resources,
         options: definitionField.options || field.options,
         labelKey: definitionField.labelKey || field.labelKey,
         valueKey: definitionField.valueKey || field.valueKey,
@@ -202,7 +275,12 @@ export function MassUpdatePage() {
 
   useEffect(() => {
     const resourcesToLoad = [...fieldCatalog.filters, ...fieldCatalog.updateFields]
-      .map((field) => field.resource)
+      .flatMap((field) => {
+        if (Array.isArray(field.resources) && field.resources.length) {
+          return field.resources;
+        }
+        return field.resource ? [field.resource] : [];
+      })
       .filter(Boolean)
       .filter((value, index, self) => self.indexOf(value) === index);
 
@@ -389,8 +467,7 @@ export function MassUpdatePage() {
 
                     <label className="form-field">
                       <span>Valor</span>
-                      <ValueInput
-                        field={selectedField}
+                      <FilterValueInput
                         value={filter.value}
                         onChange={(value) =>
                           setFilters((current) =>
@@ -404,7 +481,6 @@ export function MassUpdatePage() {
                             ),
                           )
                         }
-                        lookupOptions={lookupOptions}
                         disabled={!selectedField || loadingMetadata}
                       />
                     </label>

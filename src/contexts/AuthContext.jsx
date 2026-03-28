@@ -47,6 +47,9 @@ export function AuthProvider({ children }) {
       tokenStorage.clear();
       setUser(null);
     },
+    updateCurrentUser(patch) {
+      setUser((current) => (current ? { ...current, ...patch } : current));
+    },
     refreshProfile: fetchProfile,
   };
 
