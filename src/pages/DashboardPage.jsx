@@ -3647,21 +3647,19 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [maturityAttachments, setMaturityAttachments] = useState([]);
   const [maturityFormError, setMaturityFormError] = useState("");
   const [resourceTableModal, setResourceTableModal] = useState(null);
+  const summaryReadyEventDispatchedRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
     setSummaryLoading(true);
     resourceService
-      .getCommercialRiskSummary(
-        {
-          grupo: dashboardFilter?.grupo || [],
-          subgrupo: dashboardFilter?.subgrupo || [],
-          cultura: dashboardFilter?.cultura || [],
-          safra: dashboardFilter?.safra || [],
-          localidade: dashboardFilter?.localidade || [],
-        },
-        { force: true },
-      )
+      .getCommercialRiskSummary({
+        grupo: dashboardFilter?.grupo || [],
+        subgrupo: dashboardFilter?.subgrupo || [],
+        cultura: dashboardFilter?.cultura || [],
+        safra: dashboardFilter?.safra || [],
+        localidade: dashboardFilter?.localidade || [],
+      })
       .then((response) => {
         if (!isMounted) return;
         setSummaryData(response || {});
@@ -3724,6 +3722,14 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       window.clearTimeout(timeoutId);
     };
   }, [analyticsLoading, analyticsReady, summaryLoading]);
+
+  useEffect(() => {
+    if (!analyticsReady || summaryReadyEventDispatchedRef.current || typeof window === "undefined") {
+      return;
+    }
+    summaryReadyEventDispatchedRef.current = true;
+    window.dispatchEvent(new CustomEvent("sdt:summary-ready"));
+  }, [analyticsReady]);
 
   useEffect(() => {
     let isMounted = true;

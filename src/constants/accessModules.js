@@ -8,6 +8,7 @@ export const moduleOptions = [
   { value: "dashboard_currency_exposure", label: "Dashboard: Exposição e Hedge Cambial" },
   { value: "dashboard_simulations", label: "Dashboard: Simulações" },
   { value: "dashboard_mtm", label: "Dashboard: MTM" },
+  { value: "insights_commercialization", label: "Insights: Comercializacao" },
   { value: "market_fund_positions", label: "Mercado: Posição de Fundos" },
   { value: "market_quotes", label: "Mercado: Cotações" },
   { value: "market_blog_news", label: "Mercado: Blog/News" },

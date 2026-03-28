@@ -12,6 +12,7 @@ const loadMassImportPageModule = () => import("../pages/MassImportPage");
 const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
 const loadMercadoPageModule = () => import("../pages/MercadoPage");
 const loadMarketNewsPageModule = () => import("../pages/MarketNewsPage");
+const loadInsightsPageModule = () => import("../pages/InsightsPage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
 
@@ -36,6 +37,7 @@ const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage
 const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage");
 const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
 const MarketNewsPage = lazyNamedExport(loadMarketNewsPageModule, "MarketNewsPage");
+const InsightsPage = lazyNamedExport(loadInsightsPageModule, "InsightsPage");
 const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
 const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
 const warmMarketNewsCategories = () => resourceService.listMarketNewsCategories().catch(() => []);
@@ -106,6 +108,12 @@ const baseNavigationSections = [
       { path: "/dashboard/exposicao-hedge-cambial", label: "Exposição e Hedge cambial", module: "dashboard_currency_exposure" },
       { path: "/dashboard/simulacoes", label: "Simulacoes", module: "dashboard_simulations" },
       { path: "/dashboard/mtm", label: "MTM", module: "dashboard_mtm" },
+    ],
+  },
+  {
+    label: "Insights",
+    items: [
+      { path: "/insights/comercializacao", label: "Comercializacao", module: "insights_commercialization" },
     ],
   },
   {
@@ -215,6 +223,7 @@ export const appRoutes = [
   { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes" },
   { path: "/mercado/blog-news", element: <MarketNewsPage />, module: "market_blog_news", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
   { path: "/mercado/blog-news/:postId", element: <MarketNewsPage />, module: "market_blog_news", title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
+  { path: "/insights/comercializacao", element: <InsightsPage />, module: "insights_commercialization", preload: loadInsightsPageModule },
   { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", preload: loadMercadoPageModule },
   { path: "/mercado/basis", element: <MercadoPage kind="basis" />, module: "market_basis", preload: loadMercadoPageModule },
   { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates", preload: loadMercadoPageModule },

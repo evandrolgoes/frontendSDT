@@ -222,6 +222,15 @@ export const resourceService = {
       api.get("dashboard/commercial-risk-summary/", { params }).then((response) => response.data),
     );
   },
+  getCommercialInsights: (params = {}, options = {}) => {
+    const cacheKey = buildCacheKey("insights", "commercialization", params);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("insights/commercialization/", { params }).then((response) => response.data),
+    );
+  },
   fetchJsonCached: (cacheKey, url, options = {}) =>
     remember(`external:${cacheKey}`, () => fetch(url, options).then((response) => response.json())),
   invalidateCache,
