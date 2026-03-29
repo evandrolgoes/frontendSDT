@@ -53,6 +53,12 @@ const shiftDateByDays = (value, days) => {
   return date;
 };
 
+const shiftDateByYears = (value, years) => {
+  const date = new Date(value);
+  date.setFullYear(date.getFullYear() + years);
+  return date;
+};
+
 const formatIsoDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -64,6 +70,13 @@ const buildCashflowDefaultDateRange = (today = new Date()) => ({
   toBrazilian: formatBrazilianDate(shiftDateByDays(today, CASHFLOW_DEFAULT_FUTURE_DAYS)),
   startIso: formatIsoDate(shiftDateByDays(today, -CASHFLOW_DEFAULT_PAST_DAYS)),
   endIso: formatIsoDate(shiftDateByDays(today, CASHFLOW_DEFAULT_FUTURE_DAYS)),
+});
+
+const buildComponentSalesDefaultDateRange = (today = new Date()) => ({
+  fromBrazilian: formatBrazilianDate(shiftDateByDays(today, -30)),
+  toBrazilian: formatBrazilianDate(shiftDateByYears(today, 1)),
+  startIso: formatIsoDate(shiftDateByDays(today, -30)),
+  endIso: formatIsoDate(shiftDateByYears(today, 1)),
 });
 
 const formatCompactPostDate = (value) => {
@@ -860,7 +873,7 @@ function DashboardResourceTableModal({ title, definition, rows, onClose, onEdit 
           onSearchChange={setSearchValue}
           onClear={() => setSearchValue("")}
           onEdit={onEdit}
-          tableHeight="82vh"
+          tableHeight="100%"
         />
       </div>
     </div>
@@ -2418,6 +2431,63 @@ const buildComponentPeriodKey = (dateObj, interval) => {
   return formatBrazilianDate(dateObj);
 };
 
+const getPercentileValue = (values, percentile) => {
+  const numericValues = (Array.isArray(values) ? values : [])
+    .map((item) => Number(item || 0))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .sort((left, right) => left - right);
+  if (!numericValues.length) return 0;
+  const safePercentile = Math.min(Math.max(Number(percentile || 0), 0), 1);
+  const index = Math.min(
+    numericValues.length - 1,
+    Math.max(0, Math.ceil(numericValues.length * safePercentile) - 1),
+  );
+  return numericValues[index] || numericValues[numericValues.length - 1] || 0;
+};
+
+const getVisualBarHeight = (value, referenceMax, barAreaHeight) => {
+  const numericValue = Number(value || 0);
+  const numericReferenceMax = Number(referenceMax || 0);
+  if (!(numericValue > 0) || !(numericReferenceMax > 0) || !(barAreaHeight > 0)) {
+    return 0;
+  }
+
+  const ratio = Math.min(numericValue / numericReferenceMax, 1);
+  return Math.max(ratio * barAreaHeight * 0.95, 8);
+};
+
+const getComponentPeriodBounds = (label, interval) => {
+  if (!label || interval === "geral") return null;
+
+  if (interval === "daily") {
+    const [day, month, year] = String(label).split("/");
+    const start = new Date(Number(year), Number(month) - 1, Number(day));
+    const end = new Date(start);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (interval === "weekly") {
+    const [startLabel, endLabel] = String(label).split(" a ");
+    const [startDay, startMonth, startYear] = String(startLabel || "").split("/");
+    const [endDay, endMonth, endYear] = String(endLabel || "").split("/");
+    const start = new Date(Number(startYear), Number(startMonth) - 1, Number(startDay));
+    const end = new Date(Number(endYear), Number(endMonth) - 1, Number(endDay));
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  if (interval === "monthly") {
+    const [month, year] = String(label).split("/");
+    const start = new Date(Number(year), Number(month) - 1, 1);
+    const end = new Date(Number(year), Number(month), 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  return null;
+};
+
 const getComponentSortKey = (label, interval) => {
   if (interval === "daily") {
     const [day, month, year] = String(label).split("/");
@@ -2542,9 +2612,10 @@ const buildComponentSalesChartState = (rows, interval, datasetVisibility = {}) =
     }
     const node = aggregate[period][item.categoria];
     node.sumValor += Number(item.valor) || 0;
+    const strikeWeight = Math.abs(Number(item.volume) || 0) || Math.abs(Number(item.valor) || 0);
     if (Number.isFinite(item.strike)) {
-      node.wStrikeNum += (Number(item.strike) || 0) * Math.abs(Number(item.valor) || 0);
-      node.wStrikeDen += Math.abs(Number(item.valor) || 0);
+      node.wStrikeNum += (Number(item.strike) || 0) * strikeWeight;
+      node.wStrikeDen += strikeWeight;
     }
     if (!node.unidade && item.unidade) node.unidade = item.unidade;
     if (!node.moeda_unidade && item.moeda_unidade) node.moeda_unidade = item.moeda_unidade;
@@ -2768,8 +2839,15 @@ function ComponentSalesDetailsPopup({ selectedBar, onClose, onOpenOperation }) {
     if (!selectedBar?.ops?.length) return null;
     const totalValor = selectedBar.ops.reduce((sum, item) => sum + Math.abs(Number(item.valor) || 0), 0);
     const totalVolume = selectedBar.ops.reduce((sum, item) => sum + (Number(item.volume) || 0), 0);
-    const wDen = selectedBar.ops.reduce((sum, item) => sum + Math.abs(Number(item.valor) || 0), 0);
-    const wNum = selectedBar.ops.reduce((sum, item) => sum + (Number(item.strike) || 0) * Math.abs(Number(item.valor) || 0), 0);
+    const wDen = selectedBar.ops.reduce(
+      (sum, item) => sum + (Math.abs(Number(item.volume) || 0) || Math.abs(Number(item.valor) || 0)),
+      0,
+    );
+    const wNum = selectedBar.ops.reduce(
+      (sum, item) =>
+        sum + (Number(item.strike) || 0) * (Math.abs(Number(item.volume) || 0) || Math.abs(Number(item.valor) || 0)),
+      0,
+    );
     const wAvgStrike = wDen > 0 ? wNum / wDen : null;
     return { totalValor, totalVolume, wAvgStrike };
   }, [selectedBar]);
@@ -2915,12 +2993,15 @@ const stackTotalsPlugin = {
 Chart.register(stackTotalsPlugin);
 
 function ComponentSalesDashboard({ dashboardFilter }) {
-  const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
-
-  const [interval, setInterval] = useState("daily");
+  const defaultDateRange = useMemo(() => buildComponentSalesDefaultDateRange(), []);
+  const chartRef = useRef(null);
+  const chartWrapRef = useRef(null);
+  const [interval, setInterval] = useState("monthly");
   const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
   const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
   const [selectedTableModal, setSelectedTableModal] = useState(null);
+  const [zoomRange, setZoomRange] = useState(null);
+  const [chartWidth, setChartWidth] = useState(0);
   const [datasetVisibility, setDatasetVisibility] = useState(() =>
     Object.fromEntries(COMPONENT_DATASETS.map((dataset) => [dataset.key, true])),
   );
@@ -2941,6 +3022,97 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     () => buildComponentSalesChartState(rows, interval, datasetVisibility),
     [datasetVisibility, interval, rows],
   );
+  const timelinePeriods = useMemo(() => {
+    if (interval === "geral") return [];
+    return chartState.labels
+      .map((label) => {
+        const bounds = getComponentPeriodBounds(label, interval);
+        if (!bounds?.start || !bounds?.end) return null;
+        const anchor =
+          interval === "monthly"
+            ? bounds.start
+            : interval === "weekly"
+              ? bounds.start
+              : bounds.start;
+        return {
+          label,
+          start: bounds.start,
+          end: bounds.end,
+          anchor,
+        };
+      })
+      .filter(Boolean);
+  }, [chartState.labels, interval]);
+  const visiblePeriodLabels = useMemo(() => {
+    if (interval === "geral" || !zoomRange?.start || !zoomRange?.end) {
+      return null;
+    }
+    const startTime = Number(zoomRange.start.getTime());
+    const endTime = Number(zoomRange.end.getTime());
+    return new Set(
+      timelinePeriods
+        .filter((period) => {
+          const anchorTime = period?.anchor?.getTime?.();
+          return Number.isFinite(anchorTime) && anchorTime >= startTime && anchorTime <= endTime;
+        })
+        .map((period) => period.label),
+    );
+  }, [interval, timelinePeriods, zoomRange]);
+  const visibleRows = useMemo(() => {
+    if (interval === "geral" || !visiblePeriodLabels) {
+      return rows;
+    }
+    return rows.filter((item) => visiblePeriodLabels.has(buildComponentPeriodKey(item.date, interval)));
+  }, [interval, rows, visiblePeriodLabels]);
+  const summaryChartState = useMemo(
+    () => buildComponentSalesChartState(visibleRows, interval, datasetVisibility),
+    [datasetVisibility, interval, visibleRows],
+  );
+  const visiblePeriodCount = visiblePeriodLabels?.size || timelinePeriods.length || 1;
+  const openSummaryCardModal = useCallback((groupLabel) => {
+    const matchingChartRows = visibleRows.filter((row) => {
+      if (groupLabel === "Venda Físico em U$") {
+        return row.resourceKey === "physical-sales";
+      }
+      if (groupLabel === "Bolsa (Futuros)") {
+        return row.resourceKey === "derivative-operations" && row.categoriaBase === "Bolsa (Futuros)";
+      }
+      if (groupLabel === "Dólar") {
+        return row.resourceKey === "derivative-operations" && row.categoriaBase === "Dólar";
+      }
+      return false;
+    });
+
+    const definition = groupLabel === "Venda Físico em U$"
+      ? resourceDefinitions.physicalSales
+      : resourceDefinitions.derivativeOperations;
+    const sourceRows = definition?.resource === "physical-sales" ? sales : derivatives;
+    const ids = new Set(
+      matchingChartRows
+        .map((item) => item.recordId)
+        .filter(Boolean)
+        .map(String),
+    );
+    const operationCodes = new Set(
+      matchingChartRows
+        .map((item) => item.operationCode)
+        .filter(Boolean)
+        .map(String),
+    );
+    const filteredRows = sourceRows.filter((row) =>
+      ids.has(String(row.id)) || operationCodes.has(String(row.cod_operacao_mae || "")),
+    );
+
+    if (!filteredRows.length) return;
+
+    const titleSuffix = interval === "geral" ? "Total Consolidado" : "Periodo visivel";
+
+    setSelectedTableModal({
+      title: `${groupLabel} — ${titleSuffix}`,
+      definition,
+      rows: filteredRows,
+    });
+  }, [derivatives, interval, sales, visibleRows]);
   const openTableModal = useCallback((period, seriesName) => {
     const selectedOps = chartState.opsIndex.get(`${period}||${seriesName}`) || [];
     const definition = seriesName.startsWith("Venda Físico")
@@ -2969,117 +3141,304 @@ function ComponentSalesDashboard({ dashboardFilter }) {
       rows: filteredRows,
     });
   }, [chartState.opsIndex, derivatives, sales]);
-  const chartOption = useMemo(() => ({
-    animationDuration: 250,
-    grid: { top: 28, right: 18, bottom: 56, left: 18, containLabel: true },
-    tooltip: {
-      trigger: "axis",
-      axisPointer: { type: "shadow" },
-      formatter: (params) => {
-        const grouped = new Map();
-        params
-          .filter((item) => Number(item.value || 0) > 0)
-          .forEach((item) => {
-            const definition = COMPONENT_DATASETS.find((dataset) => dataset.key === item.seriesName);
-            const baseKey = definition?.baseKey || item.seriesName;
-            const meta = chartState.metaMap.get(`${item.axisValue}||${item.seriesName}`);
-            const current = grouped.get(baseKey) || {
-              marker: `<span style="display:inline-block;margin-right:6px;border-radius:999px;width:10px;height:10px;background:${COMPONENT_CATEGORY_GROUPS.find((group) => group.label === baseKey)?.color || item.color};"></span>`,
-              value: 0,
-              weightedStrikeNum: 0,
-              weightedStrikeDen: 0,
-              unit: "",
-            };
-            const value = Number(item.value || 0);
-            current.value += value;
-            if (meta?.wAvgStrike != null && value > 0) {
-              current.weightedStrikeNum += Number(meta.wAvgStrike) * value;
-              current.weightedStrikeDen += value;
-              if (!current.unit && meta.moeda_unidade) current.unit = meta.moeda_unidade;
-            }
-            grouped.set(baseKey, current);
-          });
-        const rowsHtml = Array.from(grouped.entries())
-          .map(([label, item]) => {
-            const strike = item.weightedStrikeDen > 0
-              ? `<br/>Strike medio: ${Number(item.weightedStrikeNum / item.weightedStrikeDen).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${item.unit ? ` ${item.unit}` : ""}`
-              : "";
-            return `${item.marker}${label} — U$ ${Number(item.value || 0).toLocaleString("pt-BR")}${strike}`;
-          })
-          .join("<br/>");
-        if (!rowsHtml) return "";
-        return `<strong>${params[0]?.axisValue || ""}</strong><br/>${rowsHtml}`;
-      },
-    },
-    legend: { show: false },
-    xAxis: {
-      type: "category",
-      data: chartState.labels,
-      triggerEvent: true,
-      axisTick: { show: false },
-      axisLabel: { color: "#475569", fontWeight: 700, fontSize: 12 },
-      axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
-    },
-    yAxis: {
-      type: "value",
-      min: 0,
-      name: "U$",
-      nameTextStyle: { color: "#475569", fontSize: 10, fontWeight: 700 },
-      axisLabel: { color: "#475569", fontSize: 11, formatter: (value) => Number(value).toLocaleString("pt-BR") },
-      splitLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
-    },
-    series: (() => {
-      const visibleDatasets = chartState.datasets.filter((dataset) => dataset.hidden !== true);
-      const lastVisibleByStack = visibleDatasets.reduce((acc, dataset) => ({ ...acc, [dataset.stack]: dataset.label }), {});
-      const totalsByLabel = new Map((chartState.periods || []).map((period) => [period.label, period]));
+  const chartOption = useMemo(() => {
+    const today = startOfDashboardDay(new Date()).getTime();
+    const visibleDatasets = chartState.datasets.filter((dataset) => dataset.hidden !== true);
+    const lastVisibleByStack = visibleDatasets.reduce((acc, dataset) => ({ ...acc, [dataset.stack]: dataset.label }), {});
+    const totalsByLabel = new Map((chartState.periods || []).map((period) => [period.label, period]));
+    const visibleStackCount = Math.max(1, new Set(visibleDatasets.map((dataset) => dataset.stack)).size);
+    const effectiveChartWidth = Math.max(Number(chartWidth || 0), 320);
+    const slotWidth = Math.max(18, (effectiveChartWidth - 48) / Math.max(visiblePeriodCount, 1));
+    const intervalFillRatio = {
+      daily: effectiveChartWidth <= 640 ? 0.38 : 0.34,
+      weekly: effectiveChartWidth <= 640 ? 0.52 : 0.5,
+      monthly: effectiveChartWidth <= 640 ? 0.68 : 0.64,
+      geral: effectiveChartWidth <= 640 ? 0.78 : 0.72,
+    };
+    const intervalMinBarWidth = {
+      daily: effectiveChartWidth <= 640 ? 5 : 6,
+      weekly: effectiveChartWidth <= 640 ? 9 : 12,
+      monthly: effectiveChartWidth <= 640 ? 14 : 18,
+      geral: effectiveChartWidth <= 640 ? 28 : 40,
+    };
+    const intervalMaxBarWidth = {
+      daily: effectiveChartWidth <= 640 ? 10 : 12,
+      weekly: effectiveChartWidth <= 640 ? 18 : 24,
+      monthly: effectiveChartWidth <= 640 ? 32 : 42,
+      geral: effectiveChartWidth <= 640 ? 120 : 180,
+    };
+    const intervalDateGapPreset = {
+      daily: 8,
+      weekly: 6,
+      monthly: 5,
+      geral: 4,
+    };
+    const intraBarGapPx = visibleStackCount > 1 ? 2 : 0;
+    const dateGapPx = intervalDateGapPreset[interval] ?? 5;
+    const availableGroupWidth = Math.max(
+      visibleStackCount * 3,
+      Math.min(slotWidth - dateGapPx, slotWidth * (intervalFillRatio[interval] ?? 0.5)),
+    );
+    const slotLimitedBarWidth = (availableGroupWidth - intraBarGapPx * Math.max(visibleStackCount - 1, 0)) / visibleStackCount;
+    const responsiveBarWidth = Math.max(
+      intervalMinBarWidth[interval] ?? 4,
+      Math.min(intervalMaxBarWidth[interval] ?? 12, slotLimitedBarWidth),
+    );
+    const responsiveBarGap = visibleStackCount > 1 && responsiveBarWidth > 0
+      ? `${Math.max(0, (intraBarGapPx / responsiveBarWidth) * 100)}%`
+      : "0%";
+    const responsiveCategoryGap = `${Math.max(8, Math.min(60, (dateGapPx / slotWidth) * 100))}%`;
 
-      return chartState.datasets.map((dataset) => ({
+    if (interval === "geral") {
+      return {
+        animationDuration: 250,
+        grid: { top: 28, right: 18, bottom: 56, left: 18, containLabel: true },
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "shadow" },
+        },
+        legend: { show: false },
+        xAxis: {
+          type: "category",
+          data: chartState.labels,
+          axisTick: { show: false },
+          axisLabel: { color: "#475569", fontWeight: 700, fontSize: 12 },
+          axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
+        },
+        yAxis: {
+          type: "value",
+          min: 0,
+          name: "U$",
+          nameTextStyle: { color: "#475569", fontSize: 10, fontWeight: 700 },
+          axisLabel: { color: "#475569", fontSize: 11, formatter: (value) => Number(value).toLocaleString("pt-BR") },
+          splitLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
+        },
+        series: chartState.datasets.map((dataset) => ({
+          name: dataset.label,
+          type: "bar",
+          stack: dataset.stack,
+          barWidth: responsiveBarWidth,
+          barMaxWidth: responsiveBarWidth,
+          barGap: responsiveBarGap,
+          barCategoryGap: responsiveCategoryGap,
+          cursor: "pointer",
+          itemStyle: { color: dataset.backgroundColor, borderRadius: 0 },
+          label: {
+            show: true,
+            position: lastVisibleByStack[dataset.stack] === dataset.label ? "top" : "inside",
+            color: lastVisibleByStack[dataset.stack] === dataset.label ? "#111827" : "#ffffff",
+            fontSize: 11,
+            fontWeight: 700,
+            formatter: ({ name, value }) => {
+              const numericValue = Number(value || 0);
+              if (!(numericValue > 0)) return "";
+              if (lastVisibleByStack[dataset.stack] !== dataset.label) {
+                return Number(numericValue).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+              }
+              const period = totalsByLabel.get(name);
+              const total = dataset.stack === "stack_dolar" ? period?.dolar || 0 : period?.stackTotal || 0;
+              return total > 0 ? `Total: ${formatCurrency2(total)}` : "";
+            },
+          },
+          data: dataset.data,
+        })),
+      };
+    }
+
+    return {
+      animationDuration: 250,
+      grid: { top: 28, right: 18, bottom: 80, left: 18, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (params) => {
+          const validItems = params.filter((item) => Number(item?.value?.[1] || 0) > 0);
+          if (!validItems.length) return "";
+          const periodLabel = validItems[0]?.data?.periodLabel || "";
+          const rowsHtml = validItems
+            .map((item) => `${item.marker}${item.seriesName}: U$ ${Number(item.value?.[1] || 0).toLocaleString("pt-BR")}`)
+            .join("<br/>");
+          return `<strong>${periodLabel}</strong><br/>${rowsHtml}`;
+        },
+      },
+      legend: { show: false },
+      dataZoom: [
+        {
+          type: "inside",
+          xAxisIndex: 0,
+          filterMode: "weakFilter",
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+          moveOnMouseWheel: true,
+        },
+        {
+          type: "slider",
+          xAxisIndex: 0,
+          height: 22,
+          bottom: 20,
+          filterMode: "weakFilter",
+        },
+      ],
+      xAxis: {
+        type: "time",
+        axisTick: { show: false },
+        axisLabel: {
+          color: "#475569",
+          fontWeight: 700,
+          fontSize: 12,
+          hideOverlap: true,
+          margin: 14,
+          formatter: (value) => {
+            const date = new Date(value);
+            if (interval === "monthly") {
+              return `${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
+            }
+            return formatBrazilianDate(date);
+          },
+        },
+        axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
+        splitLine: { show: false },
+        minInterval: interval === "monthly" ? 28 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        name: "U$",
+        nameTextStyle: { color: "#475569", fontSize: 10, fontWeight: 700 },
+        axisLabel: { color: "#475569", fontSize: 11, formatter: (value) => Number(value).toLocaleString("pt-BR") },
+        splitLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
+      },
+      series: chartState.datasets.map((dataset, datasetIndex) => ({
         name: dataset.label,
         type: "bar",
         stack: dataset.stack,
-        barMaxWidth: 52,
+        barWidth: responsiveBarWidth,
+        barMaxWidth: responsiveBarWidth,
+        barGap: responsiveBarGap,
+        barCategoryGap: responsiveCategoryGap,
+        barMinHeight: 3,
         cursor: "pointer",
-        itemStyle: { color: dataset.backgroundColor, borderRadius: [10, 10, 0, 0] },
+        itemStyle: { color: dataset.backgroundColor, borderRadius: 0 },
         label: {
-          show: true,
-          position: lastVisibleByStack[dataset.stack] === dataset.label ? "top" : "inside",
-          color: lastVisibleByStack[dataset.stack] === dataset.label ? "#111827" : "#ffffff",
+          show: lastVisibleByStack[dataset.stack] === dataset.label,
+          position: "top",
+          color: "#111827",
           fontSize: 11,
           fontWeight: 700,
-          backgroundColor: lastVisibleByStack[dataset.stack] === dataset.label ? "#ffffff" : "transparent",
-          borderColor: lastVisibleByStack[dataset.stack] === dataset.label ? "rgba(15, 23, 42, 0.35)" : "transparent",
-          borderWidth: lastVisibleByStack[dataset.stack] === dataset.label ? 1 : 0,
-          borderRadius: lastVisibleByStack[dataset.stack] === dataset.label ? 8 : 0,
-          padding: lastVisibleByStack[dataset.stack] === dataset.label ? [4, 8] : 0,
-          formatter: ({ name, value }) => {
-            const numericValue = Number(value || 0);
+          distance: 6,
+          formatter: ({ data }) => {
+            const numericValue = Number(data?.value?.[1] || 0);
             if (!(numericValue > 0)) return "";
-            if (lastVisibleByStack[dataset.stack] !== dataset.label) {
-              return Number(numericValue).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
-            }
-            const period = totalsByLabel.get(name);
+            const period = totalsByLabel.get(data?.periodLabel || "");
             const total = dataset.stack === "stack_dolar" ? period?.dolar || 0 : period?.stackTotal || 0;
-            return total > 0 ? `Total: ${formatCurrency2(total)}` : "";
+            return total > 0 ? `U$ ${Number(total).toLocaleString("pt-BR")}` : "";
           },
         },
-        data: dataset.data,
-      }));
-    })(),
-  }), [chartState]);
+        labelLayout: {
+          hideOverlap: true,
+        },
+        markLine: datasetIndex === 0
+          ? {
+              symbol: ["none", "none"],
+              silent: true,
+              animation: false,
+              label: {
+                show: true,
+                formatter: "Hoje",
+                position: "start",
+                color: "#1d4ed8",
+                backgroundColor: "#dbeafe",
+                borderColor: "rgba(37, 99, 235, 0.2)",
+                borderWidth: 1,
+                borderRadius: 999,
+                padding: [4, 10],
+              },
+              lineStyle: {
+                color: "rgba(37, 99, 235, 0.95)",
+                type: "dashed",
+                width: 2,
+              },
+              data: [{ xAxis: today }],
+            }
+          : undefined,
+        data: timelinePeriods.map((period, index) => ({
+          value: [period.anchor.getTime(), Number(dataset.data[index] || 0)],
+          periodLabel: period.label,
+        })),
+      })),
+    };
+  }, [chartState, chartWidth, interval, timelinePeriods, visiblePeriodCount]);
   const chartEvents = useMemo(() => ({
     click: (params) => {
-      if (!params?.seriesName || params?.dataIndex == null) return;
-      if (!(Number(params.value || 0) > 0)) return;
-      const period = chartState.labels[params.dataIndex];
+      if (!params?.seriesName) return;
+      const numericValue = Array.isArray(params.value) ? Number(params.value?.[1] || 0) : Number(params.value || 0);
+      if (!(numericValue > 0)) return;
+      const period = params?.data?.periodLabel || chartState.labels[params.dataIndex];
       openTableModal(period, params.seriesName);
     },
-  }), [chartState.labels, openTableModal]);
+    datazoom: (params) => {
+      const payload = Array.isArray(params?.batch) ? params.batch[0] : params;
+      const domainStart = timelinePeriods[0]?.anchor?.getTime?.();
+      const domainEnd = timelinePeriods[timelinePeriods.length - 1]?.anchor?.getTime?.();
+      if (Number.isFinite(domainStart) && Number.isFinite(domainEnd) && domainEnd > domainStart) {
+        let startValue = payload?.startValue;
+        let endValue = payload?.endValue;
+        if (startValue == null || endValue == null) {
+          const startPct = Number(payload?.start ?? 0);
+          const endPct = Number(payload?.end ?? 100);
+          startValue = domainStart + ((Math.min(Math.max(startPct, 0), 100) / 100) * (domainEnd - domainStart));
+          endValue = domainStart + ((Math.min(Math.max(endPct, 0), 100) / 100) * (domainEnd - domainStart));
+        }
+        if (startValue != null && endValue != null) {
+          setZoomRange({
+            start: new Date(Number(startValue)),
+            end: new Date(Number(endValue)),
+          });
+        }
+      }
+      const startValue = payload?.startValue;
+      const endValue = payload?.endValue;
+      if (startValue == null || endValue == null) return;
+      setDateFrom(formatBrazilianDate(new Date(startValue)));
+      setDateTo(formatBrazilianDate(new Date(endValue)));
+    },
+  }), [chartState.labels, openTableModal, timelinePeriods]);
+
+  useEffect(() => {
+    setZoomRange(null);
+  }, [interval, dateFrom, dateTo]);
+
+  useEffect(() => {
+    const node = chartWrapRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const nextWidth = entries?.[0]?.contentRect?.width;
+      if (Number.isFinite(nextWidth) && nextWidth > 0) {
+        setChartWidth(nextWidth);
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <section className="component-sales-shell">
       <section className="stats-grid">
-        {chartState.totalsByCategory.map((item) => (
-          <article key={item.label} className="card stat-card component-summary-card">
+        {summaryChartState.totalsByCategory.map((item) => (
+          <article
+            key={item.label}
+            className="card stat-card component-summary-card"
+            role="button"
+            tabIndex={0}
+            onClick={() => openSummaryCardModal(item.label)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openSummaryCardModal(item.label);
+              }
+            }}
+            style={{ cursor: "pointer" }}
+          >
             <span className="component-summary-label">
               <span
                 className="component-summary-dot"
@@ -3132,8 +3491,14 @@ function ComponentSalesDashboard({ dashboardFilter }) {
           </div>
         </div>
 
-        <div className="component-chartjs-wrap">
-          <ReactECharts option={chartOption} onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "svg" }} />
+        <div ref={chartWrapRef} className="component-chartjs-wrap">
+          <ReactECharts
+            ref={chartRef}
+            option={chartOption}
+            onEvents={chartEvents}
+            style={{ height: "100%" }}
+            opts={{ renderer: "svg" }}
+          />
         </div>
 
         <div className="component-chart-legend-bottom">
@@ -3165,11 +3530,17 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 }
 
 function ComponentSalesNativeDashboard({ dashboardFilter }) {
-  const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
+  const defaultDateRange = useMemo(() => buildComponentSalesDefaultDateRange(), []);
   const [interval, setInterval] = useState("daily");
   const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
   const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
   const [selectedTableModal, setSelectedTableModal] = useState(null);
+  const [zoomRange, setZoomRange] = useState(null);
+  const [dragSelection, setDragSelection] = useState(null);
+  const columnsRef = useRef(null);
+  const chartRef = useRef(null);
+  const [hoveredTooltip, setHoveredTooltip] = useState(null);
+  const [viewportRange, setViewportRange] = useState(null);
 
   const {
     rows,
@@ -3204,11 +3575,200 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
     });
   }, [chartState.opsIndex, derivatives, sales]);
 
-  const maxValue = useMemo(
-    () => Math.max(...(chartState.periods || []).map((item) => Math.max(item.stackTotal, item.dolar)), 1),
-    [chartState.periods],
-  );
   const barAreaHeight = 320;
+  const visiblePeriods = useMemo(() => {
+    const periods = chartState.periods || [];
+    if (!zoomRange || !periods.length) return periods;
+    const start = Math.max(0, Math.min(zoomRange.startIndex ?? 0, periods.length - 1));
+    const end = Math.max(start, Math.min(zoomRange.endIndex ?? periods.length - 1, periods.length - 1));
+    return periods.slice(start, end + 1);
+  }, [chartState.periods, zoomRange]);
+  const viewportPeriods = useMemo(() => {
+    const sourcePeriods = visiblePeriods.length ? visiblePeriods : chartState.periods || [];
+    if (!viewportRange || !sourcePeriods.length) return sourcePeriods;
+    const start = Math.max(0, Math.min(viewportRange.startIndex ?? 0, sourcePeriods.length - 1));
+    const end = Math.max(start, Math.min(viewportRange.endIndex ?? sourcePeriods.length - 1, sourcePeriods.length - 1));
+    return sourcePeriods.slice(start, end + 1);
+  }, [chartState.periods, viewportRange, visiblePeriods]);
+  const maxValue = useMemo(() => {
+    const sourcePeriods = viewportPeriods.length ? viewportPeriods : visiblePeriods.length ? visiblePeriods : chartState.periods || [];
+    const values = sourcePeriods.flatMap((item) => [item.stackTotal, item.dolar]);
+    const rawMax = Math.max(...values, 1);
+    const percentileMax = getPercentileValue(values, 0.75);
+    return Math.max(percentileMax, rawMax * 0.3, 1);
+  }, [chartState.periods, viewportPeriods, visiblePeriods]);
+  const visiblePeriodBounds = useMemo(() => {
+    if (!visiblePeriods.length || interval === "geral") return null;
+    const firstBounds = getComponentPeriodBounds(visiblePeriods[0]?.label, interval);
+    const lastBounds = getComponentPeriodBounds(visiblePeriods[visiblePeriods.length - 1]?.label, interval);
+    if (!firstBounds?.start || !lastBounds?.end) return null;
+    return {
+      start: startOfDashboardDay(firstBounds.start),
+      end: lastBounds.end,
+    };
+  }, [interval, visiblePeriods]);
+  const todayGuideLeft = useMemo(() => {
+    if (!visiblePeriodBounds?.start || !visiblePeriodBounds?.end) return null;
+    const today = startOfDashboardDay(new Date());
+    const startTime = visiblePeriodBounds.start.getTime();
+    const endTime = visiblePeriodBounds.end.getTime();
+    const todayTime = today.getTime();
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || !Number.isFinite(todayTime)) return null;
+    if (todayTime < startTime || todayTime > endTime || endTime <= startTime) return null;
+    return `${((todayTime - startTime) / (endTime - startTime)) * 100}%`;
+  }, [visiblePeriodBounds]);
+  const visibleRangeDates = useMemo(() => {
+    if (!visiblePeriodBounds?.start || !visiblePeriodBounds?.end) return null;
+    return {
+      fromBrazilian: formatBrazilianDate(visiblePeriodBounds.start),
+      toBrazilian: formatBrazilianDate(visiblePeriodBounds.end),
+    };
+  }, [visiblePeriodBounds]);
+  const fullRangeDates = useMemo(
+    () => ({
+      fromBrazilian: defaultDateRange.fromBrazilian,
+      toBrazilian: defaultDateRange.toBrazilian,
+    }),
+    [defaultDateRange.fromBrazilian, defaultDateRange.toBrazilian],
+  );
+  const dragOverlayLeft = dragSelection && visiblePeriods.length
+    ? `${(Math.min(dragSelection.startIndex, dragSelection.currentIndex) / visiblePeriods.length) * 100}%`
+    : null;
+  const dragOverlayWidth = dragSelection && visiblePeriods.length
+    ? `${((Math.abs(dragSelection.currentIndex - dragSelection.startIndex) + 1) / visiblePeriods.length) * 100}%`
+    : null;
+
+  useEffect(() => {
+    setZoomRange(null);
+  }, [interval, dateFrom, dateTo]);
+
+  useEffect(() => {
+    const container = chartRef.current;
+    const columns = columnsRef.current;
+    if (!container || !columns || !visiblePeriods.length) {
+      setViewportRange(null);
+      return undefined;
+    }
+
+    const updateViewportRange = () => {
+      const children = Array.from(columns.children).filter((node) => node.classList?.contains("component-native-slot"));
+      if (!children.length) {
+        setViewportRange(null);
+        return;
+      }
+
+      const scrollLeft = container.scrollLeft;
+      const viewportLeft = scrollLeft;
+      const viewportRight = scrollLeft + container.clientWidth;
+
+      let startIndex = 0;
+      let endIndex = children.length - 1;
+
+      children.forEach((child, index) => {
+        const left = child.offsetLeft;
+        const right = left + child.clientWidth;
+        if (right >= viewportLeft && startIndex === 0) {
+          startIndex = index;
+        }
+        if (left <= viewportRight) {
+          endIndex = index;
+        }
+      });
+
+      setViewportRange({ startIndex, endIndex });
+    };
+
+    updateViewportRange();
+    container.addEventListener("scroll", updateViewportRange, { passive: true });
+    window.addEventListener("resize", updateViewportRange);
+    return () => {
+      container.removeEventListener("scroll", updateViewportRange);
+      window.removeEventListener("resize", updateViewportRange);
+    };
+  }, [visiblePeriods]);
+
+  useEffect(() => {
+    const periods = chartState.periods || [];
+    if (!zoomRange || !periods.length) return;
+    const maxIndex = periods.length - 1;
+    if (zoomRange.startIndex > maxIndex || zoomRange.endIndex > maxIndex) {
+      setZoomRange(maxIndex >= 0 ? { startIndex: 0, endIndex: maxIndex } : null);
+    }
+  }, [chartState.periods, zoomRange]);
+
+  useEffect(() => {
+    if (!dragSelection) return undefined;
+
+    const handleMouseUp = () => {
+      setDragSelection((current) => {
+        if (!current) return null;
+        const startIndex = Math.min(current.startIndex, current.currentIndex);
+        const endIndex = Math.max(current.startIndex, current.currentIndex);
+        if (endIndex > startIndex) {
+          const currentVisibleStart = zoomRange?.startIndex || 0;
+          const nextZoomRange = {
+            startIndex: currentVisibleStart + startIndex,
+            endIndex: currentVisibleStart + endIndex,
+          };
+          setZoomRange(nextZoomRange);
+          const sourcePeriods = chartState.periods || [];
+          const fromPeriod = sourcePeriods[nextZoomRange.startIndex];
+          const toPeriod = sourcePeriods[nextZoomRange.endIndex];
+          const fromBounds = getComponentPeriodBounds(fromPeriod?.label, interval);
+          const toBounds = getComponentPeriodBounds(toPeriod?.label, interval);
+          if (fromBounds?.start && toBounds?.end) {
+            setDateFrom(formatBrazilianDate(fromBounds.start));
+            setDateTo(formatBrazilianDate(toBounds.end));
+          }
+        }
+        return null;
+      });
+    };
+
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
+  }, [chartState.periods, dragSelection, interval, zoomRange]);
+
+  const getVisibleIndexFromEvent = useCallback((event) => {
+    const container = columnsRef.current;
+    if (!container || !visiblePeriods.length) return null;
+    const rect = container.getBoundingClientRect();
+    if (!(rect.width > 0)) return null;
+    const relativeX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+    const rawIndex = Math.floor((relativeX / rect.width) * visiblePeriods.length);
+    return Math.max(0, Math.min(rawIndex, visiblePeriods.length - 1));
+  }, [visiblePeriods.length]);
+
+  const handleColumnsMouseDown = useCallback((event) => {
+    if (event.button !== 0 || visiblePeriods.length <= 1) return;
+    const index = getVisibleIndexFromEvent(event);
+    if (index == null) return;
+    setDragSelection({ startIndex: index, currentIndex: index });
+  }, [getVisibleIndexFromEvent, visiblePeriods.length]);
+
+  const handleColumnsMouseMove = useCallback((event) => {
+    if (!dragSelection) return;
+    const index = getVisibleIndexFromEvent(event);
+    if (index == null) return;
+    setDragSelection((current) => (current ? { ...current, currentIndex: index } : null));
+  }, [dragSelection, getVisibleIndexFromEvent]);
+
+  const updateTooltip = useCallback((event, period) => {
+    const container = chartRef.current;
+    if (!container || !period) return;
+    const rect = container.getBoundingClientRect();
+    setHoveredTooltip({
+      left: event.clientX - rect.left,
+      top: event.clientY - rect.top,
+      period: period.label,
+      rows: [
+        period.stackTotal > 0 ? { label: "Venda + Bolsa", value: formatCurrency0(period.stackTotal) } : null,
+        period.fisico > 0 ? { label: "Venda Físico em U$", value: formatCurrency0(period.fisico) } : null,
+        period.bolsa > 0 ? { label: "Bolsa (Futuros)", value: formatCurrency0(period.bolsa) } : null,
+        period.dolar > 0 ? { label: "Dólar", value: formatCurrency0(period.dolar) } : null,
+      ].filter(Boolean),
+    });
+  }, []);
 
   return (
     <section className="component-sales-shell component-native-shell">
@@ -3248,6 +3808,19 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
                 {label}
               </button>
             ))}
+            {zoomRange ? (
+              <button
+                type="button"
+                className="chart-period-btn"
+                onClick={() => {
+                  setZoomRange(null);
+                  setDateFrom(fullRangeDates.fromBrazilian);
+                  setDateTo(fullRangeDates.toBrazilian);
+                }}
+              >
+                Reset Zoom
+              </button>
+            ) : null}
           </div>
           <div className="chart-date-filters">
             <label className="chart-date-filter">
@@ -3270,27 +3843,61 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
           ))}
         </div>
 
-        <div className="component-native-chart">
+        <div className="component-native-chart" style={{ position: "relative" }} ref={chartRef}>
           <div className="component-native-grid">
             {[0, 1, 2, 3].map((line) => (
               <div key={line} className="component-native-grid-line" style={{ bottom: `${(line / 3) * 100}%` }} />
             ))}
           </div>
-          <div className="component-native-columns">
-            {(chartState.periods || []).map((period) => {
-              const stackHeightPx = Math.max((period.stackTotal / maxValue) * barAreaHeight, 0);
-              const dollarHeightPx = Math.max((period.dolar / maxValue) * barAreaHeight, 0);
+          {todayGuideLeft ? (
+            <div className="hedge-chart-guide hedge-chart-guide--today" style={{ left: todayGuideLeft, top: 0, height: `${barAreaHeight + 40}px`, zIndex: 4 }}>
+              <div className="hedge-chart-guide-label hedge-chart-guide-label--today">Hoje</div>
+            </div>
+          ) : null}
+          <div
+            ref={columnsRef}
+            className="component-native-columns"
+            style={{ position: "relative" }}
+            onMouseDown={handleColumnsMouseDown}
+            onMouseMove={handleColumnsMouseMove}
+          >
+            {dragSelection && dragOverlayLeft && dragOverlayWidth ? (
+              <div
+                style={{
+                  position: "absolute",
+                  left: dragOverlayLeft,
+                  width: dragOverlayWidth,
+                  top: 0,
+                  bottom: 0,
+                  background: "rgba(3, 105, 161, 0.12)",
+                  border: "1px dashed rgba(3, 105, 161, 0.55)",
+                  borderRadius: "10px",
+                  pointerEvents: "none",
+                  zIndex: 2,
+                }}
+              />
+            ) : null}
+            {visiblePeriods.map((period) => {
+              const stackHeightPx = getVisualBarHeight(period.stackTotal, maxValue, barAreaHeight);
+              const dollarHeightPx = getVisualBarHeight(period.dolar, maxValue, barAreaHeight);
               const fisicoHeightPx = period.stackTotal ? (period.fisico / period.stackTotal) * stackHeightPx : 0;
               const bolsaHeightPx = period.stackTotal ? (period.bolsa / period.stackTotal) * stackHeightPx : 0;
 
               return (
-                <div key={period.label} className="component-native-slot">
-                  <div className="component-native-values">
-                    {period.stackTotal > 0 ? <span>{formatCurrency0(period.stackTotal)}</span> : <span />}
-                    {period.dolar > 0 ? <span>{formatCurrency0(period.dolar)}</span> : <span />}
-                  </div>
+                <div
+                  key={period.label}
+                  className="component-native-slot"
+                  onMouseEnter={(event) => updateTooltip(event, period)}
+                  onMouseMove={(event) => updateTooltip(event, period)}
+                  onMouseLeave={() => setHoveredTooltip(null)}
+                >
                   <div className="component-native-bars">
                     <div className="component-native-bar-stack">
+                      {period.stackTotal > 0 ? (
+                        <span className="component-native-bar-label" style={{ bottom: `${stackHeightPx + 8}px` }}>
+                          {formatCurrency0(period.stackTotal)}
+                        </span>
+                      ) : null}
                       <div className="component-native-bar-shell" style={{ height: `${stackHeightPx}px` }}>
                         {period.bolsa > 0 ? (
                           <button
@@ -3316,6 +3923,11 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
                       onClick={() => openTableModal(period.label, "Dólar")}
                       disabled={period.dolar <= 0}
                     >
+                      {period.dolar > 0 ? (
+                        <span className="component-native-bar-label" style={{ bottom: `${dollarHeightPx + 8}px` }}>
+                          {formatCurrency0(period.dolar)}
+                        </span>
+                      ) : null}
                       <div className="component-native-bar-shell component-native-bar-dollar" style={{ height: `${dollarHeightPx}px` }} />
                     </button>
                   </div>
@@ -3324,6 +3936,20 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
               );
             })}
           </div>
+          {hoveredTooltip ? (
+            <div
+              className="component-native-tooltip"
+              style={{
+                left: `${hoveredTooltip.left}px`,
+                top: `${Math.max(hoveredTooltip.top - 14, 16)}px`,
+              }}
+            >
+              <strong>{hoveredTooltip.period}</strong>
+              {hoveredTooltip.rows.map((row) => (
+                <span key={`${hoveredTooltip.period}-${row.label}`}>{row.label}: {row.value}</span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -9345,7 +9971,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
     return (
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
-        <ComponentSalesNativeDashboard dashboardFilter={filter} />
+        <ComponentSalesDashboard dashboardFilter={filter} />
       </div>
     );
   }
