@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import { hasModuleAccess, hasUserTypeAccess } from "../constants/accessModules";
-import { matchPath } from "react-router-dom";
+import { matchPath, Navigate } from "react-router-dom";
 import { resourceService } from "../services/resourceService";
 
 const loadDashboardPageModule = () => import("../pages/DashboardPage");
@@ -200,7 +200,14 @@ export function getNavigationSections(user) {
 }
 
 export const appRoutes = [
-  dashboardRoute("/dashboard", "commercialRisk", "dashboard_summary", { title: "Resumo" }),
+  {
+    path: "/dashboard",
+    element: <Navigate to="/dashboard/kpis-risco-comercial" replace />,
+    module: "dashboard_summary",
+    title: "Resumo",
+    preload: loadDashboardPageModule,
+    warmup: () => warmDashboardKind("commercialRisk"),
+  },
   dashboardRoute("/dashboard/fluxo-caixa", "cashflow", "dashboard_cashflow"),
   dashboardRoute("/dashboard/kpis-risco-comercial", "commercialRisk", "dashboard_summary"),
   dashboardRoute("/dashboard/estrategias-gatilhos", "strategiesTriggers", "dashboard_strategies_triggers"),

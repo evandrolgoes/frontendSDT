@@ -1,4 +1,4 @@
-import { Suspense, cloneElement, isValidElement, useEffect, useMemo, useRef } from "react";
+import { Suspense, cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
@@ -9,6 +9,30 @@ import { InvitationSignupPage } from "../pages/InvitationSignupPage";
 import { LoginPage } from "../pages/LoginPage";
 import { ResetPasswordPage } from "../pages/ResetPasswordPage";
 import { DocumentTitleManager } from "./DocumentTitleManager";
+
+function ScrollManager() {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("scrollRestoration" in window.history)) {
+      return undefined;
+    }
+    const previous = window.history.scrollRestoration;
+    window.history.scrollRestoration = "manual";
+    return () => {
+      window.history.scrollRestoration = previous;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [location.pathname, location.search]);
+
+  return null;
+}
 
 export default function App() {
   const location = useLocation();
@@ -84,6 +108,7 @@ export default function App() {
   return (
     <>
       <DocumentTitleManager />
+      <ScrollManager />
       <Suspense fallback={<div className="resource-page" />}>
         <Routes>
           <Route path="/landing/landing-page-mentoria" element={<MentoriaLandingPage />} />

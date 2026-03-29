@@ -147,6 +147,19 @@ const formatNumber = (value, fixed = 4) => {
   });
 };
 
+const isVolumeField = (column) => {
+  const normalizedKey = String(column?.key || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const normalizedLabel = String(column?.label || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return normalizedKey.includes("volume") || normalizedLabel.includes("volume");
+};
+
 const formatDate = (value) => formatBrazilianDate(value, "—");
 const formatDateTime = (value) => formatBrazilianDateTime(value, "—");
 
@@ -165,8 +178,39 @@ const formatPhone = (value) => {
 };
 
 const detectWeightKey = (columns) => {
-  const keys = columns.map((column) => column.key);
-  return ["volume_fisico", "volume", "producao_total", "area"].find((key) => keys.includes(key)) || null;
+  const numericColumns = (columns || []).filter((column) => column.detectedType === "number");
+  const keys = numericColumns.map((column) => column.key);
+  const normalizedKeys = keys.map((key) =>
+    String(key || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase(),
+  );
+
+  const preferredMatches = [
+    "volume_fisico",
+    "volume_fisico_valor",
+    "volume_total_operacao",
+    "volume_financeiro_valor",
+    "volume_financeiro_valor_moeda_original",
+    "volume",
+  ];
+
+  const preferredIndex = preferredMatches.findIndex((preferredKey) =>
+    normalizedKeys.includes(
+      String(preferredKey || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase(),
+    ),
+  );
+
+  if (preferredIndex >= 0) {
+    return keys[preferredIndex];
+  }
+
+  const genericIndex = normalizedKeys.findIndex((key) => key.includes("volume"));
+  return genericIndex >= 0 ? keys[genericIndex] : null;
 };
 
 const shouldUseWeightedAverage = (key) => {
@@ -226,7 +270,7 @@ const formatCellValue = (column, value, row) => {
     return formatPhone(value);
   }
   if (type === "number") {
-    return formatNumber(value);
+    return formatNumber(value, isVolumeField(column) ? 0 : 4);
   }
   if (type === "boolean") {
     return value ? "Sim" : "Nao";

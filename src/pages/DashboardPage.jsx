@@ -1852,6 +1852,12 @@ const COMPONENT_DATASETS = [
   { key: "Dólar · Venda NDF", baseKey: "Dólar", color: "#0D40F7", stack: "stack_dolar" },
 ];
 
+const COMPONENT_CATEGORY_GROUPS = [
+  { label: "Venda Físico em U$", keys: ["Venda Físico em U$"], color: "#1B8A3B" },
+  { label: "Bolsa (Futuros)", keys: ["Bolsa (Futuros) · Compra Put", "Bolsa (Futuros) · Venda NDF"], color: "#F59E0B" },
+  { label: "Dólar", keys: ["Dólar · Compra Put", "Dólar · Venda NDF"], color: "#0D40F7" },
+];
+
 const COMPONENT_STACK_LABEL = "Venda + Bolsa";
 
 const formatCurrency2 = (value) =>
@@ -2240,6 +2246,11 @@ const getPhysicalCostValue = (item, usdBrlRate) =>
 
 const getPhysicalVolumeValue = (item) => Math.abs(Number(item.volume_fisico || 0));
 
+const getDerivativePositionValue = (item) => normalizeText(item?.posicao || item?.grupo_montagem);
+
+const getDerivativeFinancialValue = (item) =>
+  Math.abs(Number(item?.volume_financeiro_valor_moeda_original ?? item?.volume_financeiro_valor ?? 0));
+
 const buildComponentPeriodKey = (dateObj, interval) => {
   if (interval === "geral") return "Total Consolidado";
   if (interval === "weekly") {
@@ -2315,7 +2326,7 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
       });
     })
     .filter((item) => {
-      const compraVenda = normalizeText(item.grupo_montagem);
+      const compraVenda = getDerivativePositionValue(item);
       const tipoDerivativo = normalizeText(item.tipo_derivativo);
       return (
         (compraVenda === "compra" && tipoDerivativo === "put") ||
@@ -2325,23 +2336,24 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
     .map((item) => {
       const date = parseDate(item.data_liquidacao);
       if (!date) return null;
-      const compraVenda = normalizeText(item.grupo_montagem);
+      const compraVenda = getDerivativePositionValue(item);
       const tipoDerivativo = normalizeText(item.tipo_derivativo);
       const operationLabel = compraVenda === "compra" && tipoDerivativo === "put" ? "Compra Put" : "Venda NDF";
       const marketLabel = normalizeText(item.moeda_ou_cmdtye) === "cmdtye" ? "Bolsa (Futuros)" : "Dólar";
       return {
         recordId: item.id,
+        operationCode: item.cod_operacao_mae || "",
         resourceKey: "derivative-operations",
         categoria: `${marketLabel} · ${operationLabel}`,
         categoriaBase: marketLabel,
         subcategoria: item.nome_da_operacao || "Outros",
         data: formatBrazilianDate(item.data_liquidacao || date),
         date,
-        valor: Math.abs(Number(item.volume_financeiro_valor_moeda_original || 0)),
-        volume: Number(item.volume || item.volume_fisico || item.numero_lotes || 0),
+        valor: getDerivativeFinancialValue(item),
+        volume: Number(item.volume || item.volume_fisico || item.volume_fisico_valor || item.numero_lotes || 0),
         strike: Number(item.strike_montagem || 0),
-        unidade: item.unidade || "",
-        moeda_unidade: item.moeda_unidade || "",
+        unidade: item.unidade || item.volume_fisico_unidade || "",
+        moeda_unidade: item.moeda_unidade || item.strike_moeda_unidade || item.volume_financeiro_moeda || "",
         instituicao: item.bolsa_ref || counterpartyMap[String(item.contraparte)] || "",
       };
     })
@@ -2395,6 +2407,11 @@ const buildComponentSalesChartState = (rows, interval, datasetVisibility = {}) =
 
   const metaMap = new Map();
   const opsIndex = new Map();
+  const visibleKeys = new Set(
+    COMPONENT_DATASETS
+      .filter((definition) => datasetVisibility[definition.key] !== false)
+      .map((definition) => definition.key),
+  );
   const datasets = COMPONENT_DATASETS.map((definition) => {
     const data = labels.map((period) => {
       const node = aggregate[period]?.[definition.key];
@@ -2426,9 +2443,10 @@ const buildComponentSalesChartState = (rows, interval, datasetVisibility = {}) =
   });
 
   const totalsByCategory = [
-    { label: "Venda Físico em U$", keys: ["Venda Físico em U$"] },
-    { label: "Bolsa (Futuros)", keys: ["Bolsa (Futuros) · Compra Put", "Bolsa (Futuros) · Venda NDF"] },
-    { label: "Dólar", keys: ["Dólar · Compra Put", "Dólar · Venda NDF"] },
+    ...COMPONENT_CATEGORY_GROUPS.map((group) => ({
+      ...group,
+      keys: group.keys.filter((key) => visibleKeys.has(key)),
+    })),
   ].map((group) => ({
     label: group.label,
     value: labels.reduce(
@@ -2466,11 +2484,19 @@ const buildComponentSalesChartState = (rows, interval, datasetVisibility = {}) =
   }));
 
   const periods = labels.map((label) => {
-    const fisico = Math.abs(aggregate[label]?.["Venda Físico em U$"]?.sumValor || 0);
-    const bolsaCompraPut = Math.abs(aggregate[label]?.["Bolsa (Futuros) · Compra Put"]?.sumValor || 0);
-    const bolsaVendaNdf = Math.abs(aggregate[label]?.["Bolsa (Futuros) · Venda NDF"]?.sumValor || 0);
-    const dolarCompraPut = Math.abs(aggregate[label]?.["Dólar · Compra Put"]?.sumValor || 0);
-    const dolarVendaNdf = Math.abs(aggregate[label]?.["Dólar · Venda NDF"]?.sumValor || 0);
+    const fisico = visibleKeys.has("Venda Físico em U$") ? Math.abs(aggregate[label]?.["Venda Físico em U$"]?.sumValor || 0) : 0;
+    const bolsaCompraPut = visibleKeys.has("Bolsa (Futuros) · Compra Put")
+      ? Math.abs(aggregate[label]?.["Bolsa (Futuros) · Compra Put"]?.sumValor || 0)
+      : 0;
+    const bolsaVendaNdf = visibleKeys.has("Bolsa (Futuros) · Venda NDF")
+      ? Math.abs(aggregate[label]?.["Bolsa (Futuros) · Venda NDF"]?.sumValor || 0)
+      : 0;
+    const dolarCompraPut = visibleKeys.has("Dólar · Compra Put")
+      ? Math.abs(aggregate[label]?.["Dólar · Compra Put"]?.sumValor || 0)
+      : 0;
+    const dolarVendaNdf = visibleKeys.has("Dólar · Venda NDF")
+      ? Math.abs(aggregate[label]?.["Dólar · Venda NDF"]?.sumValor || 0)
+      : 0;
     const bolsa = bolsaCompraPut + bolsaVendaNdf;
     const dolar = dolarCompraPut + dolarVendaNdf;
     return {
@@ -2485,6 +2511,57 @@ const buildComponentSalesChartState = (rows, interval, datasetVisibility = {}) =
       stackTotal: fisico + bolsa,
       strongestValue: Math.max(fisico + bolsa, dolar),
     };
+  });
+
+  labels.forEach((label) => {
+    const bolsaKeys = ["Bolsa (Futuros) · Compra Put", "Bolsa (Futuros) · Venda NDF"];
+    const dolarKeys = ["Dólar · Compra Put", "Dólar · Venda NDF"];
+
+    const buildCombinedMeta = (keys) => {
+      let sumValor = 0;
+      let wStrikeNum = 0;
+      let wStrikeDen = 0;
+      let unidade = null;
+      let moeda_unidade = null;
+      const ops = [];
+
+      keys.forEach((key) => {
+        const node = aggregate[label]?.[key];
+        if (!node) return;
+        sumValor += Number(node.sumValor) || 0;
+        wStrikeNum += Number(node.wStrikeNum) || 0;
+        wStrikeDen += Number(node.wStrikeDen) || 0;
+        if (!unidade && node.unidade) unidade = node.unidade;
+        if (!moeda_unidade && node.moeda_unidade) moeda_unidade = node.moeda_unidade;
+        ops.push(...(node.ops || []));
+      });
+
+      return {
+        sumValor,
+        wAvgStrike: wStrikeDen > 0 ? wStrikeNum / wStrikeDen : null,
+        unidade,
+        moeda_unidade,
+        ops,
+      };
+    };
+
+    const bolsaMeta = buildCombinedMeta(bolsaKeys);
+    metaMap.set(`${label}||Bolsa (Futuros)`, {
+      sumValor: bolsaMeta.sumValor,
+      wAvgStrike: bolsaMeta.wAvgStrike,
+      unidade: bolsaMeta.unidade,
+      moeda_unidade: bolsaMeta.moeda_unidade,
+    });
+    opsIndex.set(`${label}||Bolsa (Futuros)`, bolsaMeta.ops);
+
+    const dolarMeta = buildCombinedMeta(dolarKeys);
+    metaMap.set(`${label}||Dólar`, {
+      sumValor: dolarMeta.sumValor,
+      wAvgStrike: dolarMeta.wAvgStrike,
+      unidade: dolarMeta.unidade,
+      moeda_unidade: dolarMeta.moeda_unidade,
+    });
+    opsIndex.set(`${label}||Dólar`, dolarMeta.ops);
   });
 
   return { labels, datasets, metaMap, opsIndex, totalsByCategory, periods };
@@ -2692,7 +2769,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   const [interval, setInterval] = useState("daily");
   const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
   const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
-  const [selectedBar, setSelectedBar] = useState(null);
+  const [selectedTableModal, setSelectedTableModal] = useState(null);
   const [datasetVisibility, setDatasetVisibility] = useState(() =>
     Object.fromEntries(COMPONENT_DATASETS.map((dataset) => [dataset.key, true])),
   );
@@ -2713,22 +2790,73 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     () => buildComponentSalesChartState(rows, interval, datasetVisibility),
     [datasetVisibility, interval, rows],
   );
+  const openTableModal = useCallback((period, seriesName) => {
+    const selectedOps = chartState.opsIndex.get(`${period}||${seriesName}`) || [];
+    const definition = seriesName.startsWith("Venda Físico")
+      ? resourceDefinitions.physicalSales
+      : resourceDefinitions.derivativeOperations;
+    const sourceRows = definition?.resource === "physical-sales" ? sales : derivatives;
+    const ids = new Set(
+      selectedOps
+        .map((item) => item.recordId)
+        .filter(Boolean)
+        .map(String),
+    );
+    const operationCodes = new Set(
+      selectedOps
+        .map((item) => item.operationCode)
+        .filter(Boolean)
+        .map(String),
+    );
+    const filteredRows = sourceRows.filter((row) =>
+      ids.has(String(row.id)) || operationCodes.has(String(row.cod_operacao_mae || "")),
+    );
+    if (!selectedOps.length && !filteredRows.length) return;
+    setSelectedTableModal({
+      title: `${seriesName} — ${period}`,
+      definition,
+      rows: filteredRows,
+    });
+  }, [chartState.opsIndex, derivatives, sales]);
   const chartOption = useMemo(() => ({
     animationDuration: 250,
-    grid: { top: 28, right: 18, bottom: 10, left: 18, containLabel: true },
+    grid: { top: 28, right: 18, bottom: 56, left: 18, containLabel: true },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
       formatter: (params) => {
-        const rowsHtml = params
-          .map((item) => {
+        const grouped = new Map();
+        params
+          .filter((item) => Number(item.value || 0) > 0)
+          .forEach((item) => {
+            const definition = COMPONENT_DATASETS.find((dataset) => dataset.key === item.seriesName);
+            const baseKey = definition?.baseKey || item.seriesName;
             const meta = chartState.metaMap.get(`${item.axisValue}||${item.seriesName}`);
-            const strike = meta?.wAvgStrike
-              ? `<br/>Strike medio: ${Number(meta.wAvgStrike).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${meta.moeda_unidade ? ` ${meta.moeda_unidade}` : ""}`
+            const current = grouped.get(baseKey) || {
+              marker: `<span style="display:inline-block;margin-right:6px;border-radius:999px;width:10px;height:10px;background:${COMPONENT_CATEGORY_GROUPS.find((group) => group.label === baseKey)?.color || item.color};"></span>`,
+              value: 0,
+              weightedStrikeNum: 0,
+              weightedStrikeDen: 0,
+              unit: "",
+            };
+            const value = Number(item.value || 0);
+            current.value += value;
+            if (meta?.wAvgStrike != null && value > 0) {
+              current.weightedStrikeNum += Number(meta.wAvgStrike) * value;
+              current.weightedStrikeDen += value;
+              if (!current.unit && meta.moeda_unidade) current.unit = meta.moeda_unidade;
+            }
+            grouped.set(baseKey, current);
+          });
+        const rowsHtml = Array.from(grouped.entries())
+          .map(([label, item]) => {
+            const strike = item.weightedStrikeDen > 0
+              ? `<br/>Strike medio: ${Number(item.weightedStrikeNum / item.weightedStrikeDen).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${item.unit ? ` ${item.unit}` : ""}`
               : "";
-            return `${item.marker}${item.seriesName} — U$ ${Number(item.value || 0).toLocaleString("pt-BR")}${strike}`;
+            return `${item.marker}${label} — U$ ${Number(item.value || 0).toLocaleString("pt-BR")}${strike}`;
           })
           .join("<br/>");
+        if (!rowsHtml) return "";
         return `<strong>${params[0]?.axisValue || ""}</strong><br/>${rowsHtml}`;
       },
     },
@@ -2736,6 +2864,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     xAxis: {
       type: "category",
       data: chartState.labels,
+      triggerEvent: true,
       axisTick: { show: false },
       axisLabel: { color: "#475569", fontWeight: 700, fontSize: 12 },
       axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
@@ -2748,37 +2877,52 @@ function ComponentSalesDashboard({ dashboardFilter }) {
       axisLabel: { color: "#475569", fontSize: 11, formatter: (value) => Number(value).toLocaleString("pt-BR") },
       splitLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
     },
-    series: chartState.datasets.map((dataset) => ({
-      name: dataset.label,
-      type: "bar",
-      stack: "component-sales",
-      barMaxWidth: 52,
-      itemStyle: { color: dataset.backgroundColor, borderRadius: [10, 10, 0, 0] },
-      label: {
-        show: true,
-        position: "inside",
-        color: "#ffffff",
-        fontSize: 11,
-        fontWeight: 700,
-        formatter: ({ value }) => (Number(value) > 0 ? Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 0 }) : ""),
-      },
-      data: dataset.data,
-    })),
+    series: (() => {
+      const visibleDatasets = chartState.datasets.filter((dataset) => dataset.hidden !== true);
+      const lastVisibleByStack = visibleDatasets.reduce((acc, dataset) => ({ ...acc, [dataset.stack]: dataset.label }), {});
+      const totalsByLabel = new Map((chartState.periods || []).map((period) => [period.label, period]));
+
+      return chartState.datasets.map((dataset) => ({
+        name: dataset.label,
+        type: "bar",
+        stack: dataset.stack,
+        barMaxWidth: 52,
+        cursor: "pointer",
+        itemStyle: { color: dataset.backgroundColor, borderRadius: [10, 10, 0, 0] },
+        label: {
+          show: true,
+          position: lastVisibleByStack[dataset.stack] === dataset.label ? "top" : "inside",
+          color: lastVisibleByStack[dataset.stack] === dataset.label ? "#111827" : "#ffffff",
+          fontSize: 11,
+          fontWeight: 700,
+          backgroundColor: lastVisibleByStack[dataset.stack] === dataset.label ? "#ffffff" : "transparent",
+          borderColor: lastVisibleByStack[dataset.stack] === dataset.label ? "rgba(15, 23, 42, 0.35)" : "transparent",
+          borderWidth: lastVisibleByStack[dataset.stack] === dataset.label ? 1 : 0,
+          borderRadius: lastVisibleByStack[dataset.stack] === dataset.label ? 8 : 0,
+          padding: lastVisibleByStack[dataset.stack] === dataset.label ? [4, 8] : 0,
+          formatter: ({ name, value }) => {
+            const numericValue = Number(value || 0);
+            if (!(numericValue > 0)) return "";
+            if (lastVisibleByStack[dataset.stack] !== dataset.label) {
+              return Number(numericValue).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+            }
+            const period = totalsByLabel.get(name);
+            const total = dataset.stack === "stack_dolar" ? period?.dolar || 0 : period?.stackTotal || 0;
+            return total > 0 ? `Total: ${formatCurrency2(total)}` : "";
+          },
+        },
+        data: dataset.data,
+      }));
+    })(),
   }), [chartState]);
   const chartEvents = useMemo(() => ({
     click: (params) => {
-      if (params.componentType !== "series") return;
+      if (!params?.seriesName || params?.dataIndex == null) return;
+      if (!(Number(params.value || 0) > 0)) return;
       const period = chartState.labels[params.dataIndex];
-      const key = `${period}||${params.seriesName}`;
-      setSelectedBar({
-        category: params.seriesName,
-        period,
-        ops: chartState.opsIndex.get(key) || [],
-        meta: chartState.metaMap.get(key) || null,
-        color: params.color,
-      });
+      openTableModal(period, params.seriesName);
     },
-  }), [chartState]);
+  }), [chartState.labels, openTableModal]);
 
   return (
     <section className="component-sales-shell">
@@ -2807,7 +2951,6 @@ function ComponentSalesDashboard({ dashboardFilter }) {
         <div className="chart-card-header">
           <div>
             <h3>Venda de Componentes</h3>
-            <p className="muted">Consolidado por periodo. Clique na barra para abrir os detalhes.</p>
           </div>
           <div className="chart-toolbar">
             {[
@@ -2841,9 +2984,30 @@ function ComponentSalesDashboard({ dashboardFilter }) {
         <div className="component-chartjs-wrap">
           <ReactECharts option={chartOption} onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "svg" }} />
         </div>
+
+        <div className="component-chart-legend-bottom">
+          {COMPONENT_CATEGORY_GROUPS.map((item) => (
+            <div key={item.label} className="chart-legend-item">
+              <span className="chart-legend-dot" style={{ background: item.color }} />
+              <span>{item.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <ComponentSalesDetailsPopup selectedBar={selectedBar} onClose={() => setSelectedBar(null)} onOpenOperation={openOperationForm} />
+      {selectedTableModal ? (
+        <DashboardResourceTableModal
+          title={selectedTableModal.title}
+          definition={selectedTableModal.definition}
+          rows={selectedTableModal.rows}
+          onClose={() => setSelectedTableModal(null)}
+          onEdit={(row) => openOperationForm({
+            ...row,
+            recordId: row.id,
+            resourceKey: selectedTableModal.definition.resource,
+          })}
+        />
+      ) : null}
       {editorNode}
     </section>
   );
@@ -2851,10 +3015,10 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 
 function ComponentSalesNativeDashboard({ dashboardFilter }) {
   const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
-  const [interval, setInterval] = useState("monthly");
+  const [interval, setInterval] = useState("daily");
   const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
   const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
-  const [selectedBar, setSelectedBar] = useState(null);
+  const [selectedTableModal, setSelectedTableModal] = useState(null);
 
   const {
     rows,
@@ -2870,30 +3034,24 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
     setDerivatives,
   });
   const chartState = useMemo(() => buildComponentSalesChartState(rows, interval), [interval, rows]);
-
-  const strongestPeriod = useMemo(() => {
-    const periods = chartState.periods || [];
-    if (!periods.length) {
-      return null;
-    }
-    return periods.reduce((best, item) => (item.strongestValue > (best?.strongestValue || 0) ? item : best), periods[0]);
-  }, [chartState.periods]);
-
-  const totals = useMemo(() => {
-    const fisico = chartState.totalsByCategory.find((item) => item.label === "Venda Físico em U$")?.value || 0;
-    const bolsa = chartState.totalsByCategory.find((item) => item.label === "Bolsa (Futuros)")?.value || 0;
-    const dolar = chartState.totalsByCategory.find((item) => item.label === "Dólar")?.value || 0;
-    const geral = fisico + bolsa + dolar;
-    return {
-      fisico,
-      bolsa,
-      dolar,
-      geral,
-      fisicoPct: geral ? (fisico / geral) * 100 : 0,
-      bolsaPct: geral ? (bolsa / geral) * 100 : 0,
-      dolarPct: geral ? (dolar / geral) * 100 : 0,
-    };
-  }, [chartState.totalsByCategory]);
+  const openTableModal = useCallback((period, seriesName) => {
+    const selectedOps = chartState.opsIndex.get(`${period}||${seriesName}`) || [];
+    const definition = seriesName === "Venda Físico em U$"
+      ? resourceDefinitions.physicalSales
+      : resourceDefinitions.derivativeOperations;
+    const sourceRows = definition.resource === "physical-sales" ? sales : derivatives;
+    const ids = new Set(selectedOps.map((item) => item.recordId).filter(Boolean).map(String));
+    const operationCodes = new Set(selectedOps.map((item) => item.operationCode).filter(Boolean).map(String));
+    const filteredRows = sourceRows.filter((row) =>
+      ids.has(String(row.id)) || operationCodes.has(String(row.cod_operacao_mae || "")),
+    );
+    if (!filteredRows.length) return;
+    setSelectedTableModal({
+      title: `${seriesName} — ${period}`,
+      definition,
+      rows: filteredRows,
+    });
+  }, [chartState.opsIndex, derivatives, sales]);
 
   const maxValue = useMemo(
     () => Math.max(...(chartState.periods || []).map((item) => Math.max(item.stackTotal, item.dolar)), 1),
@@ -2903,35 +3061,6 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
 
   return (
     <section className="component-sales-shell component-native-shell">
-      <section className="component-native-hero">
-        <article className="card component-native-hero-card">
-          <span className="component-native-kicker">Visão consolidada</span>
-          <strong>{formatCurrency0(totals.geral)}</strong>
-          <p className="muted">Leitura nativa entre venda física, bolsa e dólar no período filtrado.</p>
-        </article>
-        <article className="card component-native-mix-card">
-          <div className="component-native-mix-head">
-            <strong>Mix atual</strong>
-            <span className="muted">{strongestPeriod?.label || "Sem dados"}</span>
-          </div>
-          <div className="component-native-mix-list">
-            {[
-              { label: "Venda Físico em U$", value: totals.fisicoPct, color: COMPONENT_COLORS["Venda Fisico em U$"] },
-              { label: "Bolsa (Futuros)", value: totals.bolsaPct, color: COMPONENT_COLORS["Bolsa (Futuros)"] },
-              { label: "Dólar", value: totals.dolarPct, color: COMPONENT_COLORS.Dolar },
-            ].map((item) => (
-              <div key={item.label} className="component-native-mix-row">
-                <div className="component-native-mix-label">
-                  <span className="component-summary-dot" style={{ background: item.color }} />
-                  <span>{item.label}</span>
-                </div>
-                <strong>{item.value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%</strong>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
       <section className="component-native-stats">
         {chartState.totalsByCategory.map((item) => (
           <article key={item.label} className="card stat-card component-summary-card">
@@ -2950,8 +3079,7 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
       <div className="chart-card component-native-chart-card">
         <div className="chart-card-header component-native-chart-header">
           <div>
-            <h3>Venda de Componentes (novo)</h3>
-            <p className="muted">Stack nativo para venda física + bolsa e coluna isolada para dólar.</p>
+            <h3>Venda de Componentes</h3>
           </div>
           <div className="chart-toolbar">
             {[
@@ -2983,10 +3111,10 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
         </div>
 
         <div className="component-native-legend">
-          {COMPONENT_DATASETS.map((item) => (
-            <div key={item.key} className="chart-legend-item">
+          {COMPONENT_CATEGORY_GROUPS.map((item) => (
+            <div key={item.label} className="chart-legend-item">
               <span className="chart-legend-dot" style={{ background: item.color }} />
-              <span>{item.key}</span>
+              <span>{item.label}</span>
             </div>
           ))}
         </div>
@@ -3011,41 +3139,31 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
                     {period.dolar > 0 ? <span>{formatCurrency0(period.dolar)}</span> : <span />}
                   </div>
                   <div className="component-native-bars">
-                    <button
-                      type="button"
-                      className="component-native-bar-stack"
-                      onClick={() =>
-                        setSelectedBar({
-                          category: COMPONENT_STACK_LABEL,
-                          color: "#f97316",
-                          period: period.label,
-                          ops: [
-                            ...(chartState.opsIndex.get(`${period.label}||Venda Físico em U$`) || []),
-                            ...(chartState.opsIndex.get(`${period.label}||Bolsa (Futuros)`) || []),
-                          ],
-                        })
-                      }
-                    >
+                    <div className="component-native-bar-stack">
                       <div className="component-native-bar-shell" style={{ height: `${stackHeightPx}px` }}>
                         {period.bolsa > 0 ? (
-                          <span className="component-native-segment" style={{ height: `${bolsaHeightPx}px`, background: COMPONENT_COLORS["Bolsa (Futuros)"] }} />
+                          <button
+                            type="button"
+                            className="component-native-segment"
+                            style={{ height: `${bolsaHeightPx}px`, background: COMPONENT_COLORS["Bolsa (Futuros)"] }}
+                            onClick={() => openTableModal(period.label, "Bolsa (Futuros)")}
+                          />
                         ) : null}
                         {period.fisico > 0 ? (
-                          <span className="component-native-segment" style={{ height: `${fisicoHeightPx}px`, background: COMPONENT_COLORS["Venda Fisico em U$"] }} />
+                          <button
+                            type="button"
+                            className="component-native-segment"
+                            style={{ height: `${fisicoHeightPx}px`, background: COMPONENT_COLORS["Venda Fisico em U$"] }}
+                            onClick={() => openTableModal(period.label, "Venda Físico em U$")}
+                          />
                         ) : null}
                       </div>
-                    </button>
+                    </div>
                     <button
                       type="button"
                       className="component-native-bar-single"
-                      onClick={() =>
-                        setSelectedBar({
-                          category: "Dólar",
-                          color: COMPONENT_COLORS.Dolar,
-                          period: period.label,
-                          ops: chartState.opsIndex.get(`${period.label}||Dólar`) || [],
-                        })
-                      }
+                      onClick={() => openTableModal(period.label, "Dólar")}
+                      disabled={period.dolar <= 0}
                     >
                       <div className="component-native-bar-shell component-native-bar-dollar" style={{ height: `${dollarHeightPx}px` }} />
                     </button>
@@ -3058,7 +3176,19 @@ function ComponentSalesNativeDashboard({ dashboardFilter }) {
         </div>
       </div>
 
-      <ComponentSalesDetailsPopup selectedBar={selectedBar} onClose={() => setSelectedBar(null)} onOpenOperation={openOperationForm} />
+      {selectedTableModal ? (
+        <DashboardResourceTableModal
+          title={selectedTableModal.title}
+          definition={selectedTableModal.definition}
+          rows={selectedTableModal.rows}
+          onClose={() => setSelectedTableModal(null)}
+          onEdit={(row) => openOperationForm({
+            ...row,
+            recordId: row.id,
+            resourceKey: selectedTableModal.definition.resource,
+          })}
+        />
+      ) : null}
       {editorNode}
     </section>
   );
@@ -3610,6 +3740,46 @@ const readCultureLabel = (value) => {
   return value.ativo || value.cultura || value.nome || value.label || value.descricao || "Sem ativo";
 };
 
+function CommercialRiskAnalyticsSkeleton() {
+  return (
+    <>
+      <section className="stats-grid risk-kpi-grid risk-kpi-grid-summary">
+        {Array.from({ length: 2 }).map((_, index) => (
+          <article key={`risk-summary-skeleton-${index}`} className="chart-card risk-kpi-skeleton-card">
+            <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
+            <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-subtitle" />
+            <div className="risk-kpi-skeleton-line" />
+            <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
+          </article>
+        ))}
+      </section>
+
+      <section className="risk-kpi-long-short-grid risk-kpi-hedge-chart-row">
+        <article className="chart-card risk-kpi-skeleton-card risk-kpi-skeleton-card-tall">
+          <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
+          <div className="risk-kpi-skeleton-chart" />
+        </article>
+      </section>
+
+      <section className="risk-kpi-long-short-grid">
+        <article className="chart-card risk-kpi-skeleton-card risk-kpi-skeleton-card-medium">
+          <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
+          <div className="risk-kpi-skeleton-chart risk-kpi-skeleton-chart-medium" />
+        </article>
+      </section>
+
+      <section className="risk-kpi-derivative-donuts">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <article key={`risk-donut-skeleton-${index}`} className="chart-card risk-kpi-skeleton-card risk-kpi-skeleton-donut-card">
+            <div className="risk-kpi-skeleton-donut" />
+            <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
+          </article>
+        ))}
+      </section>
+    </>
+  );
+}
+
 function CommercialRiskDashboard({ dashboardFilter }) {
   const navigate = useNavigate();
   const { filter, options, toggleFilterValue, updateFilter } = useDashboardFilter();
@@ -3678,14 +3848,10 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   }, [dashboardFilter]);
 
   useEffect(() => {
-    if (analyticsReady || analyticsLoading || summaryLoading) {
-      return undefined;
-    }
-
     let isMounted = true;
-    let timeoutId = 0;
+    setAnalyticsLoading(true);
+    setAnalyticsReady(false);
     const loadAnalytics = () => {
-      setAnalyticsLoading(true);
       Promise.all([
         resourceService.listAll("physical-sales").catch(() => []),
         resourceService.listAll("derivative-operations").catch(() => []),
@@ -3708,20 +3874,11 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         });
     };
 
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      const idleId = window.requestIdleCallback(loadAnalytics, { timeout: 900 });
-      return () => {
-        isMounted = false;
-        window.cancelIdleCallback(idleId);
-      };
-    }
-
-    timeoutId = window.setTimeout(loadAnalytics, 250);
+    loadAnalytics();
     return () => {
       isMounted = false;
-      window.clearTimeout(timeoutId);
     };
-  }, [analyticsLoading, analyticsReady, summaryLoading]);
+  }, []);
 
   useEffect(() => {
     if (!analyticsReady || summaryReadyEventDispatchedRef.current || typeof window === "undefined") {
@@ -4435,21 +4592,45 @@ function CommercialRiskDashboard({ dashboardFilter }) {
 
   return (
     <section className="risk-kpi-shell">
-      <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
+      {!summaryLoading ? (
+        <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
+      ) : (
+        <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <article key={`risk-top-skeleton-${index}`} className="card stat-card risk-kpi-skeleton-card">
+              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
+              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
+            </article>
+          ))}
+        </section>
+      )}
 
       <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
-        <article className="card stat-card">
-          <h1 className="stat-card-primary-title risk-kpi-card-title">Produção líquida</h1>
-          <strong>{formatNumber0(displayedNetProductionVolume)} sc</strong>
-          <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
-          <strong className="stat-card-secondary-value">{formatNumber0(displayedPhysicalPaymentVolume)} sc</strong>
-          <span className="stat-card-secondary-label">Produção total</span>
-          <strong className="stat-card-secondary-value">
-            {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
-          </strong>
-        </article>
-        <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} />
-        <CommercialRiskNewsSummaryCard rows={marketNewsPosts} onOpen={openBlogNewsPage} onOpenPost={openMarketNewsPreview} />
+        {!summaryLoading ? (
+          <>
+            <article className="card stat-card">
+              <h1 className="stat-card-primary-title risk-kpi-card-title">Produção líquida</h1>
+              <strong>{formatNumber0(displayedNetProductionVolume)} sc</strong>
+              <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
+              <strong className="stat-card-secondary-value">{formatNumber0(displayedPhysicalPaymentVolume)} sc</strong>
+              <span className="stat-card-secondary-label">Produção total</span>
+              <strong className="stat-card-secondary-value">
+                {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
+              </strong>
+            </article>
+            <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} />
+            <CommercialRiskNewsSummaryCard rows={marketNewsPosts} onOpen={openBlogNewsPage} onOpenPost={openMarketNewsPreview} />
+          </>
+        ) : (
+          Array.from({ length: 3 }).map((_, index) => (
+            <article key={`risk-summary-card-skeleton-${index}`} className="card stat-card risk-kpi-skeleton-card risk-kpi-skeleton-card-medium">
+              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
+              <div className="risk-kpi-skeleton-line" />
+              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
+              <div className="risk-kpi-skeleton-line" />
+            </article>
+          ))
+        )}
       </section>
 
       {analyticsReady ? (
@@ -4519,16 +4700,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           </section>
         </>
       ) : (
-        <section className="stats-grid risk-kpi-grid risk-kpi-grid-summary">
-          <article className="chart-card">
-            <div className="chart-card-header">
-              <div>
-                <h3>Carregando análise</h3>
-                <p className="muted">Os blocos analíticos entram depois do resumo principal para acelerar a abertura da página.</p>
-              </div>
-            </div>
-          </article>
-        </section>
+        <CommercialRiskAnalyticsSkeleton />
       )}
 
       <section className="risk-kpi-forms-grid">
@@ -8889,7 +9061,7 @@ const dashboardContent = {
   },
   componentSales: {
     title: "Venda de Componentes",
-    description: "Leitura consolidada entre venda fisica em U$, bolsa e dolar com detalhamento por periodo.",
+    description: "",
   },
   commercialRisk: {
     title: "Resumo",
@@ -9019,7 +9191,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
     return (
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
-        <ComponentSalesDashboard dashboardFilter={filter} />
+        <ComponentSalesNativeDashboard dashboardFilter={filter} />
       </div>
     );
   }

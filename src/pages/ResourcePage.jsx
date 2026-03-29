@@ -95,6 +95,42 @@ const formatSignedBrazilianNumber = (value, digits = 2) => {
   })}`;
 };
 
+const normalizeOperationText = (value) => String(value || "").trim().toLowerCase();
+
+const resolveDerivativeOperationName = (row) => {
+  const explicitName = String(row.nome_da_operacao || "").trim();
+  if (explicitName) {
+    return explicitName;
+  }
+
+  const position = String(row.posicao || "").trim();
+  const derivativeType = String(row.tipo_derivativo || "").trim();
+  return `${position} ${derivativeType}`.trim();
+};
+
+const resolveDerivativeVolume = (row) => {
+  const mode = normalizeOperationText(row.moeda_ou_cmdtye);
+  if (mode === "moeda") {
+    return parseLocalizedNumber(
+      row.volume_financeiro_valor_moeda_original ?? row.volume_financeiro_valor,
+    );
+  }
+
+  return parseLocalizedNumber(row.volume ?? row.volume_fisico_valor ?? row.volume_fisico);
+};
+
+const resolveUsdBrlQuote = (quotesByTicker = {}) => {
+  const directValue = parseLocalizedNumber(quotesByTicker.USDBRL);
+  if (directValue > 0) {
+    return directValue;
+  }
+
+  const matchingKey = Object.keys(quotesByTicker).find(
+    (key) => normalizeOperationText(key).replace(/[^a-z0-9]/g, "") === "usdbrl",
+  );
+  return matchingKey ? parseLocalizedNumber(quotesByTicker[matchingKey]) : 0;
+};
+
 const formatBrazilianPhone = (value) => {
   const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
   if (!digits) {
@@ -109,7 +145,20 @@ const formatBrazilianPhone = (value) => {
   return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
-const calculateDerivativeMtm = (row, strikeMtm) => {
+const isVolumeField = (column) => {
+  const normalizedKey = String(column?.key || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const normalizedLabel = String(column?.label || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  return normalizedKey.includes("volume") || normalizedLabel.includes("volume");
+};
+
+const calculateDerivativeMtm = (row, strikeMtm, openUsdBrlQuote = 0) => {
   const status = String(row.status_operacao || "").trim().toLowerCase();
   if (status !== "em aberto") {
     return {
@@ -118,21 +167,24 @@ const calculateDerivativeMtm = (row, strikeMtm) => {
     };
   }
 
-  const operationName = String(row.nome_da_operacao || "");
-  const volume = parseLocalizedNumber(row.volume ?? row.volume_fisico);
-  const strikeFactor = String(row.moeda_unidade || "").trim().toLowerCase().startsWith("c") ? 0.01 : 1;
+  const operationName = resolveDerivativeOperationName(row);
+  const normalizedOperationName = normalizeOperationText(operationName);
+  const volume = resolveDerivativeVolume(row);
+  const strikeUnit = String((row.moeda_unidade ?? row.strike_moeda_unidade) || "").trim().toLowerCase();
+  const strikeFactor = strikeUnit.startsWith("c") ? 0.01 : 1;
   const strikeMontagem = parseLocalizedNumber(row.strike_montagem) * strikeFactor;
   const strikeMercado = parseLocalizedNumber(strikeMtm) * strikeFactor;
   let usd = 0;
 
-  if (operationName.includes("Venda NDF")) usd = (strikeMontagem - strikeMercado) * volume;
-  else if (operationName.includes("Compra NDF")) usd = (strikeMercado - strikeMontagem) * volume;
-  else if (operationName.includes("Compra Call")) usd = strikeMercado > strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
-  else if (operationName.includes("Compra Put")) usd = strikeMercado < strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
-  else if (operationName.includes("Venda Call")) usd = strikeMercado > strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
-  else if (operationName.includes("Venda Put")) usd = strikeMercado < strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
+  if (normalizedOperationName.includes("venda ndf")) usd = (strikeMontagem - strikeMercado) * volume;
+  else if (normalizedOperationName.includes("compra ndf")) usd = (strikeMercado - strikeMontagem) * volume;
+  else if (normalizedOperationName.includes("compra call")) usd = strikeMercado > strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
+  else if (normalizedOperationName.includes("compra put")) usd = strikeMercado < strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
+  else if (normalizedOperationName.includes("venda call")) usd = strikeMercado > strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
+  else if (normalizedOperationName.includes("venda put")) usd = strikeMercado < strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
 
-  const fx = String(row.volume_financeiro_moeda || "").trim() === "U$" ? parseLocalizedNumber(row.dolar_ptax_vencimento) : 1;
+  const isUsdOperation = String(row.volume_financeiro_moeda || "").trim() === "U$";
+  const fx = isUsdOperation ? (openUsdBrlQuote || parseLocalizedNumber(row.dolar_ptax_vencimento)) : 1;
   const brl = String(row.volume_financeiro_moeda || "").trim() === "U$" ? usd * fx : usd;
 
   return { usd, brl };
@@ -212,7 +264,7 @@ const formatSimpleTableValue = (column, value) => {
     return "—";
   }
   if (column.type === "number") {
-    return formatBrazilianNumber(value, 2);
+    return formatBrazilianNumber(value, isVolumeField(column) ? 0 : 2);
   }
   if (column.type === "date") {
     return formatBrazilianDate(value, "—");

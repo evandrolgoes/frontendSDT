@@ -933,6 +933,82 @@ textarea {
   line-height: 1.1;
 }
 
+.risk-kpi-skeleton-card {
+  overflow: hidden;
+}
+
+.risk-kpi-skeleton-card > * + * {
+  margin-top: 10px;
+}
+
+.risk-kpi-skeleton-card-medium {
+  min-height: 230px;
+}
+
+.risk-kpi-skeleton-card-tall {
+  min-height: 360px;
+}
+
+.risk-kpi-skeleton-donut-card {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+}
+
+.risk-kpi-skeleton-line,
+.risk-kpi-skeleton-chart,
+.risk-kpi-skeleton-donut {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, rgba(226, 232, 240, 0.72), rgba(241, 245, 249, 0.98), rgba(226, 232, 240, 0.72));
+  background-size: 220% 100%;
+  animation: risk-kpi-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.risk-kpi-skeleton-line {
+  height: 14px;
+  border-radius: 999px;
+}
+
+.risk-kpi-skeleton-line-title {
+  width: 42%;
+  height: 20px;
+}
+
+.risk-kpi-skeleton-line-subtitle {
+  width: 58%;
+}
+
+.risk-kpi-skeleton-line-short {
+  width: 34%;
+}
+
+.risk-kpi-skeleton-chart {
+  width: 100%;
+  min-height: 260px;
+  border-radius: 22px;
+}
+
+.risk-kpi-skeleton-chart-medium {
+  min-height: 220px;
+}
+
+.risk-kpi-skeleton-donut {
+  width: 140px;
+  height: 140px;
+  border-radius: 999px;
+}
+
+@keyframes risk-kpi-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
 .stat-card-primary-meta {
   margin-left: 6px;
   color: #475569;
@@ -2715,6 +2791,10 @@ textarea {
 .component-native-segment {
   display: block;
   width: 100%;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
 }
 
 .component-native-period-label {
@@ -2740,6 +2820,14 @@ textarea {
 .component-chartjs-wrap {
   width: 100%;
   min-height: 360px;
+}
+
+.component-chart-legend-bottom {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 8px 8px 0;
 }
 
 .cashflow-chartjs-wrap {
