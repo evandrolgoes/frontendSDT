@@ -2219,16 +2219,167 @@ const formatMoneyByCurrency = (value, currencyLabel) =>
 
 const CASHFLOW_CURRENCY_CONFIGS = [
   { key: "USD", label: "U$", title: "Fluxo de Caixa em U$", matcher: isUsdCurrency },
-  { key: "EUR", label: "€", title: "Fluxo de Caixa em €", matcher: isEuroCurrency },
+  { key: "EUR", label: "E$", title: "Fluxo de Caixa em E$", matcher: isEuroCurrency },
   { key: "BRL", label: "R$", title: "Fluxo de Caixa em R$", matcher: isBrlCurrency },
 ];
 
-const CASHFLOW_SERIES_DEFS = [
-  { key: "payments", label: "Pagamentos", color: "#ef4444", stack: "cashflow" },
-  { key: "purchaseDerivatives", label: "Compra via Derivativos", color: "#f59e0b", stack: "cashflow" },
-  { key: "physicalSales", label: "Vendas", color: "#16a34a", stack: "cashflow" },
-  { key: "saleDerivatives", label: "Vendas via Derivativos", color: "#86efac", stack: "cashflow" },
-];
+const getCashflowSeriesDefs = (currencyConfig) =>
+  currencyConfig?.key === "BRL"
+    ? [
+        { key: "payments", label: "Pagamentos", color: "#ef4444", stack: "cashflow" },
+        { key: "purchaseDerivatives", label: "Compra via Derivativos", color: "#f59e0b", stack: "cashflow" },
+        { key: "physicalSales", label: "Vendas", color: "#16a34a", stack: "cashflow" },
+        { key: "saleDerivatives", label: "Vendas via Derivativos", color: "#86efac", stack: "cashflow" },
+      ]
+    : [
+        { key: "payments", label: `Pagamentos em ${currencyConfig.label}`, color: "#ff3b30", stack: "cashflow" },
+        { key: "paymentsSwap", label: `Pagamentos em ${currencyConfig.label} (com swap para R$)`, color: "#f9a8b5", stack: "cashflow" },
+        { key: "purchaseDerivatives", label: `Compra de ${currencyConfig.label} via Derivativos`, color: "#ffd43b", stack: "cashflow" },
+        { key: "physicalSales", label: `Vendas em ${currencyConfig.label}`, color: "#16a34a", stack: "cashflow" },
+        { key: "saleDerivatives", label: `Vendas em ${currencyConfig.label} via Derivativos`, color: "#b7f7bd", stack: "cashflow" },
+      ];
+
+const getCashflowSeriesLabelMap = (currencyConfig) =>
+  Object.fromEntries(getCashflowSeriesDefs(currencyConfig).map((item) => [item.key, item.label]));
+
+const getDerivativeAssetLabel = (item) =>
+  normalizeText(
+    readDashboardLabel(
+      item?.ativo ||
+        item?.destino_cultura ||
+        item?.cultura ||
+        item?.ativo_label ||
+        item?.cultura_texto,
+    ),
+  );
+
+const matchesDerivativeAssetCurrency = (item, currencyConfig) => {
+  const assetLabel = getDerivativeAssetLabel(item);
+  if (!assetLabel) return true;
+  if (currencyConfig?.key === "USD") {
+    return assetLabel.includes("dolar") || assetLabel.includes("dólar") || assetLabel.includes("usd") || assetLabel.includes("u$");
+  }
+  if (currencyConfig?.key === "EUR") {
+    return assetLabel.includes("euro") || assetLabel.includes("eur") || assetLabel.includes("e$") || assetLabel.includes("€");
+  }
+  return true;
+};
+
+const getDerivativeCashflowSide = (item, currencyConfig) => {
+  if (currencyConfig?.key === "BRL") {
+    return getDerivativePositionValue(item) === "compra" ? "purchaseDerivatives" : "saleDerivatives";
+  }
+
+  if (!matchesDerivativeAssetCurrency(item, currencyConfig)) {
+    return null;
+  }
+
+  const position = getDerivativePositionValue(item);
+  const derivativeType = normalizeText(item?.tipo_derivativo);
+  const operationName = normalizeText(item?.nome_da_operacao);
+
+  const isCall = derivativeType === "call" || operationName.includes("call");
+  const isPut = derivativeType === "put" || operationName.includes("put");
+  const isNdf = derivativeType === "ndf" || operationName.includes("ndf");
+
+  if (position === "compra" && (isCall || isNdf)) {
+    return "purchaseDerivatives";
+  }
+  if ((position === "venda" && isNdf) || (position === "compra" && isPut)) {
+    return "saleDerivatives";
+  }
+  return null;
+};
+
+const splitCashflowRowsByAmount = ({
+  rows,
+  matchedAmount,
+  matchedCategoryKey,
+  matchedCategoryLabel,
+  unmatchedCategoryKey,
+  unmatchedCategoryLabel,
+  direction,
+}) => {
+  if (!rows.length) return [];
+
+  let remainingMatched = Math.max(Number(matchedAmount || 0), 0);
+  return rows.flatMap((row) => {
+    const absoluteValue = Math.abs(Number(row.valor || 0));
+    if (!(absoluteValue > 0)) return [];
+
+    const matchedPortion = Math.min(absoluteValue, remainingMatched);
+    remainingMatched -= matchedPortion;
+    const unmatchedPortion = Math.max(absoluteValue - matchedPortion, 0);
+    const nextRows = [];
+
+    if (matchedPortion > 0 && matchedCategoryKey && matchedCategoryLabel) {
+      nextRows.push({
+        ...row,
+        categoryKey: matchedCategoryKey,
+        category: matchedCategoryLabel,
+        valor: direction * matchedPortion,
+      });
+    }
+    if (unmatchedPortion > 0 && unmatchedCategoryKey && unmatchedCategoryLabel) {
+      nextRows.push({
+        ...row,
+        categoryKey: unmatchedCategoryKey,
+        category: unmatchedCategoryLabel,
+        valor: direction * unmatchedPortion,
+      });
+    }
+    return nextRows;
+  });
+};
+
+const reconcileCashflowRows = (rows, currencyConfig) => {
+  if (currencyConfig?.key === "BRL") {
+    return rows;
+  }
+
+  const labelMap = getCashflowSeriesLabelMap(currencyConfig);
+  const groupsByDate = rows.reduce((acc, row) => {
+    const dateKey = formatIsoDate(row.date);
+    if (!dateKey) return acc;
+    if (!acc[dateKey]) {
+      acc[dateKey] = [];
+    }
+    acc[dateKey].push(row);
+    return acc;
+  }, {});
+
+  return Object.values(groupsByDate).flatMap((dateRows) => {
+    const paymentRows = dateRows.filter((row) => row.categoryKey === "payments");
+    const purchaseRows = dateRows.filter((row) => row.categoryKey === "purchaseDerivatives");
+    const otherRows = dateRows.filter((row) => row.categoryKey !== "payments" && row.categoryKey !== "purchaseDerivatives");
+
+    const totalPayments = paymentRows.reduce((sum, row) => sum + Math.abs(Number(row.valor || 0)), 0);
+    const totalPurchases = purchaseRows.reduce((sum, row) => sum + Math.abs(Number(row.valor || 0)), 0);
+    const matchedAmount = Math.min(totalPayments, totalPurchases);
+
+    return [
+      ...splitCashflowRowsByAmount({
+        rows: paymentRows,
+        matchedAmount,
+        matchedCategoryKey: "paymentsSwap",
+        matchedCategoryLabel: labelMap.paymentsSwap,
+        unmatchedCategoryKey: "payments",
+        unmatchedCategoryLabel: labelMap.payments,
+        direction: -1,
+      }),
+      ...splitCashflowRowsByAmount({
+        rows: purchaseRows,
+        matchedAmount,
+        matchedCategoryKey: null,
+        matchedCategoryLabel: null,
+        unmatchedCategoryKey: "purchaseDerivatives",
+        unmatchedCategoryLabel: labelMap.purchaseDerivatives,
+        direction: 1,
+      }).map((row) => row),
+      ...otherRows,
+    ];
+  });
+};
 
 const convertValueToBrl = (value, currency, usdBrlRate) => {
   const amount = Math.abs(Number(value || 0));
@@ -3202,6 +3353,7 @@ const buildCashflowRows = ({
   dashboardFilter,
   currencyConfig,
 }) => {
+  const labelMap = getCashflowSeriesLabelMap(currencyConfig);
   const parseDate = (value) => {
     if (!value) return null;
     if (String(value).includes("/")) {
@@ -3227,7 +3379,7 @@ const buildCashflowRows = ({
         recordId: item.id,
         resourceKey: "cash-payments",
         categoryKey: "payments",
-        category: `Pagamentos em ${currencyConfig.label}`,
+        category: labelMap.payments,
         date,
         data: formatBrazilianDate(item.data_pagamento || date),
         valor: -Math.abs(Number(item.volume || 0)),
@@ -3248,7 +3400,7 @@ const buildCashflowRows = ({
         recordId: item.id,
         resourceKey: "physical-sales",
         categoryKey: "physicalSales",
-        category: `Vendas em ${currencyConfig.label}`,
+        category: labelMap.physicalSales,
         date,
         data: formatBrazilianDate(item.data_pagamento || item.data_negociacao || date),
         valor: Math.abs(Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0)),
@@ -3271,12 +3423,13 @@ const buildCashflowRows = ({
     .map((item) => {
       const date = parseDate(item.data_liquidacao || item.data_contratacao);
       if (!date) return null;
-      const isPurchase = normalizeText(item.grupo_montagem) === "compra";
+      const cashflowSide = getDerivativeCashflowSide(item, currencyConfig);
+      if (!cashflowSide) return null;
       return {
         recordId: item.id,
         resourceKey: "derivative-operations",
-        categoryKey: isPurchase ? "purchaseDerivatives" : "saleDerivatives",
-        category: `${isPurchase ? "Compra" : "Vendas"} em ${currencyConfig.label} via Derivativos`,
+        categoryKey: cashflowSide,
+        category: labelMap[cashflowSide],
         date,
         data: formatBrazilianDate(item.data_liquidacao || item.data_contratacao || date),
         valor: Math.abs(Number(item.volume_financeiro_valor_moeda_original || 0)),
@@ -3289,15 +3442,16 @@ const buildCashflowRows = ({
     })
     .filter(Boolean);
 
-  return [...paymentRows, ...salesRows, ...derivativeRows];
+  return reconcileCashflowRows([...paymentRows, ...salesRows, ...derivativeRows], currencyConfig);
 };
 
-const buildCashflowChartState = (rows, interval) => {
+const buildCashflowChartState = (rows, interval, currencyConfig) => {
+  const seriesDefs = getCashflowSeriesDefs(currencyConfig);
   const grouped = new Map();
   rows.forEach((row) => {
     const period = buildComponentPeriodKey(row.date, interval);
     if (!grouped.has(period)) {
-      grouped.set(period, Object.fromEntries(CASHFLOW_SERIES_DEFS.map((item) => [item.key, { total: 0, ops: [] }])));
+      grouped.set(period, Object.fromEntries(seriesDefs.map((item) => [item.key, { total: 0, ops: [] }])));
     }
     const periodNode = grouped.get(period);
     periodNode[row.categoryKey].total += Number(row.valor || 0);
@@ -3310,7 +3464,7 @@ const buildCashflowChartState = (rows, interval) => {
   }
 
   const opsIndex = new Map();
-  const datasets = CASHFLOW_SERIES_DEFS.map((seriesDef) => ({
+  const datasets = seriesDefs.map((seriesDef) => ({
     label: seriesDef.label,
     data: labels.map((label) => {
       const node = grouped.get(label)?.[seriesDef.key];
@@ -3326,7 +3480,7 @@ const buildCashflowChartState = (rows, interval) => {
   }));
 
   const saldoData = labels.map((label) =>
-    CASHFLOW_SERIES_DEFS.reduce((sum, item) => sum + Number(grouped.get(label)?.[item.key]?.total || 0), 0),
+    seriesDefs.reduce((sum, item) => sum + Number(grouped.get(label)?.[item.key]?.total || 0), 0),
   );
 
   datasets.push({
@@ -3345,7 +3499,7 @@ const buildCashflowChartState = (rows, interval) => {
     order: 0,
   });
 
-  const totals = CASHFLOW_SERIES_DEFS.map((item) => ({
+  const totals = seriesDefs.map((item) => ({
     label: item.label,
     value: labels.reduce((sum, label) => sum + Number(grouped.get(label)?.[item.key]?.total || 0), 0),
     color: item.color,
@@ -3356,7 +3510,7 @@ const buildCashflowChartState = (rows, interval) => {
     labels.map((label, index) => [
       label,
       {
-        totals: CASHFLOW_SERIES_DEFS.map((item) => ({
+        totals: seriesDefs.map((item) => ({
           label: item.label,
           value: Number(grouped.get(label)?.[item.key]?.total || 0),
           color: item.color,
@@ -3366,7 +3520,7 @@ const buildCashflowChartState = (rows, interval) => {
     ]),
   );
 
-  return { labels, datasets, opsIndex, totals, saldoData, saldoTotal, periodSummaries };
+  return { labels, datasets, opsIndex, totals, saldoData, saldoTotal, periodSummaries, seriesDefs };
 };
 
 function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose, onOpenOperation }) {
@@ -3451,7 +3605,7 @@ function CashflowCurrencyChart({
 }) {
   const [selectedItem, setSelectedItem] = useState(null);
   const [hoveredPeriod, setHoveredPeriod] = useState(null);
-  const chartState = useMemo(() => buildCashflowChartState(rows, interval), [interval, rows]);
+  const chartState = useMemo(() => buildCashflowChartState(rows, interval, currencyConfig), [currencyConfig, interval, rows]);
   const activeSummary = hoveredPeriod ? chartState.periodSummaries.get(hoveredPeriod) : null;
   const summaryCards = activeSummary?.totals || chartState.totals;
   const saldoSummary = activeSummary?.saldo ?? chartState.saldoTotal;
@@ -3520,10 +3674,10 @@ function CashflowCurrencyChart({
       if (params.componentType !== "series") return;
       const period = chartState.labels[params.dataIndex];
       const category = String(params.seriesName || "");
-      const categoryKey = CASHFLOW_SERIES_DEFS.find((item) => item.label === category)?.key;
+      const categoryKey = chartState.seriesDefs.find((item) => item.label === category)?.key;
       const ops =
         category === "Saldo"
-          ? CASHFLOW_SERIES_DEFS.flatMap((item) => chartState.opsIndex.get(`${period}||${item.key}`) || [])
+          ? chartState.seriesDefs.flatMap((item) => chartState.opsIndex.get(`${period}||${item.key}`) || [])
           : chartState.opsIndex.get(`${period}||${categoryKey}`) || [];
       setSelectedItem({
         category,
