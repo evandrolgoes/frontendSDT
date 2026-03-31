@@ -44,8 +44,8 @@ Chart.register(
 
 const formatNumber = (value, suffix = "") => `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}${suffix}`;
 const COMMERCIAL_RISK_DERIVATIVE_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c3aed", "#dc2626", "#0891b2", "#65a30d", "#d97706"];
-const CASHFLOW_DEFAULT_PAST_DAYS = 15;
-const CASHFLOW_DEFAULT_FUTURE_DAYS = 180;
+const CASHFLOW_DEFAULT_PAST_DAYS = 30;
+const CASHFLOW_DEFAULT_FUTURE_DAYS = 365;
 
 const shiftDateByDays = (value, days) => {
   const date = new Date(value);
@@ -63,6 +63,28 @@ const formatIsoDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const formatShortBrazilianDate = (value) => {
+  const date = parseDashboardDate(value);
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  }).format(date);
+};
+
+const formatCashflowMonthYear = (value) => {
+  const date = parseDashboardDate(value);
+  if (!date) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    month: "short",
+    year: "2-digit",
+  })
+    .format(date)
+    .replace(".", "")
+    .toLowerCase();
 };
 
 const buildCashflowDefaultDateRange = (today = new Date()) => ({
@@ -2230,6 +2252,12 @@ const isBrlCurrency = (value) => {
 const formatMoneyByCurrency = (value, currencyLabel) =>
   `${currencyLabel} ${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const readEChartNumericValue = (value) => {
+  if (Array.isArray(value)) return Number(value[1] || 0);
+  if (value && typeof value === "object" && Array.isArray(value.value)) return Number(value.value[1] || 0);
+  return Number(value || 0);
+};
+
 const CASHFLOW_CURRENCY_CONFIGS = [
   { key: "USD", label: "U$", title: "Fluxo de Caixa em U$", matcher: isUsdCurrency },
   { key: "EUR", label: "E$", title: "Fluxo de Caixa em E$", matcher: isEuroCurrency },
@@ -2255,19 +2283,29 @@ const getCashflowSeriesDefs = (currencyConfig) =>
 const getCashflowSeriesLabelMap = (currencyConfig) =>
   Object.fromEntries(getCashflowSeriesDefs(currencyConfig).map((item) => [item.key, item.label]));
 
-const getDerivativeAssetLabel = (item) =>
-  normalizeText(
-    readDashboardLabel(
-      item?.ativo ||
-        item?.destino_cultura ||
-        item?.cultura ||
-        item?.ativo_label ||
-        item?.cultura_texto,
-    ),
-  );
+const getDerivativeAssetLabel = (item, cropsById = null) => {
+  const directLabel =
+    item?.ativo_label ||
+    item?.cultura_texto ||
+    (item?.ativo && typeof item.ativo === "object" ? item.ativo : null) ||
+    (item?.cultura && typeof item.cultura === "object" ? item.cultura : null) ||
+    (item?.destino_cultura && typeof item.destino_cultura === "object" ? item.destino_cultura : null);
 
-const matchesDerivativeAssetCurrency = (item, currencyConfig) => {
-  const assetLabel = getDerivativeAssetLabel(item);
+  const directResolved = normalizeText(readDashboardLabel(directLabel));
+  if (directResolved) return directResolved;
+
+  const relationId = item?.ativo ?? item?.cultura ?? item?.destino_cultura;
+  if (relationId != null && relationId !== "" && cropsById) {
+    const crop = cropsById[String(relationId)];
+    const mappedLabel = normalizeText(readDashboardLabel(crop?.ativo || crop?.cultura));
+    if (mappedLabel) return mappedLabel;
+  }
+
+  return "";
+};
+
+const matchesDerivativeAssetCurrency = (item, currencyConfig, cropsById = null) => {
+  const assetLabel = getDerivativeAssetLabel(item, cropsById);
   if (!assetLabel) return true;
   if (currencyConfig?.key === "USD") {
     return assetLabel.includes("dolar") || assetLabel.includes("dólar") || assetLabel.includes("usd") || assetLabel.includes("u$");
@@ -2278,12 +2316,12 @@ const matchesDerivativeAssetCurrency = (item, currencyConfig) => {
   return true;
 };
 
-const getDerivativeCashflowSide = (item, currencyConfig) => {
+const getDerivativeCashflowSide = (item, currencyConfig, cropsById = null) => {
   if (currencyConfig?.key === "BRL") {
     return getDerivativePositionValue(item) === "compra" ? "purchaseDerivatives" : "saleDerivatives";
   }
 
-  if (!matchesDerivativeAssetCurrency(item, currencyConfig)) {
+  if (!matchesDerivativeAssetCurrency(item, currencyConfig, cropsById)) {
     return null;
   }
 
@@ -2380,18 +2418,43 @@ const reconcileCashflowRows = (rows, currencyConfig) => {
         unmatchedCategoryLabel: labelMap.payments,
         direction: -1,
       }),
-      ...splitCashflowRowsByAmount({
-        rows: purchaseRows,
-        matchedAmount,
-        matchedCategoryKey: null,
-        matchedCategoryLabel: null,
-        unmatchedCategoryKey: "purchaseDerivatives",
-        unmatchedCategoryLabel: labelMap.purchaseDerivatives,
-        direction: 1,
-      }).map((row) => row),
+      ...purchaseRows,
       ...otherRows,
     ];
   });
+};
+
+const buildCashflowPeriodLabels = (interval, dateRange = {}) => {
+  if (interval === "geral") return [];
+  const start = startOfDashboardDay(dateRange?.start);
+  const end = startOfDashboardDay(dateRange?.end);
+  if (!start || !end || start > end) return [];
+
+  const labels = [];
+  if (interval === "daily") {
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      labels.push(buildComponentPeriodKey(cursor, interval));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return labels;
+  }
+
+  if (interval === "weekly") {
+    const cursor = startOfDashboardWeek(start);
+    while (cursor <= end) {
+      labels.push(buildComponentPeriodKey(cursor, interval));
+      cursor.setDate(cursor.getDate() + 7);
+    }
+    return labels;
+  }
+
+  const cursor = startOfDashboardMonth(start);
+  while (cursor <= end) {
+    labels.push(buildComponentPeriodKey(cursor, interval));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return labels;
 };
 
 const convertValueToBrl = (value, currency, usdBrlRate) => {
@@ -2443,17 +2506,6 @@ const getPercentileValue = (values, percentile) => {
     Math.max(0, Math.ceil(numericValues.length * safePercentile) - 1),
   );
   return numericValues[index] || numericValues[numericValues.length - 1] || 0;
-};
-
-const getVisualBarHeight = (value, referenceMax, barAreaHeight) => {
-  const numericValue = Number(value || 0);
-  const numericReferenceMax = Number(referenceMax || 0);
-  if (!(numericValue > 0) || !(numericReferenceMax > 0) || !(barAreaHeight > 0)) {
-    return 0;
-  }
-
-  const ratio = Math.min(numericValue / numericReferenceMax, 1);
-  return Math.max(ratio * barAreaHeight * 0.95, 8);
 };
 
 const getComponentPeriodBounds = (label, interval) => {
@@ -3529,447 +3581,6 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   );
 }
 
-function ComponentSalesNativeDashboard({ dashboardFilter }) {
-  const defaultDateRange = useMemo(() => buildComponentSalesDefaultDateRange(), []);
-  const [interval, setInterval] = useState("daily");
-  const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
-  const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
-  const [selectedTableModal, setSelectedTableModal] = useState(null);
-  const [zoomRange, setZoomRange] = useState(null);
-  const [dragSelection, setDragSelection] = useState(null);
-  const columnsRef = useRef(null);
-  const chartRef = useRef(null);
-  const [hoveredTooltip, setHoveredTooltip] = useState(null);
-  const [viewportRange, setViewportRange] = useState(null);
-
-  const {
-    rows,
-    sales,
-    setSales,
-    derivatives,
-    setDerivatives,
-  } = useComponentSalesSource(dashboardFilter, dateFrom, dateTo);
-  const { openOperationForm, editorNode } = useDashboardOperationEditor({
-    sales,
-    setSales,
-    derivatives,
-    setDerivatives,
-  });
-  const chartState = useMemo(() => buildComponentSalesChartState(rows, interval), [interval, rows]);
-  const openTableModal = useCallback((period, seriesName) => {
-    const selectedOps = chartState.opsIndex.get(`${period}||${seriesName}`) || [];
-    const definition = seriesName === "Venda Físico em U$"
-      ? resourceDefinitions.physicalSales
-      : resourceDefinitions.derivativeOperations;
-    const sourceRows = definition.resource === "physical-sales" ? sales : derivatives;
-    const ids = new Set(selectedOps.map((item) => item.recordId).filter(Boolean).map(String));
-    const operationCodes = new Set(selectedOps.map((item) => item.operationCode).filter(Boolean).map(String));
-    const filteredRows = sourceRows.filter((row) =>
-      ids.has(String(row.id)) || operationCodes.has(String(row.cod_operacao_mae || "")),
-    );
-    if (!filteredRows.length) return;
-    setSelectedTableModal({
-      title: `${seriesName} — ${period}`,
-      definition,
-      rows: filteredRows,
-    });
-  }, [chartState.opsIndex, derivatives, sales]);
-
-  const barAreaHeight = 320;
-  const visiblePeriods = useMemo(() => {
-    const periods = chartState.periods || [];
-    if (!zoomRange || !periods.length) return periods;
-    const start = Math.max(0, Math.min(zoomRange.startIndex ?? 0, periods.length - 1));
-    const end = Math.max(start, Math.min(zoomRange.endIndex ?? periods.length - 1, periods.length - 1));
-    return periods.slice(start, end + 1);
-  }, [chartState.periods, zoomRange]);
-  const viewportPeriods = useMemo(() => {
-    const sourcePeriods = visiblePeriods.length ? visiblePeriods : chartState.periods || [];
-    if (!viewportRange || !sourcePeriods.length) return sourcePeriods;
-    const start = Math.max(0, Math.min(viewportRange.startIndex ?? 0, sourcePeriods.length - 1));
-    const end = Math.max(start, Math.min(viewportRange.endIndex ?? sourcePeriods.length - 1, sourcePeriods.length - 1));
-    return sourcePeriods.slice(start, end + 1);
-  }, [chartState.periods, viewportRange, visiblePeriods]);
-  const maxValue = useMemo(() => {
-    const sourcePeriods = viewportPeriods.length ? viewportPeriods : visiblePeriods.length ? visiblePeriods : chartState.periods || [];
-    const values = sourcePeriods.flatMap((item) => [item.stackTotal, item.dolar]);
-    const rawMax = Math.max(...values, 1);
-    const percentileMax = getPercentileValue(values, 0.75);
-    return Math.max(percentileMax, rawMax * 0.3, 1);
-  }, [chartState.periods, viewportPeriods, visiblePeriods]);
-  const visiblePeriodBounds = useMemo(() => {
-    if (!visiblePeriods.length || interval === "geral") return null;
-    const firstBounds = getComponentPeriodBounds(visiblePeriods[0]?.label, interval);
-    const lastBounds = getComponentPeriodBounds(visiblePeriods[visiblePeriods.length - 1]?.label, interval);
-    if (!firstBounds?.start || !lastBounds?.end) return null;
-    return {
-      start: startOfDashboardDay(firstBounds.start),
-      end: lastBounds.end,
-    };
-  }, [interval, visiblePeriods]);
-  const todayGuideLeft = useMemo(() => {
-    if (!visiblePeriodBounds?.start || !visiblePeriodBounds?.end) return null;
-    const today = startOfDashboardDay(new Date());
-    const startTime = visiblePeriodBounds.start.getTime();
-    const endTime = visiblePeriodBounds.end.getTime();
-    const todayTime = today.getTime();
-    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || !Number.isFinite(todayTime)) return null;
-    if (todayTime < startTime || todayTime > endTime || endTime <= startTime) return null;
-    return `${((todayTime - startTime) / (endTime - startTime)) * 100}%`;
-  }, [visiblePeriodBounds]);
-  const visibleRangeDates = useMemo(() => {
-    if (!visiblePeriodBounds?.start || !visiblePeriodBounds?.end) return null;
-    return {
-      fromBrazilian: formatBrazilianDate(visiblePeriodBounds.start),
-      toBrazilian: formatBrazilianDate(visiblePeriodBounds.end),
-    };
-  }, [visiblePeriodBounds]);
-  const fullRangeDates = useMemo(
-    () => ({
-      fromBrazilian: defaultDateRange.fromBrazilian,
-      toBrazilian: defaultDateRange.toBrazilian,
-    }),
-    [defaultDateRange.fromBrazilian, defaultDateRange.toBrazilian],
-  );
-  const dragOverlayLeft = dragSelection && visiblePeriods.length
-    ? `${(Math.min(dragSelection.startIndex, dragSelection.currentIndex) / visiblePeriods.length) * 100}%`
-    : null;
-  const dragOverlayWidth = dragSelection && visiblePeriods.length
-    ? `${((Math.abs(dragSelection.currentIndex - dragSelection.startIndex) + 1) / visiblePeriods.length) * 100}%`
-    : null;
-
-  useEffect(() => {
-    setZoomRange(null);
-  }, [interval, dateFrom, dateTo]);
-
-  useEffect(() => {
-    const container = chartRef.current;
-    const columns = columnsRef.current;
-    if (!container || !columns || !visiblePeriods.length) {
-      setViewportRange(null);
-      return undefined;
-    }
-
-    const updateViewportRange = () => {
-      const children = Array.from(columns.children).filter((node) => node.classList?.contains("component-native-slot"));
-      if (!children.length) {
-        setViewportRange(null);
-        return;
-      }
-
-      const scrollLeft = container.scrollLeft;
-      const viewportLeft = scrollLeft;
-      const viewportRight = scrollLeft + container.clientWidth;
-
-      let startIndex = 0;
-      let endIndex = children.length - 1;
-
-      children.forEach((child, index) => {
-        const left = child.offsetLeft;
-        const right = left + child.clientWidth;
-        if (right >= viewportLeft && startIndex === 0) {
-          startIndex = index;
-        }
-        if (left <= viewportRight) {
-          endIndex = index;
-        }
-      });
-
-      setViewportRange({ startIndex, endIndex });
-    };
-
-    updateViewportRange();
-    container.addEventListener("scroll", updateViewportRange, { passive: true });
-    window.addEventListener("resize", updateViewportRange);
-    return () => {
-      container.removeEventListener("scroll", updateViewportRange);
-      window.removeEventListener("resize", updateViewportRange);
-    };
-  }, [visiblePeriods]);
-
-  useEffect(() => {
-    const periods = chartState.periods || [];
-    if (!zoomRange || !periods.length) return;
-    const maxIndex = periods.length - 1;
-    if (zoomRange.startIndex > maxIndex || zoomRange.endIndex > maxIndex) {
-      setZoomRange(maxIndex >= 0 ? { startIndex: 0, endIndex: maxIndex } : null);
-    }
-  }, [chartState.periods, zoomRange]);
-
-  useEffect(() => {
-    if (!dragSelection) return undefined;
-
-    const handleMouseUp = () => {
-      setDragSelection((current) => {
-        if (!current) return null;
-        const startIndex = Math.min(current.startIndex, current.currentIndex);
-        const endIndex = Math.max(current.startIndex, current.currentIndex);
-        if (endIndex > startIndex) {
-          const currentVisibleStart = zoomRange?.startIndex || 0;
-          const nextZoomRange = {
-            startIndex: currentVisibleStart + startIndex,
-            endIndex: currentVisibleStart + endIndex,
-          };
-          setZoomRange(nextZoomRange);
-          const sourcePeriods = chartState.periods || [];
-          const fromPeriod = sourcePeriods[nextZoomRange.startIndex];
-          const toPeriod = sourcePeriods[nextZoomRange.endIndex];
-          const fromBounds = getComponentPeriodBounds(fromPeriod?.label, interval);
-          const toBounds = getComponentPeriodBounds(toPeriod?.label, interval);
-          if (fromBounds?.start && toBounds?.end) {
-            setDateFrom(formatBrazilianDate(fromBounds.start));
-            setDateTo(formatBrazilianDate(toBounds.end));
-          }
-        }
-        return null;
-      });
-    };
-
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => window.removeEventListener("mouseup", handleMouseUp);
-  }, [chartState.periods, dragSelection, interval, zoomRange]);
-
-  const getVisibleIndexFromEvent = useCallback((event) => {
-    const container = columnsRef.current;
-    if (!container || !visiblePeriods.length) return null;
-    const rect = container.getBoundingClientRect();
-    if (!(rect.width > 0)) return null;
-    const relativeX = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
-    const rawIndex = Math.floor((relativeX / rect.width) * visiblePeriods.length);
-    return Math.max(0, Math.min(rawIndex, visiblePeriods.length - 1));
-  }, [visiblePeriods.length]);
-
-  const handleColumnsMouseDown = useCallback((event) => {
-    if (event.button !== 0 || visiblePeriods.length <= 1) return;
-    const index = getVisibleIndexFromEvent(event);
-    if (index == null) return;
-    setDragSelection({ startIndex: index, currentIndex: index });
-  }, [getVisibleIndexFromEvent, visiblePeriods.length]);
-
-  const handleColumnsMouseMove = useCallback((event) => {
-    if (!dragSelection) return;
-    const index = getVisibleIndexFromEvent(event);
-    if (index == null) return;
-    setDragSelection((current) => (current ? { ...current, currentIndex: index } : null));
-  }, [dragSelection, getVisibleIndexFromEvent]);
-
-  const updateTooltip = useCallback((event, period) => {
-    const container = chartRef.current;
-    if (!container || !period) return;
-    const rect = container.getBoundingClientRect();
-    setHoveredTooltip({
-      left: event.clientX - rect.left,
-      top: event.clientY - rect.top,
-      period: period.label,
-      rows: [
-        period.stackTotal > 0 ? { label: "Venda + Bolsa", value: formatCurrency0(period.stackTotal) } : null,
-        period.fisico > 0 ? { label: "Venda Físico em U$", value: formatCurrency0(period.fisico) } : null,
-        period.bolsa > 0 ? { label: "Bolsa (Futuros)", value: formatCurrency0(period.bolsa) } : null,
-        period.dolar > 0 ? { label: "Dólar", value: formatCurrency0(period.dolar) } : null,
-      ].filter(Boolean),
-    });
-  }, []);
-
-  return (
-    <section className="component-sales-shell component-native-shell">
-      <section className="component-native-stats">
-        {chartState.totalsByCategory.map((item) => (
-          <article key={item.label} className="card stat-card component-summary-card">
-            <span className="component-summary-label">
-              <span
-                className="component-summary-dot"
-                style={{ background: COMPONENT_DATASETS.find((dataset) => dataset.baseKey === item.label)?.color || "#64748b" }}
-              />
-              {item.label}
-            </span>
-            <strong>{formatCurrency0(item.value)}</strong>
-          </article>
-        ))}
-      </section>
-
-      <div className="chart-card component-native-chart-card">
-        <div className="chart-card-header component-native-chart-header">
-          <div>
-            <h3>Venda de Componentes</h3>
-          </div>
-          <div className="chart-toolbar">
-            {[
-              ["daily", "Diario"],
-              ["weekly", "Semanal"],
-              ["monthly", "Mensal"],
-              ["geral", "Geral"],
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={`chart-period-btn${interval === value ? " active" : ""}`}
-                onClick={() => setInterval(value)}
-              >
-                {label}
-              </button>
-            ))}
-            {zoomRange ? (
-              <button
-                type="button"
-                className="chart-period-btn"
-                onClick={() => {
-                  setZoomRange(null);
-                  setDateFrom(fullRangeDates.fromBrazilian);
-                  setDateTo(fullRangeDates.toBrazilian);
-                }}
-              >
-                Reset Zoom
-              </button>
-            ) : null}
-          </div>
-          <div className="chart-date-filters">
-            <label className="chart-date-filter">
-              <span>De:</span>
-              <DatePickerField value={dateFrom} onChange={setDateFrom} />
-            </label>
-            <label className="chart-date-filter">
-              <span>Até:</span>
-              <DatePickerField value={dateTo} onChange={setDateTo} />
-            </label>
-          </div>
-        </div>
-
-        <div className="component-native-legend">
-          {COMPONENT_CATEGORY_GROUPS.map((item) => (
-            <div key={item.label} className="chart-legend-item">
-              <span className="chart-legend-dot" style={{ background: item.color }} />
-              <span>{item.label}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="component-native-chart" style={{ position: "relative" }} ref={chartRef}>
-          <div className="component-native-grid">
-            {[0, 1, 2, 3].map((line) => (
-              <div key={line} className="component-native-grid-line" style={{ bottom: `${(line / 3) * 100}%` }} />
-            ))}
-          </div>
-          {todayGuideLeft ? (
-            <div className="hedge-chart-guide hedge-chart-guide--today" style={{ left: todayGuideLeft, top: 0, height: `${barAreaHeight + 40}px`, zIndex: 4 }}>
-              <div className="hedge-chart-guide-label hedge-chart-guide-label--today">Hoje</div>
-            </div>
-          ) : null}
-          <div
-            ref={columnsRef}
-            className="component-native-columns"
-            style={{ position: "relative" }}
-            onMouseDown={handleColumnsMouseDown}
-            onMouseMove={handleColumnsMouseMove}
-          >
-            {dragSelection && dragOverlayLeft && dragOverlayWidth ? (
-              <div
-                style={{
-                  position: "absolute",
-                  left: dragOverlayLeft,
-                  width: dragOverlayWidth,
-                  top: 0,
-                  bottom: 0,
-                  background: "rgba(3, 105, 161, 0.12)",
-                  border: "1px dashed rgba(3, 105, 161, 0.55)",
-                  borderRadius: "10px",
-                  pointerEvents: "none",
-                  zIndex: 2,
-                }}
-              />
-            ) : null}
-            {visiblePeriods.map((period) => {
-              const stackHeightPx = getVisualBarHeight(period.stackTotal, maxValue, barAreaHeight);
-              const dollarHeightPx = getVisualBarHeight(period.dolar, maxValue, barAreaHeight);
-              const fisicoHeightPx = period.stackTotal ? (period.fisico / period.stackTotal) * stackHeightPx : 0;
-              const bolsaHeightPx = period.stackTotal ? (period.bolsa / period.stackTotal) * stackHeightPx : 0;
-
-              return (
-                <div
-                  key={period.label}
-                  className="component-native-slot"
-                  onMouseEnter={(event) => updateTooltip(event, period)}
-                  onMouseMove={(event) => updateTooltip(event, period)}
-                  onMouseLeave={() => setHoveredTooltip(null)}
-                >
-                  <div className="component-native-bars">
-                    <div className="component-native-bar-stack">
-                      {period.stackTotal > 0 ? (
-                        <span className="component-native-bar-label" style={{ bottom: `${stackHeightPx + 8}px` }}>
-                          {formatCurrency0(period.stackTotal)}
-                        </span>
-                      ) : null}
-                      <div className="component-native-bar-shell" style={{ height: `${stackHeightPx}px` }}>
-                        {period.bolsa > 0 ? (
-                          <button
-                            type="button"
-                            className="component-native-segment"
-                            style={{ height: `${bolsaHeightPx}px`, background: COMPONENT_COLORS["Bolsa (Futuros)"] }}
-                            onClick={() => openTableModal(period.label, "Bolsa (Futuros)")}
-                          />
-                        ) : null}
-                        {period.fisico > 0 ? (
-                          <button
-                            type="button"
-                            className="component-native-segment"
-                            style={{ height: `${fisicoHeightPx}px`, background: COMPONENT_COLORS["Venda Fisico em U$"] }}
-                            onClick={() => openTableModal(period.label, "Venda Físico em U$")}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="component-native-bar-single"
-                      onClick={() => openTableModal(period.label, "Dólar")}
-                      disabled={period.dolar <= 0}
-                    >
-                      {period.dolar > 0 ? (
-                        <span className="component-native-bar-label" style={{ bottom: `${dollarHeightPx + 8}px` }}>
-                          {formatCurrency0(period.dolar)}
-                        </span>
-                      ) : null}
-                      <div className="component-native-bar-shell component-native-bar-dollar" style={{ height: `${dollarHeightPx}px` }} />
-                    </button>
-                  </div>
-                  <div className="component-native-period-label">{period.label}</div>
-                </div>
-              );
-            })}
-          </div>
-          {hoveredTooltip ? (
-            <div
-              className="component-native-tooltip"
-              style={{
-                left: `${hoveredTooltip.left}px`,
-                top: `${Math.max(hoveredTooltip.top - 14, 16)}px`,
-              }}
-            >
-              <strong>{hoveredTooltip.period}</strong>
-              {hoveredTooltip.rows.map((row) => (
-                <span key={`${hoveredTooltip.period}-${row.label}`}>{row.label}: {row.value}</span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {selectedTableModal ? (
-        <DashboardResourceTableModal
-          title={selectedTableModal.title}
-          definition={selectedTableModal.definition}
-          rows={selectedTableModal.rows}
-          onClose={() => setSelectedTableModal(null)}
-          onEdit={(row) => openOperationForm({
-            ...row,
-            recordId: row.id,
-            resourceKey: selectedTableModal.definition.resource,
-          })}
-        />
-      ) : null}
-      {editorNode}
-    </section>
-  );
-}
 
 const buildCashflowRows = ({
   sales,
@@ -3978,6 +3589,7 @@ const buildCashflowRows = ({
   counterpartyMap,
   dashboardFilter,
   currencyConfig,
+  cropsById,
 }) => {
   const labelMap = getCashflowSeriesLabelMap(currencyConfig);
   const parseDate = (value) => {
@@ -4049,7 +3661,7 @@ const buildCashflowRows = ({
     .map((item) => {
       const date = parseDate(item.data_liquidacao || item.data_contratacao);
       if (!date) return null;
-      const cashflowSide = getDerivativeCashflowSide(item, currencyConfig);
+      const cashflowSide = getDerivativeCashflowSide(item, currencyConfig, cropsById);
       if (!cashflowSide) return null;
       return {
         recordId: item.id,
@@ -4058,7 +3670,7 @@ const buildCashflowRows = ({
         category: labelMap[cashflowSide],
         date,
         data: formatBrazilianDate(item.data_liquidacao || item.data_contratacao || date),
-        valor: Math.abs(Number(item.volume_financeiro_valor_moeda_original || 0)),
+        valor: Math.abs(Number(item.volume_financeiro_valor_moeda_original ?? item.volume_financeiro_valor ?? 0)),
         volume: Number(item.volume || item.numero_lotes || 0),
         preco: Number(item.strike_montagem || item.strike_liquidacao || 0),
         moedaUnidade: item.moeda_unidade || item.volume_financeiro_moeda || "",
@@ -4071,7 +3683,7 @@ const buildCashflowRows = ({
   return reconcileCashflowRows([...paymentRows, ...salesRows, ...derivativeRows], currencyConfig);
 };
 
-const buildCashflowChartState = (rows, interval, currencyConfig) => {
+const buildCashflowChartState = (rows, interval, currencyConfig, dateRange) => {
   const seriesDefs = getCashflowSeriesDefs(currencyConfig);
   const grouped = new Map();
   rows.forEach((row) => {
@@ -4085,6 +3697,15 @@ const buildCashflowChartState = (rows, interval, currencyConfig) => {
   });
 
   const labels = Array.from(grouped.keys());
+  const rangeLabels = buildCashflowPeriodLabels(interval, dateRange);
+  rangeLabels.forEach((label) => {
+    if (!grouped.has(label)) {
+      grouped.set(label, Object.fromEntries(seriesDefs.map((item) => [item.key, { total: 0, ops: [] }])));
+    }
+    if (!labels.includes(label)) {
+      labels.push(label);
+    }
+  });
   if (interval !== "geral") {
     labels.sort((left, right) => getComponentSortKey(left, interval) - getComponentSortKey(right, interval));
   }
@@ -4149,177 +3770,504 @@ const buildCashflowChartState = (rows, interval, currencyConfig) => {
   return { labels, datasets, opsIndex, totals, saldoData, saldoTotal, periodSummaries, seriesDefs };
 };
 
-function CashflowOperationsPopup({ selectedItem, currencyLabel, onClose, onOpenOperation }) {
-  const summary = useMemo(() => {
-    if (!selectedItem?.ops?.length) return null;
-    const totalValor = selectedItem.ops.reduce((sum, item) => sum + Number(item.valor || 0), 0);
-    const totalVolume = selectedItem.ops.reduce((sum, item) => sum + Number(item.volume || 0), 0);
-    return { totalValor, totalVolume };
-  }, [selectedItem]);
-
-  if (!selectedItem) return null;
-
-  const handleOpenOperation = (item) => {
-    onClose?.();
-    onOpenOperation?.(item);
-  };
-
-  return (
-    <div className="component-popup-backdrop" onClick={onClose}>
-      <div className="component-popup" onClick={(event) => event.stopPropagation()}>
-        <button type="button" className="component-popup-close" onClick={onClose}>
-          ×
-        </button>
-        <div className="component-popup-header">
-          <span className="chart-legend-dot" style={{ background: selectedItem.color || "#64748b" }} />
-          <strong>{selectedItem.category}</strong>
-          <span className="muted">— {selectedItem.period}</span>
-        </div>
-        <table className="component-popup-table">
-          <thead>
-            <tr>
-              <th className="component-popup-action-col" />
-              <th>Data</th>
-              <th>Valor</th>
-              <th>Volume</th>
-              <th>Preço / Strike</th>
-              <th>Instituição</th>
-            </tr>
-          </thead>
-          <tbody>
-            {selectedItem.ops.map((item, index) => (
-              <tr key={`${item.data}-${index}`}>
-                <td className="component-popup-action-cell">
-                  {item.recordId ? <ComponentPopupEyeButton onClick={() => handleOpenOperation(item)} /> : null}
-                </td>
-                <td>{item.data}</td>
-                <td>{formatMoneyByCurrency(item.valor, currencyLabel)}</td>
-                <td>{Number(item.volume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</td>
-                <td>
-                  {item.preco
-                    ? `${formatCurrency2(item.preco)}${item.moedaUnidade ? ` ${item.moedaUnidade}` : ""}`
-                    : "—"}
-                </td>
-                <td>{item.instituicao || "—"}</td>
-              </tr>
-            ))}
-            {summary ? (
-              <tr>
-                <td />
-                <td><strong>Total</strong></td>
-                <td><strong>{formatMoneyByCurrency(summary.totalValor, currencyLabel)}</strong></td>
-                <td><strong>{Number(summary.totalVolume || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</strong></td>
-                <td />
-                <td />
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function CashflowCurrencyChart({
   currencyConfig,
   rows,
   interval,
+  dateRange,
+  fixedDateRange,
   compact = false,
   isExpanded = false,
   onToggleExpand,
-  onOpenOperation,
+  onOpenTable,
+  sectionRef,
+  onDateRangeChange,
 }) {
-  const [selectedItem, setSelectedItem] = useState(null);
+  const chartWrapRef = useRef(null);
+  const [chartWidth, setChartWidth] = useState(0);
   const [hoveredPeriod, setHoveredPeriod] = useState(null);
-  const chartState = useMemo(() => buildCashflowChartState(rows, interval, currencyConfig), [currencyConfig, interval, rows]);
+  const visibleRows = useMemo(() => {
+    const startDateValue = dateRange?.start ? startOfDashboardDay(dateRange.start) : null;
+    const endDateValue = dateRange?.end ? startOfDashboardDay(dateRange.end) : null;
+    const startTime = startDateValue ? startDateValue.getTime() : null;
+    const endTime = endDateValue
+      ? new Date(
+          endDateValue.getFullYear(),
+          endDateValue.getMonth(),
+          endDateValue.getDate(),
+          23,
+          59,
+          59,
+          999,
+        ).getTime()
+      : null;
+
+    return rows.filter((row) => {
+      const rowTime = row.date instanceof Date ? row.date.getTime() : null;
+      if (!Number.isFinite(rowTime)) return false;
+      if (startTime != null && rowTime < startTime) return false;
+      if (endTime != null && rowTime > endTime) return false;
+      return true;
+    });
+  }, [dateRange.end, dateRange.start, rows]);
+  const chartRows = isExpanded ? rows : visibleRows;
+  const chartRange = isExpanded ? fixedDateRange : dateRange;
+  const chartState = useMemo(
+    () => buildCashflowChartState(chartRows, interval, currencyConfig, chartRange),
+    [chartRange, chartRows, currencyConfig, interval],
+  );
+  const visibleSummaryState = useMemo(
+    () => buildCashflowChartState(visibleRows, interval, currencyConfig, dateRange),
+    [currencyConfig, dateRange, interval, visibleRows],
+  );
   const activeSummary = hoveredPeriod ? chartState.periodSummaries.get(hoveredPeriod) : null;
-  const summaryCards = activeSummary?.totals || chartState.totals;
-  const saldoSummary = activeSummary?.saldo ?? chartState.saldoTotal;
-  const chartOption = useMemo(() => ({
-    animationDuration: 250,
-    grid: { top: 18, right: 18, bottom: 24, left: 18, containLabel: false },
-    tooltip: {
-      trigger: "axis",
-      axisPointer: { type: "shadow" },
-      formatter: (params) =>
-        `<strong>${params[0]?.axisValue || ""}</strong><br/>${params
-          .map((item) => `${item.marker}${item.seriesName}: ${formatMoneyByCurrency(item.value, currencyConfig.label)}`)
-          .join("<br/>")}`,
-    },
-    legend: { show: false },
-    xAxis: {
-      type: "category",
-      data: chartState.labels,
-      axisTick: { show: false },
-      axisLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
-      axisLabel: { color: "#475569", fontWeight: 700, fontSize: 11 },
-    },
-    yAxis: {
-      type: "value",
-      axisLabel: {
-        show: false,
-        color: "#475569",
-        formatter: (value) => formatMoneyByCurrency(value, currencyConfig.label),
-      },
-      splitLine: { lineStyle: { color: "rgba(15,23,42,0.1)" } },
-    },
-    series: chartState.datasets.map((dataset) => ({
-      name: dataset.label,
-      type: dataset.type === "line" ? "line" : "bar",
-      stack: dataset.type === "line" ? undefined : "cashflow",
-      smooth: false,
-      symbol: dataset.type === "line" ? "circle" : "none",
-      symbolSize: dataset.type === "line" ? 8 : 0,
-      lineStyle: { color: dataset.borderColor || dataset.backgroundColor, width: dataset.type === "line" ? 3 : 2 },
-      itemStyle: {
-        color: dataset.borderColor || dataset.backgroundColor,
-        borderRadius: dataset.type === "line" ? 0 : [10, 10, 0, 0],
-      },
-      areaStyle: dataset.type === "line" ? undefined : undefined,
-      label: dataset.type === "line"
-        ? { show: false }
-        : {
-            show: true,
-            position: "top",
-            color: "#111827",
-            fontSize: 10,
-            fontWeight: 700,
-            formatter: ({ value }) => (Math.abs(Number(value || 0)) > 0 ? formatMoneyByCurrency(value, currencyConfig.label) : ""),
+  const summaryCards = activeSummary?.totals || visibleSummaryState.totals;
+  const saldoSummary = activeSummary?.saldo ?? visibleSummaryState.saldoTotal;
+  const timelinePeriods = useMemo(() => {
+    if (interval === "geral") return [];
+    return chartState.labels
+      .map((label) => {
+        const bounds = getComponentPeriodBounds(label, interval);
+        if (!bounds?.start || !bounds?.end) return null;
+        return {
+          label,
+          start: bounds.start,
+          end: bounds.end,
+          anchor: bounds.start,
+        };
+      })
+      .filter(Boolean);
+  }, [chartState.labels, interval]);
+  const visiblePeriodCount = Math.max(interval === "geral" ? chartState.labels.length : timelinePeriods.length, 1);
+  const visibleBarDatasets = useMemo(
+    () => chartState.datasets.filter((dataset) => dataset.type !== "line"),
+    [chartState.datasets],
+  );
+  const lastVisibleByStack = useMemo(
+    () => visibleBarDatasets.reduce((acc, dataset) => ({ ...acc, [dataset.stack]: dataset.label }), {}),
+    [visibleBarDatasets],
+  );
+  const effectiveChartWidth = Math.max(Number(chartWidth || 0), 320);
+  const slotWidth = Math.max(18, (effectiveChartWidth - 48) / visiblePeriodCount);
+  const intervalFillRatio = {
+    daily: effectiveChartWidth <= 640 ? 0.38 : 0.34,
+    weekly: effectiveChartWidth <= 640 ? 0.52 : 0.5,
+    monthly: effectiveChartWidth <= 640 ? 0.68 : 0.64,
+    geral: effectiveChartWidth <= 640 ? 0.78 : 0.72,
+  };
+  const intervalMinBarWidth = {
+    daily: effectiveChartWidth <= 640 ? 5 : 6,
+    weekly: effectiveChartWidth <= 640 ? 9 : 12,
+    monthly: effectiveChartWidth <= 640 ? 14 : 18,
+    geral: effectiveChartWidth <= 640 ? 28 : 40,
+  };
+  const intervalMaxBarWidth = {
+    daily: effectiveChartWidth <= 640 ? 10 : 12,
+    weekly: effectiveChartWidth <= 640 ? 18 : 24,
+    monthly: effectiveChartWidth <= 640 ? 32 : 42,
+    geral: effectiveChartWidth <= 640 ? 120 : 180,
+  };
+  const intervalDateGapPreset = {
+    daily: 8,
+    weekly: 6,
+    monthly: 5,
+    geral: 4,
+  };
+  const visibleStackCount = Math.max(1, new Set(visibleBarDatasets.map((dataset) => dataset.stack)).size);
+  const intraBarGapPx = visibleStackCount > 1 ? 2 : 0;
+  const dateGapPx = intervalDateGapPreset[interval] ?? 5;
+  const availableGroupWidth = Math.max(
+    visibleStackCount * 3,
+    Math.min(slotWidth - dateGapPx, slotWidth * (intervalFillRatio[interval] ?? 0.5)),
+  );
+  const slotLimitedBarWidth = (availableGroupWidth - intraBarGapPx * Math.max(visibleStackCount - 1, 0)) / visibleStackCount;
+  const responsiveBarWidth = Math.max(
+    intervalMinBarWidth[interval] ?? 4,
+    Math.min(intervalMaxBarWidth[interval] ?? 12, slotLimitedBarWidth),
+  );
+  const responsiveBarGap = visibleStackCount > 1 && responsiveBarWidth > 0
+    ? `${Math.max(0, (intraBarGapPx / responsiveBarWidth) * 100)}%`
+    : "0%";
+  const responsiveCategoryGap = `${Math.max(8, Math.min(60, (dateGapPx / slotWidth) * 100))}%`;
+  const hasNativeZoom = interval !== "geral" && isExpanded && timelinePeriods.length > 1;
+  const fixedStartValue = fixedDateRange?.start ? startOfDashboardDay(fixedDateRange.start)?.getTime?.() : null;
+  const fixedEndDate = fixedDateRange?.end ? startOfDashboardDay(fixedDateRange.end) : null;
+  const fixedEndValue = fixedEndDate
+    ? new Date(
+        fixedEndDate.getFullYear(),
+        fixedEndDate.getMonth(),
+        fixedEndDate.getDate(),
+        23,
+        59,
+        59,
+        999,
+      ).getTime()
+    : null;
+  const selectedStartValue = dateRange?.start ? startOfDashboardDay(dateRange.start)?.getTime?.() : null;
+  const selectedEndDate = dateRange?.end ? startOfDashboardDay(dateRange.end) : null;
+  const selectedEndValue = selectedEndDate
+    ? new Date(
+        selectedEndDate.getFullYear(),
+        selectedEndDate.getMonth(),
+        selectedEndDate.getDate(),
+        23,
+        59,
+        59,
+        999,
+      ).getTime()
+    : null;
+  const openSummaryCardTable = useCallback((label) => {
+    const seriesDef = visibleSummaryState.seriesDefs.find((item) => item.label === label);
+    if (!seriesDef) return;
+    const chartRows = visibleRows.filter((row) => row.categoryKey === seriesDef.key);
+    if (!chartRows.length) return;
+    onOpenTable?.({
+      title: `${label} — Periodo visivel`,
+      resourceKey: chartRows[0]?.resourceKey,
+      chartRows,
+    });
+  }, [onOpenTable, visibleRows, visibleSummaryState.seriesDefs]);
+  const chartOption = useMemo(() => {
+    const today = startOfDashboardDay(new Date())?.getTime?.();
+    const temporalGridBottom = isExpanded ? (hasNativeZoom ? 84 : 56) : 18;
+    const temporalGridTop = isExpanded ? 28 : 14;
+    const temporalAxisLabelMargin = isExpanded ? 14 : 8;
+
+    if (interval === "geral") {
+      return {
+        animationDuration: 250,
+        grid: { top: 28, right: 18, bottom: 56, left: 18, containLabel: true },
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "shadow" },
+          formatter: (params) =>
+            `<strong>${params[0]?.axisValue || ""}</strong><br/>${params
+              .map((item) => `${item.marker}${item.seriesName}: ${formatMoneyByCurrency(readEChartNumericValue(item.value), currencyConfig.label)}`)
+              .join("<br/>")}`,
+        },
+        legend: { show: false },
+        dataZoom: [],
+        xAxis: {
+          type: "category",
+          data: chartState.labels,
+          axisTick: { show: false },
+          axisLabel: { color: "#475569", fontWeight: 700, fontSize: 12 },
+          axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
+        },
+        yAxis: {
+          type: "value",
+          name: currencyConfig.label,
+          nameTextStyle: { color: "#475569", fontSize: 10, fontWeight: 700 },
+          axisLabel: {
+            color: "#475569",
+            fontSize: 11,
+            formatter: (value) => Number(value).toLocaleString("pt-BR"),
           },
-      data: dataset.data,
-      barMaxWidth: 44,
-    })),
-  }), [chartState, currencyConfig.label]);
+          splitLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
+        },
+        series: chartState.datasets.map((dataset) => ({
+          name: dataset.label,
+          type: dataset.type === "line" ? "line" : "bar",
+          stack: dataset.type === "line" ? undefined : dataset.stack,
+          smooth: false,
+          symbol: dataset.type === "line" ? "circle" : "none",
+          symbolSize: dataset.type === "line"
+            ? (value) => (Math.abs(readEChartNumericValue(value)) > 0 ? 8 : 0)
+            : 0,
+          barWidth: dataset.type === "line" ? undefined : responsiveBarWidth,
+          barMaxWidth: dataset.type === "line" ? undefined : responsiveBarWidth,
+          barGap: dataset.type === "line" ? undefined : responsiveBarGap,
+          barCategoryGap: dataset.type === "line" ? undefined : responsiveCategoryGap,
+          cursor: "pointer",
+          lineStyle: { color: dataset.borderColor || dataset.backgroundColor, width: dataset.type === "line" ? 3 : 2 },
+          itemStyle: {
+            color: dataset.borderColor || dataset.backgroundColor,
+            borderRadius: 0,
+          },
+          label: dataset.type === "line"
+            ? { show: false }
+            : {
+                show: !(compact && !isExpanded) && lastVisibleByStack[dataset.stack] === dataset.label,
+                position: "top",
+                color: "#111827",
+                fontSize: 11,
+                fontWeight: 700,
+                formatter: ({ value }) => {
+                  const numericValue = readEChartNumericValue(value);
+                  return numericValue ? formatMoneyByCurrency(numericValue, currencyConfig.label) : "";
+                },
+              },
+          data: dataset.data,
+        })),
+      };
+    }
+
+    return {
+      animationDuration: 250,
+      grid: { top: temporalGridTop, right: 18, bottom: temporalGridBottom, left: 18, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (params) => {
+          const periodLabel = params.find((item) => item?.data?.periodLabel)?.data?.periodLabel || "";
+          const rowsHtml = params
+            .map((item) => `${item.marker}${item.seriesName}: ${formatMoneyByCurrency(readEChartNumericValue(item.value), currencyConfig.label)}`)
+            .join("<br/>");
+          return `<strong>${periodLabel}</strong><br/>${rowsHtml}`;
+        },
+      },
+      legend: { show: false },
+      dataZoom: hasNativeZoom
+        ? [
+            {
+              type: "inside",
+              xAxisIndex: 0,
+              filterMode: "weakFilter",
+              startValue: selectedStartValue,
+              endValue: selectedEndValue,
+              zoomOnMouseWheel: true,
+              moveOnMouseMove: true,
+              moveOnMouseWheel: true,
+              preventDefaultMouseMove: false,
+            },
+            {
+              type: "slider",
+              xAxisIndex: 0,
+              height: 28,
+              bottom: 16,
+              filterMode: "weakFilter",
+              startValue: selectedStartValue,
+              endValue: selectedEndValue,
+              borderColor: "rgba(148, 163, 184, 0.35)",
+              fillerColor: "rgba(59, 130, 246, 0.14)",
+              backgroundColor: "rgba(226, 232, 240, 0.65)",
+              dataBackground: {
+                lineStyle: { color: "rgba(99, 102, 241, 0.35)", width: 1 },
+                areaStyle: { color: "rgba(191, 219, 254, 0.45)" },
+              },
+              moveHandleStyle: {
+                color: "#ffffff",
+                borderColor: "rgba(148, 163, 184, 0.9)",
+              },
+              handleStyle: {
+                color: "#ffffff",
+                borderColor: "rgba(148, 163, 184, 0.9)",
+              },
+              textStyle: {
+                color: "#64748b",
+              },
+            },
+          ]
+        : [],
+      xAxis: {
+        type: "time",
+        min: Number.isFinite(isExpanded ? fixedStartValue : selectedStartValue)
+          ? (isExpanded ? fixedStartValue : selectedStartValue)
+          : undefined,
+        max: Number.isFinite(isExpanded ? fixedEndValue : selectedEndValue)
+          ? (isExpanded ? fixedEndValue : selectedEndValue)
+          : undefined,
+        axisTick: { show: false },
+        axisLabel: {
+          color: "#475569",
+          fontWeight: 700,
+          fontSize: 12,
+          hideOverlap: true,
+          margin: temporalAxisLabelMargin,
+          formatter: (value) => {
+            const date = new Date(value);
+            if (interval === "monthly") {
+              return formatCashflowMonthYear(date);
+            }
+            return formatBrazilianDate(date);
+          },
+        },
+        axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
+        splitLine: { show: false },
+        minInterval: interval === "monthly" ? 28 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
+      },
+      yAxis: {
+        type: "value",
+        name: currencyConfig.label,
+        nameTextStyle: { color: "#475569", fontSize: 10, fontWeight: 700 },
+        axisLabel: { color: "#475569", fontSize: 11, formatter: (value) => Number(value).toLocaleString("pt-BR") },
+        splitLine: { lineStyle: { color: "rgba(15,23,42,0.12)" } },
+      },
+      series: chartState.datasets.map((dataset, datasetIndex) => ({
+        name: dataset.label,
+        type: dataset.type === "line" ? "line" : "bar",
+        stack: dataset.type === "line" ? undefined : dataset.stack,
+        smooth: false,
+        symbol: dataset.type === "line" ? "circle" : "none",
+        symbolSize: dataset.type === "line"
+          ? (value) => (Math.abs(readEChartNumericValue(value)) > 0 ? 8 : 0)
+          : 0,
+        barWidth: dataset.type === "line" ? undefined : responsiveBarWidth,
+        barMaxWidth: dataset.type === "line" ? undefined : responsiveBarWidth,
+        barGap: dataset.type === "line" ? undefined : responsiveBarGap,
+        barCategoryGap: dataset.type === "line" ? undefined : responsiveCategoryGap,
+        cursor: "pointer",
+        lineStyle: { color: dataset.borderColor || dataset.backgroundColor, width: dataset.type === "line" ? 3 : 2 },
+        itemStyle: {
+          color: dataset.type === "line"
+            ? (params) => (Array.isArray(dataset.pointBackgroundColor) ? dataset.pointBackgroundColor[params.dataIndex] || dataset.borderColor : dataset.borderColor || dataset.backgroundColor)
+            : dataset.backgroundColor,
+          borderRadius: 0,
+          borderColor: dataset.type === "line" ? "#111827" : undefined,
+          borderWidth: dataset.type === "line" ? 2 : undefined,
+        },
+        label: dataset.type === "line"
+          ? { show: false }
+          : {
+              show: !(compact && !isExpanded) && lastVisibleByStack[dataset.stack] === dataset.label,
+              position: "top",
+              color: "#111827",
+              fontSize: 11,
+              fontWeight: 700,
+              distance: 6,
+              formatter: ({ data }) => {
+                const numericValue = readEChartNumericValue(data?.value);
+                return numericValue ? formatMoneyByCurrency(numericValue, currencyConfig.label) : "";
+              },
+            },
+        labelLayout: dataset.type === "line" ? undefined : { hideOverlap: true },
+        markLine: dataset.type !== "line" && datasetIndex === 0 && Number.isFinite(today)
+          ? {
+              symbol: ["none", "none"],
+              silent: true,
+              animation: false,
+              label: {
+                show: true,
+                formatter: "Hoje",
+                position: "start",
+                color: "#1d4ed8",
+                backgroundColor: "#dbeafe",
+                borderColor: "rgba(37, 99, 235, 0.2)",
+                borderWidth: 1,
+                borderRadius: 999,
+                padding: [4, 10],
+              },
+              lineStyle: {
+                color: "rgba(37, 99, 235, 0.95)",
+                type: "dashed",
+                width: 2,
+              },
+              data: [{ xAxis: today }],
+            }
+          : undefined,
+        data: dataset.type === "line"
+          ? timelinePeriods.map((period, index) => ({
+              value: [period.anchor.getTime(), Number(dataset.data[index] || 0)],
+              periodLabel: period.label,
+            }))
+          : timelinePeriods.map((period, index) => ({
+              value: [period.anchor.getTime(), Number(dataset.data[index] || 0)],
+              periodLabel: period.label,
+            })),
+      })),
+    };
+  }, [
+    chartState,
+    compact,
+    currencyConfig.label,
+    chartWidth,
+    fixedEndValue,
+    fixedStartValue,
+    hasNativeZoom,
+    interval,
+    isExpanded,
+    lastVisibleByStack,
+    responsiveBarGap,
+    responsiveBarWidth,
+    responsiveCategoryGap,
+    selectedEndValue,
+    selectedStartValue,
+    timelinePeriods,
+    visiblePeriodCount,
+  ]);
   const chartEvents = useMemo(() => ({
     mouseover: (params) => {
       if (params.componentType !== "series") return;
-      setHoveredPeriod(chartState.labels[params.dataIndex] || null);
+      setHoveredPeriod(params?.data?.periodLabel || chartState.labels[params.dataIndex] || null);
     },
     globalout: () => setHoveredPeriod(null),
+    datazoom: (params) => {
+      if (!hasNativeZoom || !timelinePeriods.length) return;
+      const payload = Array.isArray(params?.batch) ? params.batch[0] : params;
+      const firstAnchor = timelinePeriods[0]?.anchor?.getTime?.();
+      const lastAnchor = timelinePeriods[timelinePeriods.length - 1]?.anchor?.getTime?.();
+      if (!Number.isFinite(firstAnchor) || !Number.isFinite(lastAnchor)) return;
+
+      let startValue = Number(payload?.startValue);
+      let endValue = Number(payload?.endValue);
+      if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
+        const startPercent = Math.min(Math.max(Number(payload?.start ?? 0), 0), 100);
+        const endPercent = Math.min(Math.max(Number(payload?.end ?? 100), 0), 100);
+        startValue = firstAnchor + ((lastAnchor - firstAnchor) * startPercent) / 100;
+        endValue = firstAnchor + ((lastAnchor - firstAnchor) * endPercent) / 100;
+      }
+
+      const visiblePeriods = timelinePeriods.filter((period) => {
+        const anchorTime = period.anchor?.getTime?.();
+        return Number.isFinite(anchorTime) && anchorTime >= startValue && anchorTime <= endValue;
+      });
+      let nextPeriods = visiblePeriods.length ? visiblePeriods : timelinePeriods;
+      if (nextPeriods.length < 2 && timelinePeriods.length >= 2) {
+        const nearestIndex = timelinePeriods.reduce((bestIndex, period, index) => {
+          const anchorTime = period.anchor?.getTime?.();
+          const bestAnchorTime = timelinePeriods[bestIndex]?.anchor?.getTime?.();
+          if (!Number.isFinite(anchorTime)) return bestIndex;
+          if (!Number.isFinite(bestAnchorTime)) return index;
+          const currentDistance = Math.abs(anchorTime - startValue);
+          const bestDistance = Math.abs(bestAnchorTime - startValue);
+          return currentDistance < bestDistance ? index : bestIndex;
+        }, 0);
+        const fallbackStartIndex = Math.max(0, Math.min(nearestIndex, timelinePeriods.length - 2));
+        nextPeriods = timelinePeriods.slice(fallbackStartIndex, fallbackStartIndex + 2);
+      }
+      const nextStart = nextPeriods[0]?.start;
+      const nextEnd = nextPeriods[nextPeriods.length - 1]?.end;
+      if (!nextStart || !nextEnd) return;
+      onDateRangeChange?.({ start: nextStart, end: nextEnd });
+    },
     click: (params) => {
       if (params.componentType !== "series") return;
-      const period = chartState.labels[params.dataIndex];
+      const period = params?.data?.periodLabel || chartState.labels[params.dataIndex];
       const category = String(params.seriesName || "");
+      if (category === "Saldo") return;
       const categoryKey = chartState.seriesDefs.find((item) => item.label === category)?.key;
-      const ops =
-        category === "Saldo"
-          ? chartState.seriesDefs.flatMap((item) => chartState.opsIndex.get(`${period}||${item.key}`) || [])
-          : chartState.opsIndex.get(`${period}||${categoryKey}`) || [];
-      setSelectedItem({
-        category,
-        period,
-        ops,
-        color: params.color,
+      const chartRows = chartState.opsIndex.get(`${period}||${categoryKey}`) || [];
+      if (!chartRows.length) return;
+      onOpenTable?.({
+        title: `${category} — ${period}`,
+        resourceKey: chartRows[0]?.resourceKey,
+        chartRows,
       });
     },
-  }), [chartState]);
+  }), [chartState, hasNativeZoom, onDateRangeChange, onOpenTable, timelinePeriods]);
+
+  useEffect(() => {
+    const node = chartWrapRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const nextWidth = entries?.[0]?.contentRect?.width;
+      if (Number.isFinite(nextWidth) && nextWidth > 0) {
+        setChartWidth(nextWidth);
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-      <div className={`chart-card component-chartjs-card cashflow-chart-card${compact ? " cashflow-chart-card--compact" : ""}${isExpanded ? " cashflow-chart-card--expanded" : ""}`}>
+      <div
+        ref={sectionRef}
+        className={`chart-card component-chartjs-card cashflow-chart-card${compact ? " cashflow-chart-card--compact" : ""}${isExpanded ? " cashflow-chart-card--expanded" : ""}`}
+      >
       <div className="chart-card-header cashflow-chart-header">
         <div>
           <h3>{currencyConfig.title}</h3>
-          <p className="muted">Clique em qualquer barra ou no saldo para abrir o detalhamento do período.</p>
+          <p className="muted">{isExpanded ? "Clique nas barras para detalhar e use o seletor inferior para recortar o período." : "Clique nas barras para detalhar o período."}</p>
         </div>
         <div className="chart-toolbar cashflow-chart-toolbar">
           {onToggleExpand ? (
@@ -4336,7 +4284,20 @@ function CashflowCurrencyChart({
       </div>
       <section className="stats-grid cashflow-summary-grid">
         {summaryCards.map((item) => (
-          <article key={`${currencyConfig.key}-${item.label}`} className="card stat-card component-summary-card">
+          <article
+            key={`${currencyConfig.key}-${item.label}`}
+            className="card stat-card component-summary-card"
+            role="button"
+            tabIndex={0}
+            onClick={() => openSummaryCardTable(item.label)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                openSummaryCardTable(item.label);
+              }
+            }}
+            style={{ cursor: "pointer" }}
+          >
             <span className="component-summary-label">
               <span className="component-summary-dot" style={{ background: item.color }} />
               {item.label}
@@ -4352,32 +4313,29 @@ function CashflowCurrencyChart({
           <strong>{formatMoneyByCurrency(saldoSummary, currencyConfig.label)}</strong>
         </article>
       </section>
-      <div className={`component-chartjs-wrap cashflow-chartjs-wrap${compact ? " cashflow-chartjs-wrap--compact" : ""}${isExpanded ? " cashflow-chartjs-wrap--expanded" : ""}`}>
-        <ReactECharts option={chartOption} onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "svg" }} />
+      <div ref={chartWrapRef} className={`component-chartjs-wrap cashflow-chartjs-wrap${compact ? " cashflow-chartjs-wrap--compact" : ""}${isExpanded ? " cashflow-chartjs-wrap--expanded" : ""}`}>
+        <ReactECharts option={chartOption} notMerge onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "canvas" }} />
       </div>
-      <CashflowOperationsPopup
-        selectedItem={selectedItem}
-        currencyLabel={currencyConfig.label}
-        onClose={() => setSelectedItem(null)}
-        onOpenOperation={onOpenOperation}
-      />
     </div>
   );
 }
 
 function CashflowDashboard({ dashboardFilter, compact = false }) {
   const isMobileViewport = useViewportMatch("(max-width: 768px)");
-  const defaultDateRange = useMemo(() => buildCashflowDefaultDateRange(), []);
+  const defaultSelectionRange = useMemo(() => buildCashflowDefaultDateRange(), []);
+  const sectionRefs = useRef({});
   const [interval, setInterval] = useState("monthly");
   const [expandedCurrencyKey, setExpandedCurrencyKey] = useState(null);
+  const [selectedTableModal, setSelectedTableModal] = useState(null);
   const [dateRange, setDateRange] = useState({
-    start: defaultDateRange.startIso,
-    end: defaultDateRange.endIso,
+    start: defaultSelectionRange.fromBrazilian,
+    end: defaultSelectionRange.toBrazilian,
   });
   const [sales, setSales] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
   const [counterparties, setCounterparties] = useState([]);
+  const [crops, setCrops] = useState([]);
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
     sales,
     setSales,
@@ -4394,12 +4352,14 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
       resourceService.listAll("cash-payments"),
       resourceService.listAll("derivative-operations"),
       resourceService.listAll("counterparties"),
-    ]).then(([salesResponse, cashPaymentsResponse, derivativesResponse, counterpartiesResponse]) => {
+      resourceService.listAll("crops"),
+    ]).then(([salesResponse, cashPaymentsResponse, derivativesResponse, counterpartiesResponse, cropsResponse]) => {
       if (!isMounted) return;
       setSales(salesResponse || []);
       setCashPayments(cashPaymentsResponse || []);
       setDerivatives(derivativesResponse || []);
       setCounterparties(counterpartiesResponse || []);
+      setCrops(cropsResponse || []);
     });
     return () => {
       isMounted = false;
@@ -4410,6 +4370,95 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
     () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.contraparte || item.obs || `#${item.id}`])),
     [counterparties],
   );
+  const cropsById = useMemo(
+    () => Object.fromEntries((crops || []).map((item) => [String(item.id), item])),
+    [crops],
+  );
+  const defaultVisibleRange = useMemo(
+    () => ({
+      start: defaultSelectionRange.fromBrazilian,
+      end: defaultSelectionRange.toBrazilian,
+    }),
+    [defaultSelectionRange.fromBrazilian, defaultSelectionRange.toBrazilian],
+  );
+  const allCurrencyRows = useMemo(
+    () =>
+      CASHFLOW_CURRENCY_CONFIGS.flatMap((currencyConfig) =>
+        buildCashflowRows({
+          sales,
+          cashPayments,
+          derivatives,
+          counterpartyMap,
+          dashboardFilter,
+          currencyConfig,
+          cropsById,
+        }),
+      ),
+    [cashPayments, counterpartyMap, cropsById, dashboardFilter, derivatives, sales],
+  );
+  const sliderRange = useMemo(() => {
+    const numericTimes = allCurrencyRows
+      .map((row) => (row.date instanceof Date ? row.date.getTime() : null))
+      .filter((time) => Number.isFinite(time));
+    const defaultStartTime = startOfDashboardDay(defaultVisibleRange.start)?.getTime?.();
+    const defaultEndBase = startOfDashboardDay(defaultVisibleRange.end);
+    const defaultEndTime = defaultEndBase
+      ? new Date(defaultEndBase.getFullYear(), defaultEndBase.getMonth(), defaultEndBase.getDate(), 23, 59, 59, 999).getTime()
+      : null;
+    const minTime = numericTimes.length ? Math.min(...numericTimes) : defaultStartTime;
+    const maxTime = numericTimes.length ? Math.max(...numericTimes) : defaultEndTime;
+    const boundedMin = Number.isFinite(defaultStartTime) ? Math.min(minTime, defaultStartTime) : minTime;
+    const boundedMax = Number.isFinite(defaultEndTime) ? Math.max(maxTime, defaultEndTime) : maxTime;
+    return {
+      start: Number.isFinite(boundedMin) ? formatBrazilianDate(new Date(boundedMin)) : defaultVisibleRange.start,
+      end: Number.isFinite(boundedMax) ? formatBrazilianDate(new Date(boundedMax)) : defaultVisibleRange.end,
+    };
+  }, [allCurrencyRows, defaultVisibleRange.end, defaultVisibleRange.start]);
+  const hasCustomDateRange = useMemo(
+    () =>
+      formatIsoDate(dateRange.start) !== formatIsoDate(defaultVisibleRange.start) ||
+      formatIsoDate(dateRange.end) !== formatIsoDate(defaultVisibleRange.end),
+    [dateRange.end, dateRange.start, defaultVisibleRange.end, defaultVisibleRange.start],
+  );
+  const handleDateRangeChange = useCallback((nextRange) => {
+    if (!nextRange?.start || !nextRange?.end) return;
+    const nextStart = formatBrazilianDate(nextRange.start);
+    const nextEnd = formatBrazilianDate(nextRange.end);
+    setDateRange((current) => {
+      if (formatIsoDate(current.start) === formatIsoDate(nextStart) && formatIsoDate(current.end) === formatIsoDate(nextEnd)) {
+        return current;
+      }
+      return { start: nextStart, end: nextEnd };
+    });
+  }, []);
+  const handleOpenTable = useCallback(({ title, resourceKey, chartRows }) => {
+    if (!resourceKey || !chartRows?.length) return;
+    const definition =
+      resourceKey === "cash-payments"
+        ? resourceDefinitions.cashPayments
+        : resourceKey === "physical-sales"
+          ? resourceDefinitions.physicalSales
+          : resourceDefinitions.derivativeOperations;
+    const sourceRows =
+      resourceKey === "cash-payments"
+        ? cashPayments
+        : resourceKey === "physical-sales"
+          ? sales
+          : derivatives;
+    const ids = new Set(
+      chartRows
+        .map((item) => item.recordId)
+        .filter(Boolean)
+        .map(String),
+    );
+    const filteredRows = sourceRows.filter((row) => ids.has(String(row.id)));
+    if (!filteredRows.length) return;
+    setSelectedTableModal({
+      title,
+      definition,
+      rows: filteredRows,
+    });
+  }, [cashPayments, derivatives, sales]);
 
   const currencyRows = useMemo(
     () =>
@@ -4423,18 +4472,11 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
             counterpartyMap,
             dashboardFilter,
             currencyConfig,
-          }).filter((row) => {
-            const rowTime = row.date instanceof Date ? row.date.getTime() : null;
-            if (!rowTime) return false;
-            const startTime = dateRange.start ? new Date(`${dateRange.start}T00:00:00`).getTime() : null;
-            const endTime = dateRange.end ? new Date(`${dateRange.end}T23:59:59`).getTime() : null;
-            if (startTime && rowTime < startTime) return false;
-            if (endTime && rowTime > endTime) return false;
-            return true;
+            cropsById,
           }),
         ]),
       ),
-    [cashPayments, counterpartyMap, dashboardFilter, dateRange.end, dateRange.start, derivatives, sales],
+    [cashPayments, counterpartyMap, cropsById, dashboardFilter, derivatives, sales],
   );
 
   const visibleCurrencies = useMemo(
@@ -4446,28 +4488,38 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
         : CASHFLOW_CURRENCY_CONFIGS,
     [compact, expandedCurrencyKey, isMobileViewport],
   );
+  const scrollToCurrencySection = useCallback((currencyKey) => {
+    const node = sectionRefs.current[currencyKey];
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+  const expandedRangeLabel = useMemo(() => {
+    if (!expandedCurrencyKey) return "";
+    return `de: ${formatShortBrazilianDate(dateRange.start)} a ${formatShortBrazilianDate(dateRange.end)}`;
+  }, [dateRange.end, dateRange.start, expandedCurrencyKey]);
+  const handleCurrencyToolbarClick = useCallback((currencyKey) => {
+    if (compact && !isMobileViewport && expandedCurrencyKey) {
+      setExpandedCurrencyKey(currencyKey);
+      return;
+    }
+    scrollToCurrencySection(currencyKey);
+  }, [compact, expandedCurrencyKey, isMobileViewport, scrollToCurrencySection]);
 
   return (
     <section className="component-sales-shell">
       {compact ? (
         <div className="cashflow-dashboard-toolbar">
-          <div className="chart-date-filters cashflow-date-filters">
-            <label className="chart-date-filter">
-              De
-              <input
-                type="date"
-                value={dateRange.start}
-                onChange={(event) => setDateRange((current) => ({ ...current, start: event.target.value }))}
-              />
-            </label>
-            <label className="chart-date-filter">
-              Ate
-              <input
-                type="date"
-                value={dateRange.end}
-                onChange={(event) => setDateRange((current) => ({ ...current, end: event.target.value }))}
-              />
-            </label>
+          <div className="cashflow-currency-links">
+            {CASHFLOW_CURRENCY_CONFIGS.map((currencyConfig) => (
+              <button
+                key={`cashflow-link-${currencyConfig.key}`}
+                type="button"
+                className={`cashflow-currency-link${expandedCurrencyKey === currencyConfig.key ? " active" : ""}`}
+                onClick={() => handleCurrencyToolbarClick(currencyConfig.key)}
+              >
+                {currencyConfig.title}
+              </button>
+            ))}
           </div>
           <div className="chart-toolbar cashflow-dashboard-periods">
             {[
@@ -4485,9 +4537,19 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
                 {label}
               </button>
             ))}
+            {hasCustomDateRange ? (
+              <button
+                type="button"
+                className="chart-period-btn"
+                onClick={() => setDateRange(defaultVisibleRange)}
+              >
+                Reset Zoom
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
+      {expandedCurrencyKey ? <div className="cashflow-expanded-range-label">{expandedRangeLabel}</div> : null}
       <section
         className={`cashflow-dashboard-shell${compact ? " cashflow-dashboard-shell--compact" : ""}${expandedCurrencyKey ? " cashflow-dashboard-shell--expanded" : ""}${compact && isMobileViewport ? " cashflow-dashboard-shell--mobile-stacked" : ""}`}
       >
@@ -4497,9 +4559,19 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
           currencyConfig={currencyConfig}
           rows={currencyRows[currencyConfig.key] || []}
           interval={interval}
+          dateRange={dateRange}
+          fixedDateRange={sliderRange}
           compact={compact}
           isExpanded={compact && isMobileViewport ? true : expandedCurrencyKey === currencyConfig.key}
-          onOpenOperation={openOperationForm}
+          onOpenTable={handleOpenTable}
+          onDateRangeChange={handleDateRangeChange}
+          sectionRef={(node) => {
+            if (node) {
+              sectionRefs.current[currencyConfig.key] = node;
+            } else {
+              delete sectionRefs.current[currencyConfig.key];
+            }
+          }}
           onToggleExpand={
             compact && !isMobileViewport
               ? () => setExpandedCurrencyKey((current) => (current === currencyConfig.key ? null : currencyConfig.key))
@@ -4509,6 +4581,19 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
       ))}
       {editorNode}
       </section>
+      {selectedTableModal ? (
+        <DashboardResourceTableModal
+          title={selectedTableModal.title}
+          definition={selectedTableModal.definition}
+          rows={selectedTableModal.rows}
+          onClose={() => setSelectedTableModal(null)}
+          onEdit={(row) => openOperationForm({
+            ...row,
+            recordId: row.id,
+            resourceKey: selectedTableModal.definition.resource,
+          })}
+        />
+      ) : null}
     </section>
   );
 }
@@ -4562,7 +4647,7 @@ function CommercialRiskAnalyticsSkeleton() {
 
 function CommercialRiskDashboard({ dashboardFilter }) {
   const navigate = useNavigate();
-  const { filter, options, toggleFilterValue, updateFilter } = useDashboardFilter();
+  const { options, toggleFilterValue, updateFilter } = useDashboardFilter();
   const [physicalSales, setPhysicalSales] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
   const [cropBoards, setCropBoards] = useState([]);
@@ -4588,7 +4673,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     },
   });
   const [summaryLoading, setSummaryLoading] = useState(true);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsReady, setAnalyticsReady] = useState(false);
   const [selectedMarketNewsPost, setSelectedMarketNewsPost] = useState(null);
   const [selectedMarketNewsAttachments, setSelectedMarketNewsAttachments] = useState([]);
@@ -4629,8 +4713,10 @@ function CommercialRiskDashboard({ dashboardFilter }) {
 
   useEffect(() => {
     let isMounted = true;
-    setAnalyticsLoading(true);
     setAnalyticsReady(false);
+    let timeoutId = 0;
+    let idleId = 0;
+
     const loadAnalytics = () => {
       Promise.all([
         resourceService.listAll("physical-sales").catch(() => []),
@@ -4647,16 +4733,23 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           setHedgePolicies(policiesResponse || []);
           setPhysicalPayments(physicalPaymentsResponse || []);
           setAnalyticsReady(true);
-        })
-        .finally(() => {
-          if (!isMounted) return;
-          setAnalyticsLoading(false);
         });
     };
 
-    loadAnalytics();
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleId = window.requestIdleCallback(loadAnalytics, { timeout: 1200 });
+    } else {
+      timeoutId = window.setTimeout(loadAnalytics, 180);
+    }
+
     return () => {
       isMounted = false;
+      if (typeof window !== "undefined") {
+        window.clearTimeout(timeoutId);
+        if ("cancelIdleCallback" in window && idleId) {
+          window.cancelIdleCallback(idleId);
+        }
+      }
     };
   }, []);
 
@@ -4853,10 +4946,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.producao_total || 0)), 0),
     [filteredCropBoards],
   );
-  const physicalSoldVolume = useMemo(
-    () => filteredSales.reduce((sum, item) => sum + Math.abs(Number(item.volume_fisico || 0)), 0),
-    [filteredSales],
-  );
   const derivativeStandardVolumeGetter = useMemo(
     () => (item) => getDerivativeVolumeInStandardUnit(item, options.exchanges || [], resolveCultureLabel),
     [options.exchanges, resolveCultureLabel],
@@ -4868,14 +4957,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const currencyDerivatives = useMemo(
     () => filteredDerivatives.filter((item) => normalizeText(item.moeda_ou_cmdtye) === "moeda"),
     [filteredDerivatives],
-  );
-  const derivativeCommodityVolume = useMemo(
-    () => bolsaDerivatives.reduce((sum, item) => sum + derivativeStandardVolumeGetter(item), 0),
-    [bolsaDerivatives, derivativeStandardVolumeGetter],
-  );
-  const derivativeCurrencyVolume = useMemo(
-    () => currencyDerivatives.reduce((sum, item) => sum + getDerivativeVolumeValue(item), 0),
-    [currencyDerivatives],
   );
   const physicalPaymentVolume = useMemo(
     () => filteredPhysicalPayments.reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0),
@@ -4913,7 +4994,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     hedgeSummaryChartState.points[hedgeSummaryActiveIndex] || hedgeSummaryChartState.points[hedgeSummaryTodayIndex] || hedgeSummaryChartState.points.at(-1) || null;
   const hedgeSummaryReferenceDate = hedgeSummaryActivePoint?.date || startOfDashboardDay(new Date());
   const hedgeCardCommercializedVolume = hedgeSummaryActivePoint?.total || 0;
-  const commercializationCoverage = netProductionBase > 0 ? hedgeCardCommercializedVolume / netProductionBase : 0;
   const activePhysicalSales = useMemo(
     () =>
       filteredSales.filter((item) => {
@@ -5001,6 +5081,19 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
       }));
   }, [filteredDerivatives]);
+  const derivativeStatusCounts = useMemo(
+    () =>
+      derivativeOperationsByExchange.reduce(
+        (acc, item) => {
+          acc.total += item.total;
+          acc.open += item.open;
+          acc.closed += item.closed;
+          return acc;
+        },
+        { total: 0, open: 0, closed: 0 },
+      ),
+    [derivativeOperationsByExchange],
+  );
   const derivativeExchangeSlices = useMemo(() => {
     const slices = derivativeOperationsByExchange
       .filter((item) => item.total > 0)
@@ -5280,39 +5373,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     filteredCropBoards,
   ]);
 
-  const cultureRows = useMemo(() => {
-    const map = new Map();
-
-    filteredCropBoards.forEach((item) => {
-      const label = resolveCultureLabel(item.cultura || item.cultura_texto);
-      const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
-      node.production += Math.abs(Number(item.producao_total || 0));
-      map.set(label, node);
-    });
-
-    filteredSales.forEach((item) => {
-      const label = resolveCultureLabel(item.cultura || item.cultura_produto || item.cultura_texto);
-      const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
-      node.physical += Math.abs(Number(item.volume_fisico || 0));
-      map.set(label, node);
-    });
-
-    bolsaDerivatives.forEach((item) => {
-      const label = resolveCultureLabel(getDerivativeCultureValue(item));
-      const node = map.get(label) || { label, production: 0, physical: 0, derivatives: 0 };
-      node.derivatives += derivativeStandardVolumeGetter(item);
-      map.set(label, node);
-    });
-
-    return Array.from(map.values())
-      .map((item) => ({
-        ...item,
-        coverage: item.production > 0 ? (item.physical + item.derivatives) / item.production : 0,
-      }))
-      .sort((left, right) => right.coverage - left.coverage)
-      .slice(0, 6);
-  }, [bolsaDerivatives, derivativeStandardVolumeGetter, filteredCropBoards, filteredSales, cultureLabelById]);
-
   const openQuotesPage = () => {
     navigateFromSummary(navigate, "/mercado/cotacoes", "Cotações");
   };
@@ -5450,7 +5510,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
             <CommercialRiskLongShortChart
               rows={longShortRows}
               cultureButtons={options.cropBoardCrops || []}
-              selectedCultureIds={filter.cultura}
+              selectedCultureIds={dashboardFilter?.cultura || []}
               onToggleCulture={(value) => toggleFilterValue("cultura", value)}
               onClearCultures={() => updateFilter("cultura", [])}
               referenceDate={hedgeSummaryReferenceDate}
@@ -5461,19 +5521,19 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           <section className="risk-kpi-derivative-donuts">
             <DonutChart
               centerLabel="Derivativos"
-              centerValue={`${filteredDerivatives.length} ops`}
+              centerValue={`${derivativeStatusCounts.total} ops`}
               slices={derivativeExchangeSlices}
               onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "all")}
             />
             <DonutChart
               centerLabel="Em aberto"
-              centerValue={`${filteredDerivatives.filter((item) => !normalizeText(item.status_operacao).includes("encerr")).length} ops`}
+              centerValue={`${derivativeStatusCounts.open} ops`}
               slices={derivativeExchangeOpenSlices}
               onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "open")}
             />
             <DonutChart
               centerLabel="Encerrado"
-              centerValue={`${filteredDerivatives.filter((item) => normalizeText(item.status_operacao).includes("encerr")).length} ops`}
+              centerValue={`${derivativeStatusCounts.closed} ops`}
               slices={derivativeExchangeClosedSlices}
               onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "closed")}
             />
@@ -7321,6 +7381,103 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     productionChartState.points[productionTodayIndex] ||
     productionChartState.points.at(-1) ||
     null;
+  const productionReferenceDate = activeProductionPoint?.date || null;
+  const productionActivePhysicalSales = useMemo(
+    () =>
+      filteredPhysicalSales.filter((item) => {
+        const saleDate = startOfDashboardDay(item.data_negociacao || item.created_at);
+        return saleDate && productionReferenceDate && saleDate <= productionReferenceDate;
+      }),
+    [filteredPhysicalSales, productionReferenceDate],
+  );
+  const productionActiveDerivatives = useMemo(
+    () =>
+      filteredCommodityDerivatives.filter((item) => {
+        const startDate = startOfDashboardDay(item.data_contratacao || item.created_at);
+        const endDate = startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at);
+        return startDate && endDate && productionReferenceDate && startDate <= productionReferenceDate && productionReferenceDate < endDate;
+      }),
+    [filteredCommodityDerivatives, productionReferenceDate],
+  );
+  const productionPhysicalPriceLines = useMemo(() => {
+    const groups = new Map();
+    productionActivePhysicalSales.forEach((item) => {
+      const volume = Math.abs(Number(item.volume_fisico || 0));
+      const price = Number(item.preco || 0);
+      if (!volume || !price) return;
+      const unitLabel =
+        item.moeda_unidade ||
+        (item.moeda_contrato && item.unidade_contrato ? `${item.moeda_contrato}/${item.unidade_contrato}` : item.moeda_contrato || item.unidade_contrato || "");
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedPrice: 0 };
+      current.volume += volume;
+      current.weightedPrice += volume * price;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({
+        ...item,
+        averagePrice: item.volume > 0 ? item.weightedPrice / item.volume : 0,
+      }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [productionActivePhysicalSales]);
+  const productionDerivativePriceLines = useMemo(() => {
+    const groups = new Map();
+    productionActiveDerivatives.forEach((item) => {
+      const volume = derivativeStandardVolumeGetter(item);
+      const strike = Number(item.strike_montagem || item.strike_liquidacao || 0);
+      if (!volume || !strike) return;
+      const unitLabel = item.moeda_unidade || item.volume_financeiro_moeda || "";
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedStrike: 0 };
+      current.volume += volume;
+      current.weightedStrike += volume * strike;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({
+        ...item,
+        averageStrike: item.volume > 0 ? item.weightedStrike / item.volume : 0,
+      }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [derivativeStandardVolumeGetter, productionActiveDerivatives]);
+  const productionSummaryProps = useMemo(() => {
+    const activeTotalValue =
+      (activeProductionPoint?.total || 0) + (productionActiveIndex === productionChartState.points.length - 1 ? parsedSimulationVolume : 0);
+    const activePhysicalValue = activeProductionPoint?.physicalRaw || 0;
+    const activeDerivativeValue = activeProductionPoint?.derivativeRaw || 0;
+    const activeTotalPercent = productionBase > 0 ? (activeTotalValue / productionBase) * 100 : 0;
+    const activePhysicalPercent = activeTotalValue > 0 ? (activePhysicalValue / activeTotalValue) * 100 : 0;
+    const activeDerivativePercent = activeTotalValue > 0 ? (activeDerivativeValue / activeTotalValue) * 100 : 0;
+    return {
+      totalPercent: activeTotalPercent,
+      totalMetricValue: activeTotalValue,
+      totalMetricLabel: totalArea > 0 ? `${formatNumber2(activeTotalValue / totalArea)} scs/ha` : `${formatNumber0(activeTotalValue)} sc`,
+      physicalPercent: activePhysicalPercent,
+      physicalMetricValue: activePhysicalValue,
+      physicalMetricLabel: totalArea > 0 ? `${formatNumber2(activePhysicalValue / totalArea)} scs/ha` : `${formatNumber0(activePhysicalValue)} sc`,
+      physicalDetailLines: productionPhysicalPriceLines.length
+        ? productionPhysicalPriceLines.map((item) => `${formatNumber0(item.volume)} sc | ${formatCurrency2(item.averagePrice)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+        : [],
+      derivativePercent: activeDerivativePercent,
+      derivativeMetricValue: activeDerivativeValue,
+      derivativeMetricLabel: totalArea > 0 ? `${formatNumber2(activeDerivativeValue / totalArea)} scs/ha` : `${formatNumber0(activeDerivativeValue)} sc`,
+      derivativeDetailLines: productionDerivativePriceLines.length
+        ? productionDerivativePriceLines.map((item) => `${formatNumber0(item.volume)} sc | Strike ${formatCurrency2(item.averageStrike)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)
+        : [],
+      policyMinPercent: activeProductionPoint?.minPct != null ? activeProductionPoint.minPct * 100 : null,
+      policyMaxPercent: activeProductionPoint?.maxPct != null ? activeProductionPoint.maxPct * 100 : null,
+    };
+  }, [
+    activeProductionPoint,
+    parsedSimulationVolume,
+    productionActiveIndex,
+    productionBase,
+    productionChartState.points.length,
+    productionDerivativePriceLines,
+    productionPhysicalPriceLines,
+    totalArea,
+  ]);
   const focusedReferenceDate =
     focusedChart === "cost"
       ? activeCostPoint?.date || null
@@ -8722,6 +8879,7 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar, va
 
 function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFormatter = formatCurrency2 }) {
   const isMobileViewport = useViewportMatch("(max-width: 640px)");
+  const topLabelBarWidth = isMobileViewport ? "72%" : "58%";
   const normalizedBars = useMemo(
     () =>
       bars.map((bar) => {
@@ -8742,7 +8900,7 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFor
   const option = useMemo(
     () => ({
       animationDuration: 250,
-      grid: { top: 18, right: isMobileViewport ? 4 : 12, bottom: isMobileViewport ? 56 : 38, left: isMobileViewport ? 6 : 56, containLabel: true },
+      grid: { top: isMobileViewport ? 72 : 80, right: isMobileViewport ? 4 : 12, bottom: isMobileViewport ? 56 : 38, left: isMobileViewport ? 6 : 56, containLabel: true },
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow" },
@@ -8788,7 +8946,7 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFor
         name: seriesLabel,
         type: "bar",
         stack: "price-comp",
-        barWidth: isMobileViewport ? "72%" : "58%",
+        barWidth: topLabelBarWidth,
         emphasis: { focus: "series" },
         itemStyle: {
           borderRadius: [18, 18, 0, 0],
@@ -8805,9 +8963,36 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFor
               }
             : 0;
         }),
-      })),
+      })).concat({
+        name: "__total_labels__",
+        type: "bar",
+        silent: true,
+        barWidth: topLabelBarWidth,
+        barGap: "-100%",
+        z: 20,
+        itemStyle: {
+          color: "rgba(0,0,0,0)",
+        },
+        tooltip: { show: false },
+        data: normalizedBars.map((bar) => ({
+          value: bar.totalValue,
+          itemStyle: { color: "rgba(0,0,0,0)" },
+          label: {
+            show: true,
+            position: bar.totalValue >= 0 ? "top" : "bottom",
+            distance: 14,
+            formatter: `${bar.totalValue >= 0 ? "" : "-"}${unitLabel} ${valueFormatter(Math.abs(bar.totalValue))}`,
+            backgroundColor: "#0f172a",
+            color: "#ffffff",
+            borderRadius: 14,
+            padding: isMobileViewport ? [10, 12] : [12, 16],
+            fontSize: isMobileViewport ? 11 : 12,
+            fontWeight: 900,
+          },
+        })),
+      }),
     }),
-    [categories, isMobileViewport, normalizedBars, uniqueSeries, unitLabel, valueFormatter],
+    [categories, isMobileViewport, normalizedBars, topLabelBarWidth, uniqueSeries, unitLabel, valueFormatter],
   );
   const chartEvents = useMemo(
     () => ({
@@ -8822,17 +9007,6 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFor
   return (
     <article className="price-comp-pane">
       <div className="price-comp-vertical-chart">
-        <div
-          className={`price-comp-column-totals${isMobileViewport ? " is-mobile" : ""}`}
-          style={{ gridTemplateColumns: `repeat(${normalizedBars.length}, minmax(0, 1fr))`, marginBottom: 12, marginLeft: isMobileViewport ? 0 : 56 }}
-        >
-          {normalizedBars.map((bar) => (
-            <div key={bar.label} className="price-comp-column-total">
-              {bar.totalValue >= 0 ? "" : "-"}
-              {unitLabel} {valueFormatter(Math.abs(bar.totalValue))}
-            </div>
-          ))}
-        </div>
         <ReactECharts option={option} onEvents={chartEvents} style={{ height: isMobileViewport ? 280 : 320, width: "100%" }} opts={{ renderer: "svg" }} />
       </div>
     </article>
@@ -8926,6 +9100,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   const [soldVolumeInput, setSoldVolumeInput] = useState("");
   const [hasManualVolume, setHasManualVolume] = useState(false);
   const [detailModal, setDetailModal] = useState(null);
+  const [detailSearchValue, setDetailSearchValue] = useState("");
   const [includeClosedDerivatives, setIncludeClosedDerivatives] = useState(true);
   const [includeOpenDerivatives, setIncludeOpenDerivatives] = useState(true);
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
@@ -8938,6 +9113,10 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     setDetailModal(null);
     openOperationForm(row);
   }, [openOperationForm]);
+
+  useEffect(() => {
+    setDetailSearchValue("");
+  }, [detailModal?.title]);
 
   useEffect(() => {
     let isMounted = true;
@@ -9058,6 +9237,8 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     if (currencyMode === "U$") return salesSummary.usdVolume;
     return salesSummary.totalVolume;
   }, [currencyMode, salesSummary.brlVolume, salesSummary.totalVolume, salesSummary.usdVolume]);
+
+  const selectedCurrencyLabel = currencyMode === "U$" ? "U$" : "R$";
 
   useEffect(() => {
     if (!hasManualVolume) {
@@ -9228,6 +9409,31 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     });
   };
 
+  const detailTableDefinition = useMemo(
+    () => ({
+      resource: "price-composition-detail",
+      title: "Operacoes",
+      searchPlaceholder: "Buscar operacao...",
+      columns: [
+        { key: "subgrupo", label: "Subgrupo" },
+        { key: "tipo", label: "Tipo" },
+        { key: "classificacao", label: "Classificacao" },
+        { key: "data", label: "Data vencimento", type: "date" },
+        { key: "valor", label: `Valor (${selectedCurrencyLabel})`, type: "number" },
+        {
+          key: "volume",
+          label: "Volume",
+          render: (value, row) => `${formatNumber0(value)}${row?.unidade ? ` ${row.unidade}` : ""}`,
+        },
+        { key: "precoStrike", label: "Preco/Strike", type: "number" },
+        { key: "instituicao", label: "Instituicao" },
+        { key: "status", label: "Status" },
+      ],
+      fields: [],
+    }),
+    [selectedCurrencyLabel],
+  );
+
   const openVerticalDetail = (groupKey, row) => {
     if (groupKey === "G1") {
       if (row.label === "Fisico") {
@@ -9261,7 +9467,6 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     buildDetailModal(`TOTAL (${selectedCurrencyLabel})`, [...salesOperationRows, ...getDerivativeRowsForDetail(null, includeOpenDerivatives, includeClosedDerivatives)]);
   };
 
-  const selectedCurrencyLabel = currencyMode === "U$" ? "U$" : "R$";
   const soldAveragePrice =
     currencyMode === "U$"
       ? salesSummary.usdVolume > 0
@@ -9506,70 +9711,26 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
 
       {detailModal ? (
         <div className="component-popup-backdrop" onClick={() => setDetailModal(null)}>
-          <div className="component-popup price-comp-modal" onClick={(event) => event.stopPropagation()}>
+          <div className="component-popup dashboard-resource-table-modal price-comp-modal" onClick={(event) => event.stopPropagation()}>
             <button type="button" className="component-popup-close" onClick={() => setDetailModal(null)}>
               ×
             </button>
-            <div className="component-popup-header">
-              <strong>{detailModal.title}</strong>
+            <div className="component-popup-header dashboard-resource-table-header">
+              <div>
+                <strong>{detailModal.title}</strong>
+                <p className="muted">{detailModal.rows.length} operacao(oes) na coluna selecionada.</p>
+              </div>
             </div>
-            <div className="price-comp-modal-body">
-              <h3>Operacoes</h3>
-              <table className="component-popup-table">
-                <thead>
-                  <tr>
-                    <th className="component-popup-action-col" />
-                    <th>Subgrupo</th>
-                    <th>Tipo</th>
-                    <th>Classificacao</th>
-                    <th>Data vencimento</th>
-                    <th>Valor ({selectedCurrencyLabel})</th>
-                    <th>Volume</th>
-                    <th>Preco/Strike</th>
-                    <th>Instituicao</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailModal.rows.length ? (
-                    <>
-                      {detailModal.rows.map((row) => (
-                        <tr key={row.id}>
-                          <td className="component-popup-action-cell">
-                            {row.recordId ? <ComponentPopupEyeButton onClick={() => openPriceCompositionOperation(row)} /> : null}
-                          </td>
-                          <td>{row.subgrupo || "—"}</td>
-                          <td>{row.tipo}</td>
-                          <td>{row.classificacao || "—"}</td>
-                          <td>{row.data || "—"}</td>
-                          <td>{selectedCurrencyLabel} {formatCurrency2(row.valor)}</td>
-                          <td>{formatNumber0(row.volume)} {row.unidade || ""}</td>
-                          <td>{formatCurrency2(row.precoStrike)}</td>
-                          <td>{row.instituicao || "—"}</td>
-                          <td>{row.status || "—"}</td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td />
-                        <td><strong>Total</strong></td>
-                        <td />
-                        <td />
-                        <td />
-                        <td><strong>{selectedCurrencyLabel} {formatCurrency2(detailModal.totals.totalValue)}</strong></td>
-                        <td><strong>{formatNumber0(detailModal.totals.totalVolume)}</strong></td>
-                        <td><strong>{formatCurrency2(detailModal.totals.weightedStrike)}</strong></td>
-                        <td />
-                        <td />
-                      </tr>
-                    </>
-                  ) : (
-                    <tr>
-                      <td colSpan="10">Nenhuma operacao encontrada para esta coluna.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <ResourceTable
+              definition={detailTableDefinition}
+              rows={detailModal.rows}
+              searchValue={detailSearchValue}
+              searchPlaceholder={detailTableDefinition.searchPlaceholder}
+              onSearchChange={setDetailSearchValue}
+              onClear={() => setDetailSearchValue("")}
+              onEdit={openPriceCompositionOperation}
+              tableHeight="100%"
+            />
           </div>
         </div>
       ) : null}

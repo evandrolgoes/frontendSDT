@@ -44,6 +44,32 @@ const normalizeCacheValue = (value) => {
   return value;
 };
 
+const normalizeRequestParams = (value) => {
+  if (Array.isArray(value)) {
+    const normalizedItems = value
+      .map((item) => normalizeRequestParams(item))
+      .filter((item) => item !== undefined);
+    return normalizedItems.length ? normalizedItems : undefined;
+  }
+
+  if (value && typeof value === "object") {
+    const normalizedEntries = Object.entries(value).reduce((acc, [key, entryValue]) => {
+      const normalizedValue = normalizeRequestParams(entryValue);
+      if (normalizedValue !== undefined) {
+        acc[key] = normalizedValue;
+      }
+      return acc;
+    }, {});
+    return Object.keys(normalizedEntries).length ? normalizedEntries : undefined;
+  }
+
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+
+  return value;
+};
+
 const buildCacheKey = (kind, resource, params = {}) =>
   `${kind}:${resource}:${JSON.stringify(normalizeCacheValue(params || {}))}`;
 
@@ -73,18 +99,24 @@ const invalidateCache = (resource = null) => {
   });
 };
 
+export const clearResourceServiceCache = () => {
+  responseCache.clear();
+};
+
 export const resourceService = {
   list: (resource, params = {}, options = {}) => {
-    const cacheKey = buildCacheKey("list", resource, params);
+    const normalizedParams = normalizeRequestParams(params) || {};
+    const cacheKey = buildCacheKey("list", resource, normalizedParams);
     if (options.force) {
       responseCache.delete(cacheKey);
     }
     return remember(cacheKey, () =>
-      api.get(`/${resource}/`, { params }).then((response) => response.data),
+      api.get(`/${resource}/`, { params: normalizedParams }).then((response) => response.data),
     );
   },
   listAll: async (resource, params = {}, options = {}) => {
-    const cacheKey = buildCacheKey("listAll", resource, params);
+    const normalizedParams = normalizeRequestParams(params) || {};
+    const cacheKey = buildCacheKey("listAll", resource, normalizedParams);
     if (options.force) {
       responseCache.delete(cacheKey);
     }
@@ -93,7 +125,7 @@ export const resourceService = {
       let aggregated = [];
 
       while (nextPage) {
-        const response = await api.get(`/${resource}/`, { params: { page: nextPage, page_size: 100, ...params } });
+        const response = await api.get(`/${resource}/`, { params: { page: nextPage, page_size: 100, ...normalizedParams } });
         const data = response.data;
         aggregated = aggregated.concat(data.results || data);
         nextPage = data.next ? nextPage + 1 : null;
@@ -214,23 +246,27 @@ export const resourceService = {
     );
   },
   getCommercialRiskSummary: (params = {}, options = {}) => {
-    const cacheKey = buildCacheKey("dashboard", "commercial-risk-summary", params);
+    const normalizedParams = normalizeRequestParams(params) || {};
+    const cacheKey = buildCacheKey("dashboard", "commercial-risk-summary", normalizedParams);
     if (options.force) {
       responseCache.delete(cacheKey);
     }
     return remember(cacheKey, () =>
-      api.get("dashboard/commercial-risk-summary/", { params }).then((response) => response.data),
+      api.get("dashboard/commercial-risk-summary/", { params: normalizedParams }).then((response) => response.data),
     );
   },
   getCommercialInsights: (params = {}, options = {}) => {
-    const cacheKey = buildCacheKey("insights", "commercialization", params);
+    const normalizedParams = normalizeRequestParams(params) || {};
+    const cacheKey = buildCacheKey("insights", "commercialization", normalizedParams);
     if (options.force) {
       responseCache.delete(cacheKey);
     }
     return remember(cacheKey, () =>
-      api.get("insights/commercialization/", { params }).then((response) => response.data),
+      api.get("insights/commercialization/", { params: normalizedParams }).then((response) => response.data),
     );
   },
+  generateMarketSummary: (payload) =>
+    api.post("market-summary/generate/", payload).then((response) => response.data),
   fetchJsonCached: (cacheKey, url, options = {}) =>
     remember(`external:${cacheKey}`, () => fetch(url, options).then((response) => response.json())),
   invalidateCache,

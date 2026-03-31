@@ -41,13 +41,13 @@ export const moduleOptions = [
   { value: "sys_seasons", label: "Sistema: Safras" },
   { value: "sys_receipt_entries", label: "Sistema: Entradas recebimentos" },
   { value: "sys_users", label: "Sistema: Usuários" },
-  { value: "sys_invites", label: "Sistema: Convites e acessos" },
   { value: "sys_admin_invites", label: "Sistema: Convites Admin" },
   { value: "sys_accounts_payable", label: "Sistema: Contas a Pagar" },
   { value: "sys_logs", label: "Sistema: Logs" },
   { value: "sys_json_import", label: "Sistema: Importador JSON" },
   { value: "sys_copy_base", label: "Sistema: Copy Base" },
   { value: "sys_mass_update", label: "Sistema: Alteracao em Massa" },
+  { value: "tool_market_summary", label: "Ferramentas: Criar Resumo de Mercado" },
 ];
 
 export const allModuleCodes = moduleOptions.map((option) => option.value);

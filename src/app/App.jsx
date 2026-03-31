@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
 import { ProtectedRoute } from "../routes/ProtectedRoute";
-import { appRoutes, getNavigationSections, getRouteDefinition } from "../routes/routes";
+import { appRoutes, getNavigationSections, getRouteDefinition, publicAppRoutes } from "../routes/routes";
 import { MentoriaLandingPage } from "../pages/MentoriaLandingPage";
 import { InvitationSignupPage } from "../pages/InvitationSignupPage";
 import { LoginPage } from "../pages/LoginPage";
@@ -39,11 +39,6 @@ export default function App() {
   const { isAuthenticated, user } = useAuth();
   const currentRoute = useMemo(() => getRouteDefinition(location.pathname), [location.pathname]);
   const postSummaryWarmupStartedRef = useRef(false);
-
-  useEffect(() => {
-    currentRoute?.preload?.();
-    currentRoute?.warmup?.();
-  }, [currentRoute]);
 
   useEffect(() => {
     if (!isAuthenticated || typeof window === "undefined") {
@@ -115,6 +110,13 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/abrir-conta/:token" element={<InvitationSignupPage />} />
+          {publicAppRoutes.map((route) => (
+            <Route
+              key={route.path}
+              path={route.path}
+              element={isValidElement(route.element) ? cloneElement(route.element, { key: route.path }) : route.element}
+            />
+          ))}
           <Route element={<ProtectedRoute />}>
             {appRoutes.map((route) => (
               <Route

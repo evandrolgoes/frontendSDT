@@ -13,6 +13,8 @@ const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
 const loadMercadoPageModule = () => import("../pages/MercadoPage");
 const loadMarketNewsPageModule = () => import("../pages/MarketNewsPage");
 const loadInsightsPageModule = () => import("../pages/InsightsPage");
+const loadInsightsQuestionLabPageModule = () => import("../pages/InsightsQuestionLabPage");
+const loadMarketSummaryPageModule = () => import("../pages/MarketSummaryPage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
 
@@ -38,6 +40,8 @@ const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage
 const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
 const MarketNewsPage = lazyNamedExport(loadMarketNewsPageModule, "MarketNewsPage");
 const InsightsPage = lazyNamedExport(loadInsightsPageModule, "InsightsPage");
+const InsightsQuestionLabPage = lazyNamedExport(loadInsightsQuestionLabPageModule, "InsightsQuestionLabPage");
+const MarketSummaryPage = lazyNamedExport(loadMarketSummaryPageModule, "MarketSummaryPage");
 const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
 const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
 const warmMarketNewsCategories = () => resourceService.listMarketNewsCategories().catch(() => []);
@@ -101,19 +105,20 @@ const baseNavigationSections = [
     items: [
       { path: "/dashboard/kpis-risco-comercial", label: "Resumo", module: "dashboard_summary" },
       { path: "/dashboard/fluxo-caixa", label: "Fluxo de Caixa", module: "dashboard_cashflow" },
-      { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos", module: "dashboard_strategies_triggers" },
       { path: "/dashboard/politica-hedge", label: "Politica de Hedge", module: "dashboard_hedge_policy" },
       { path: "/dashboard/composicao-precos", label: "Composicao de Precos", module: "dashboard_price_composition" },
       { path: "/dashboard/venda-componentes", label: "Venda de Componentes", module: "dashboard_component_sales" },
       { path: "/dashboard/exposicao-hedge-cambial", label: "Exposição e Hedge cambial", module: "dashboard_currency_exposure" },
-      { path: "/dashboard/simulacoes", label: "Simulacoes", module: "dashboard_simulations" },
+      { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos", module: "dashboard_strategies_triggers" },
       { path: "/dashboard/mtm", label: "MTM", module: "dashboard_mtm" },
+      { path: "/dashboard/simulacoes", label: "Simulacoes", module: "dashboard_simulations" },
     ],
   },
   {
     label: "Insights",
     items: [
       { path: "/insights/comercializacao", label: "Comercializacao", module: "insights_commercialization" },
+      { path: "/insights/perguntas-prontas", label: "Perguntas Prontas", module: "insights_commercialization" },
     ],
   },
   {
@@ -130,15 +135,22 @@ const baseNavigationSections = [
   {
     label: "Cadastros",
     items: [
+      { path: "/quadro-safra", label: "Quadro Safra", module: "ops_crop_boards" },
+      { path: "/politica-hedge", label: "Politica de Hedge", module: "ops_hedge_policies" },
+      { path: "/custo-orcamento", label: "Custo Orcamento", module: "ops_budget_costs" },
+      { path: "/custo-realizado", label: "Custo Realizado", module: "ops_actual_costs" },
+      { path: "/anotacoes", label: "Anotacoes", module: "cad_anotacoes" },
       { path: "/grupos", label: "Grupo", module: "cad_groups", allowedUserTypes: ["tenant_can_manage_groups"] },
       { path: "/subgrupos", label: "Subgrupo", module: "cad_subgroups", allowedUserTypes: ["tenant_can_manage_subgroups"] },
       { path: "/contrapartes", label: "Contrapartes", module: "cad_counterparties" },
-      { path: "/anotacoes", label: "Anotacoes", module: "cad_anotacoes" },
-      { path: "/politica-hedge", label: "Politica de Hedge", module: "ops_hedge_policies" },
-      { path: "/quadro-safra", label: "Quadro Safra", module: "ops_crop_boards" },
       { path: "/cotacoes-fisico", label: "Cotacoes Fisico", module: "ops_physical_quotes" },
-      { path: "/custo-orcamento", label: "Custo Orcamento", module: "ops_budget_costs" },
-      { path: "/custo-realizado", label: "Custo Realizado", module: "ops_actual_costs" },
+    ],
+  },
+  {
+    label: "Usuarios",
+    items: [
+      { path: "/usuarios", label: "Usuarios", module: "sys_users", allowedUserTypes: ["tenant_admin"] },
+      { path: "/convites-admin", label: "Convites (Admin)", module: "sys_admin_invites", allowedUserTypes: ["invitation_tenants"] },
     ],
   },
   {
@@ -153,9 +165,6 @@ const baseNavigationSections = [
       { path: "/nomes-operacoes-derivativos", label: "Nome Operacoes Derivativos", module: "sys_derivative_operation_names", superuserOnly: true },
       { path: "/safras", label: "Safra", module: "sys_seasons", superuserOnly: true },
       { path: "/entradas-recebimentos", label: "Entradas recebimentos", module: "sys_receipt_entries", superuserOnly: true },
-      { path: "/usuarios", label: "Usuarios", module: "sys_users", allowedUserTypes: ["tenant_admin"] },
-      { path: "/convites-e-acessos", label: "Convites e acessos", module: "sys_invites", allowedUserTypes: ["tenant_admin"] },
-      { path: "/convites-admin", label: "Convites (Admin)", module: "sys_admin_invites", allowedUserTypes: ["invitation_tenants"] },
       { path: "/contas-a-pagar", label: "Contas a Pagar", module: "sys_accounts_payable" },
     ],
   },
@@ -163,6 +172,7 @@ const baseNavigationSections = [
     label: "Ferramentas",
     items: [
       { path: "/logs", label: "Log", module: "sys_logs" },
+      { path: "/criar-resumo-de-mercado", label: "Resumo Semanal de Mercado - 2", module: "tool_market_summary", superuserOnly: true },
       { path: "/importacao-em-massa", label: "Importacao em Massa", module: "sys_mass_update", superuserOnly: true },
       { path: "/alteracao-em-massa", label: "Alteracao em Massa", module: "sys_mass_update", superuserOnly: true },
       { path: "/importador-json", label: "Importador JSON", module: "sys_json_import", superuserOnly: true },
@@ -184,6 +194,11 @@ const baseNavigationSections = [
 ];
 
 const navigationItems = baseNavigationSections.flatMap((section) => section.items);
+
+export const publicAppRoutes = [
+  { path: "/blog", element: <MarketNewsPage basePath="/blog" />, title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
+  { path: "/blog/:postId", element: <MarketNewsPage basePath="/blog" />, title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
+];
 
 export function getNavigationSections(user) {
   return baseNavigationSections
@@ -231,6 +246,7 @@ export const appRoutes = [
   { path: "/mercado/blog-news", element: <MarketNewsPage />, module: "market_blog_news", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
   { path: "/mercado/blog-news/:postId", element: <MarketNewsPage />, module: "market_blog_news", title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
   { path: "/insights/comercializacao", element: <InsightsPage />, module: "insights_commercialization", preload: loadInsightsPageModule },
+  { path: "/insights/perguntas-prontas", element: <InsightsQuestionLabPage />, module: "insights_commercialization", preload: loadInsightsQuestionLabPageModule },
   { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", preload: loadMercadoPageModule },
   { path: "/mercado/basis", element: <MercadoPage kind="basis" />, module: "market_basis", preload: loadMercadoPageModule },
   { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates", preload: loadMercadoPageModule },
@@ -273,11 +289,6 @@ export const appRoutes = [
     allowedUserTypes: ["tenant_admin"],
   },
   {
-    ...resourceRoute("/convites-e-acessos", "inviteAccess", "invite-access"),
-    module: "sys_invites",
-    allowedUserTypes: ["tenant_admin"],
-  },
-  {
     ...resourceRoute("/convites-admin", "adminInvitations", "admin-invitations"),
     module: "sys_admin_invites",
     allowedUserTypes: ["invitation_tenants"],
@@ -287,6 +298,7 @@ export const appRoutes = [
     module: "sys_accounts_payable",
   },
   { ...resourceRoute("/logs", "logs", "logs"), module: "sys_logs" },
+  { path: "/criar-resumo-de-mercado", element: <MarketSummaryPage />, module: "tool_market_summary", superuserOnly: true, preload: loadMarketSummaryPageModule },
   { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassImportPageModule },
   { path: "/alteracao-em-massa", element: <MassUpdatePage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassUpdatePageModule },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true, preload: loadJsonImportPageModule },
@@ -299,7 +311,7 @@ export function getAccessibleRoutePath(user) {
 }
 
 export function getRouteDefinition(pathname) {
-  return appRoutes.find((route) => Boolean(matchPath({ path: route.path, end: true }, pathname))) || null;
+  return [...publicAppRoutes, ...appRoutes].find((route) => Boolean(matchPath({ path: route.path, end: true }, pathname))) || null;
 }
 
 export function getRouteTitle(pathname) {

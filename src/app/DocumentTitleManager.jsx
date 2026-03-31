@@ -5,6 +5,7 @@ import { getSystemDocumentTitle } from "../routes/routes";
 
 const PUBLIC_PAGE_TITLES = {
   "/landing/landing-page-mentoria": "Traders do Agro - turma 02",
+  "/blog": "Hedge Position - Blog/News",
   "/login": "Hedge Position - Login",
   "/reset-password": "Hedge Position - Redefinir senha",
 };
@@ -16,6 +17,10 @@ function getPublicDocumentTitle(pathname) {
 
   if (pathname.startsWith("/abrir-conta/")) {
     return "Hedge Position - Abrir conta";
+  }
+
+  if (pathname.startsWith("/blog/")) {
+    return "Hedge Position - Blog/News";
   }
 
   return null;

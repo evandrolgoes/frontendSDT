@@ -266,6 +266,13 @@ const getSelectOptions = (field, lookupOptions, values) => {
   return field.options || [];
 };
 
+const getSelectedSelectMultiLabels = (field, lookupOptions, values) => {
+  const options = getSelectOptions(field, lookupOptions, values);
+  const labelsByValue = new Map(options.map((option) => [String(option.value ?? ""), option.label]));
+  const selectedValues = Array.isArray(values?.[field.name]) ? values[field.name] : [];
+  return selectedValues.map((value) => labelsByValue.get(String(value)) || String(value)).filter(Boolean);
+};
+
 const matchesCurrentFilters = (option, filterByCurrent, values) =>
   Object.entries(filterByCurrent || {}).every(([optionField, currentField]) => {
     const currentValue = values[currentField];
@@ -324,6 +331,23 @@ const getClearedFieldValue = (field) => {
   return "";
 };
 
+const groupVisibleFields = (fields, values, lookupOptions) => {
+  const visibleFields = fields.filter((field) => isFieldVisible(field, values, lookupOptions));
+  const sections = [];
+  let currentSection = null;
+
+  visibleFields.forEach((field) => {
+    const title = field.section || "";
+    if (!currentSection || currentSection.title !== title) {
+      currentSection = { title, fields: [] };
+      sections.push(currentSection);
+    }
+    currentSection.fields.push(field);
+  });
+
+  return sections;
+};
+
 export function ResourceForm({
   title,
   fields,
@@ -378,7 +402,15 @@ export function ResourceForm({
 
       fields.forEach((field) => {
         const options = getSelectOptions(field, lookupOptions, currentValues);
-        const allowedValues = new Set(options.map((option) => String(option.value ?? "")));
+        const allowedValues = new Set(
+          options.map((option) =>
+            String(
+              field.type === "relation" || field.type === "multirelation"
+                ? option.id ?? option.value ?? ""
+                : option.value ?? "",
+            )
+          ),
+        );
 
         if (field.type === "select") {
           const currentValue = currentValues[field.name];
@@ -443,7 +475,7 @@ export function ResourceForm({
 
       return hasChanges ? nextValues : currentValues;
     });
-  }, [fields, lookupOptions, values.tenant]);
+  }, [fields, lookupOptions, values]);
 
   useEffect(() => {
     const localidadeValue = initialValues.localidade;
@@ -790,9 +822,15 @@ export function ResourceForm({
     if (field.type === "select-multi") {
       const options = getSelectOptions(field, lookupOptions, values);
       const selectedValues = Array.isArray(currentValue) ? currentValue.map(String) : [];
+      const orderedOptions = [
+        ...options.filter((option) => selectedValues.includes(String(option.value))),
+        ...options.filter((option) => !selectedValues.includes(String(option.value))),
+      ];
+      const selectKey = `${field.name}:${selectedValues.join("|")}:${orderedOptions.map((option) => String(option.value)).join("|")}`;
 
       return (
         <select
+          key={selectKey}
           className="form-control form-control-multi"
           id={field.name}
           multiple
@@ -805,7 +843,7 @@ export function ResourceForm({
             )
           }
         >
-          {options.map((option) => (
+          {orderedOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -845,6 +883,37 @@ export function ResourceForm({
         );
       }
       const selectedValues = Array.isArray(currentValue) ? currentValue.map(String) : [];
+
+      if (field.checkboxList) {
+        return (
+          <div className="checkbox-list-field">
+            {options.map((option) => {
+              const optionId = String(option.id);
+              const checked = selectedValues.includes(optionId);
+              return (
+                <label className="checkbox-list-option" key={option.id} htmlFor={`${field.name}_${option.id}`}>
+                  <input
+                    id={`${field.name}_${option.id}`}
+                    type="checkbox"
+                    checked={checked}
+                    disabled={field.readOnly}
+                    onChange={(event) =>
+                      handleChange(
+                        field,
+                        event.target.checked
+                          ? [...selectedValues, optionId]
+                          : selectedValues.filter((value) => value !== optionId),
+                      )
+                    }
+                  />
+                  <span>{getOptionLabel(field, option)}</span>
+                </label>
+              );
+            })}
+            {!options.length ? <div className="field-help">Nenhuma opcao disponivel.</div> : null}
+          </div>
+        );
+      }
 
       if (field.accessManager) {
         const selectedUsers = selectedValues
@@ -1134,63 +1203,70 @@ export function ResourceForm({
         {error ? <div className="form-error">{error}</div> : null}
         {beforeContent}
         <div className="form-grid">
-          {fields.filter((field) => isFieldVisible(field, values, lookupOptions)).map((field) => (
-            <div className={`field${field.type === "textarea" ? " field-full" : ""}`} key={field.name}>
-              <label htmlFor={field.name}>{field.label}</label>
-              {renderField(field)}
-              {hasClearableValue(field, values[field.name]) ? (
-                <div className="field-clear-row">
-                  <button
-                    className="field-clear-button"
-                    type="button"
-                    onClick={() => handleClearField(field)}
-                  >
-                    Limpar
-                  </button>
-                </div>
-              ) : null}
-              {field.type === "multirelation" && !field.accessManager ? (
-                <div className="field-help">
-                  {Array.isArray(values[field.name]) && values[field.name].length
-                    ? values[field.name].map((item) => relationLabelMap[field.name]?.[item] || item).join(", ")
-                    : field.single
-                      ? ""
-                      : "Segure Command/Ctrl para selecionar mais de um item."}
-                </div>
-              ) : null}
-              {field.type === "select-multi" ? (
-                <div className="field-help">
-                  {Array.isArray(values[field.name]) && values[field.name].length ? values[field.name].join(", ") : ""}
-                </div>
-              ) : null}
-              {field.type === "file-multi" ? (
-                <>
-                  <div className="field-help">
-                    {Array.isArray(values[field.name]) && values[field.name].length
-                      ? values[field.name].map((file) => file.name).join(", ")
-                      : "Selecione um ou mais arquivos para anexar ao lancamento."}
-                  </div>
-                  {existingAttachments.length ? (
-                    <div className="field-help">
-                      {existingAttachments.map((attachment) => (
-                        <div className="attachment-row" key={attachment.id}>
-                          <a className="attachment-link" href={attachment.file} target="_blank" rel="noreferrer">
-                            {attachment.original_name}
-                          </a>
-                          <button
-                            className="btn btn-secondary attachment-delete"
-                            type="button"
-                            onClick={() => onDeleteAttachment?.(attachment)}
-                          >
-                            Excluir
-                          </button>
-                        </div>
-                      ))}
+          {groupVisibleFields(fields, values, lookupOptions).map((section, sectionIndex) => (
+            <div className="form-section" key={`${section.title || "default"}-${sectionIndex}`}>
+              {section.title ? <div className="form-section-title">{section.title}</div> : null}
+              {section.fields.map((field) => (
+                <div className={`field${field.type === "textarea" || field.checkboxList ? " field-full" : ""}`} key={field.name}>
+                  <label htmlFor={field.checkboxList ? undefined : field.name}>{field.label}</label>
+                  {renderField(field)}
+                  {hasClearableValue(field, values[field.name]) ? (
+                    <div className="field-clear-row">
+                      <button
+                        className="field-clear-button"
+                        type="button"
+                        onClick={() => handleClearField(field)}
+                      >
+                        Limpar
+                      </button>
                     </div>
                   ) : null}
-                </>
-              ) : null}
-              {field.helpText ? <div className="field-help">{field.helpText}</div> : null}
+                  {field.type === "multirelation" && !field.accessManager ? (
+                    <div className="field-help">
+                      {Array.isArray(values[field.name]) && values[field.name].length
+                        ? values[field.name].map((item) => relationLabelMap[field.name]?.[item] || item).join(", ")
+                        : field.single
+                          ? ""
+                          : field.checkboxList
+                            ? "Marque uma ou mais opcoes."
+                            : "Segure Command/Ctrl para selecionar mais de um item."}
+                    </div>
+                  ) : null}
+                  {field.type === "select-multi" ? (
+                    <div className="field-help">
+                      {getSelectedSelectMultiLabels(field, lookupOptions, values).join(", ")}
+                    </div>
+                  ) : null}
+                  {field.type === "file-multi" ? (
+                    <>
+                      <div className="field-help">
+                        {Array.isArray(values[field.name]) && values[field.name].length
+                          ? values[field.name].map((file) => file.name).join(", ")
+                          : "Selecione um ou mais arquivos para anexar ao lancamento."}
+                      </div>
+                      {existingAttachments.length ? (
+                        <div className="field-help">
+                          {existingAttachments.map((attachment) => (
+                            <div className="attachment-row" key={attachment.id}>
+                              <a className="attachment-link" href={attachment.file} target="_blank" rel="noreferrer">
+                                {attachment.original_name}
+                              </a>
+                              <button
+                                className="btn btn-secondary attachment-delete"
+                                type="button"
+                                onClick={() => onDeleteAttachment?.(attachment)}
+                              >
+                                Excluir
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {field.helpText ? <div className="field-help">{field.helpText}</div> : null}
+                </div>
+              ))}
             </div>
           ))}
         </div>

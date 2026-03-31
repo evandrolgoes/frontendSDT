@@ -88,7 +88,15 @@ const parseDate = (value) => {
 };
 
 const getColumnType = (column, rows) => {
-  if (column.type && column.type !== "relation" && column.type !== "multirelation") {
+  if (column.type === "relation") {
+    return "string";
+  }
+
+  if (column.type === "multirelation") {
+    return "multirelation";
+  }
+
+  if (column.type) {
     return column.type;
   }
 
@@ -114,10 +122,6 @@ const getColumnType = (column, rows) => {
         return "number";
       }
     }
-  }
-
-  if (column.type === "relation") {
-    return "string";
   }
 
   return "string";
@@ -251,6 +255,40 @@ const toSearchableText = (value) => {
   return String(value ?? "");
 };
 
+const formatObjectValue = (value) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidates = [
+    "grupo_name",
+    "subgrupo_name",
+    "grupo",
+    "subgrupo",
+    "contraparte",
+    "descricao_estrategia",
+    "ativo",
+    "safra",
+    "nome",
+    "name",
+    "label",
+    "title",
+  ];
+
+  for (const key of candidates) {
+    const candidateValue = value?.[key];
+    if (candidateValue !== null && candidateValue !== undefined && candidateValue !== "") {
+      return candidateValue;
+    }
+  }
+
+  if ("id" in value) {
+    return String(value.id);
+  }
+
+  return null;
+};
+
 const formatCellValue = (column, value, row) => {
   if (column.render) {
     return column.render(value, row);
@@ -276,7 +314,16 @@ const formatCellValue = (column, value, row) => {
     return value ? "Sim" : "Nao";
   }
   if (Array.isArray(value)) {
-    return value.length ? value.join(", ") : "—";
+    if (!value.length) {
+      return "—";
+    }
+    return value
+      .map((item) => (typeof item === "object" ? formatObjectValue(item) : item))
+      .filter((item) => item !== null && item !== undefined && item !== "")
+      .join(", ");
+  }
+  if (typeof value === "object") {
+    return formatObjectValue(value) || "—";
   }
   return String(value);
 };
@@ -972,7 +1019,7 @@ export function DataTable({
                   <div className="bubble-footer-cell" key={column.key}>
                     {isFirstColumn ? (
                       <div className="bubble-footer-count">
-                        <span>{selectedIds.size ? "Selecionados" : "Total de itens"}</span>
+                        <span>{selectedIds.size ? "Selecionados" : "Total de itens: "}</span>
                         <strong>{selectedIds.size || filteredRows.length}</strong>
                       </div>
                     ) : null}

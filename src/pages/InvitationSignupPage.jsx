@@ -67,9 +67,9 @@ export function InvitationSignupPage() {
         }
         setInvitation(data);
         setForm({
-          full_name: "",
-          username: "",
-          phone: "",
+          full_name: data?.full_name || "",
+          username: data?.username || "",
+          phone: formatBrazilianPhone(data?.phone || ""),
           password: "",
           password_confirm: "",
         });

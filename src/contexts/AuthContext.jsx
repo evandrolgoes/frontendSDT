@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 import { api } from "../services/api";
+import { clearResourceViewCache } from "../hooks/useResourceCrud";
+import { clearResourceServiceCache } from "../services/resourceService";
 import { tokenStorage } from "../services/storage";
 
 const AuthContext = createContext(null);
@@ -8,6 +10,11 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const clearSessionCaches = () => {
+    clearResourceServiceCache();
+    clearResourceViewCache();
+  };
 
   const fetchProfile = async () => {
     const access = tokenStorage.getAccess();
@@ -18,7 +25,9 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.get("/auth/me/");
       setUser(data);
-    } catch {
+    } catch (error) {
+      console.error("Nao foi possivel restaurar a sessao do usuario.", error);
+      clearSessionCaches();
       tokenStorage.clear();
       setUser(null);
     } finally {
@@ -37,14 +46,20 @@ export function AuthProvider({ children }) {
     async login(credentials) {
       const { data } = await api.post("/auth/login/", credentials);
       tokenStorage.setTokens({ access: data.access, refresh: data.refresh });
+      clearSessionCaches();
+      setLoading(false);
       setUser(data.user);
     },
     impersonate(sessionPayload) {
       tokenStorage.setTokens({ access: sessionPayload.access, refresh: sessionPayload.refresh });
+      clearSessionCaches();
+      setLoading(false);
       setUser(sessionPayload.user);
     },
     logout() {
+      clearSessionCaches();
       tokenStorage.clear();
+      setLoading(false);
       setUser(null);
     },
     updateCurrentUser(patch) {

@@ -14,6 +14,50 @@ const relationResourceLabels = {
   strategies: "descricao_estrategia",
 };
 
+const resolveRelationLikeLabel = (value, preferredKey = "") => {
+  if (value === null || value === undefined || value === "") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => resolveRelationLikeLabel(item, preferredKey))
+      .filter((item) => item !== null && item !== undefined && item !== "")
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    const candidates = [
+      preferredKey,
+      "grupo_name",
+      "subgrupo_name",
+      "grupo",
+      "subgrupo",
+      "contraparte",
+      "descricao_estrategia",
+      "ativo",
+      "safra",
+      "nome",
+      "name",
+      "label",
+      "title",
+    ].filter(Boolean);
+
+    for (const key of candidates) {
+      const candidateValue = value?.[key];
+      if (candidateValue !== null && candidateValue !== undefined && candidateValue !== "") {
+        return candidateValue;
+      }
+    }
+
+    if ("id" in value) {
+      return value.id;
+    }
+  }
+
+  return value;
+};
+
 const parseLocalizedNumber = (value) => {
   if (value === null || value === undefined || value === "") {
     return 0;
@@ -189,16 +233,37 @@ const useLookupRows = (columns, rows) => {
         const nextRow = { ...row };
         columns.forEach((column) => {
           if (column.type === "relation" && column.resource && row[column.key]) {
-            const option = lookupIndex[column.resource]?.get(row[column.key]);
-            nextRow[column.key] = option?.[column.labelKey || relationResourceLabels[column.resource]] || row[column.key];
+            const rawValue = row[column.key];
+            const preferredKey = column.labelKey || relationResourceLabels[column.resource];
+            const relationId = typeof rawValue === "object" ? rawValue?.id : rawValue;
+            const option = lookupIndex[column.resource]?.get(relationId);
+            nextRow[column.key] = option?.[preferredKey] || resolveRelationLikeLabel(rawValue, preferredKey);
           }
           if (column.type === "multirelation" && column.resource && Array.isArray(row[column.key])) {
-            nextRow[column.key] = row[column.key].map((itemId) => {
-              const option = lookupIndex[column.resource]?.get(itemId);
-              return option?.[column.labelKey || relationResourceLabels[column.resource]] || itemId;
+            const preferredKey = column.labelKey || relationResourceLabels[column.resource];
+            nextRow[column.key] = row[column.key].map((itemValue) => {
+              const relationId = typeof itemValue === "object" ? itemValue?.id : itemValue;
+              const option = lookupIndex[column.resource]?.get(relationId);
+              return option?.[preferredKey] || resolveRelationLikeLabel(itemValue, preferredKey);
             });
           }
         });
+
+        if (
+          (nextRow.grupo === row.grupo || nextRow.grupo === null || nextRow.grupo === undefined || /^\d+$/.test(String(nextRow.grupo)))
+          && row.subgrupo
+        ) {
+          const subgroupId = typeof row.subgrupo === "object" ? row.subgrupo?.id : row.subgrupo;
+          const subgroupOption = lookupIndex.subgroups?.get(subgroupId);
+          const inferredGroupLabel =
+            subgroupOption?.grupo_name
+            || resolveRelationLikeLabel(subgroupOption?.grupo, "grupo")
+            || resolveRelationLikeLabel(subgroupOption, "grupo_name");
+          if (inferredGroupLabel) {
+            nextRow.grupo = inferredGroupLabel;
+          }
+        }
+
         return nextRow;
       }),
     [columns, lookupIndex, rows],

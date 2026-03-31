@@ -787,7 +787,7 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
   );
 }
 
-export function MarketNewsPage() {
+export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { postId } = useParams();
@@ -803,7 +803,7 @@ export function MarketNewsPage() {
 
   const activeCategory = searchParams.get("categoria") || "";
   const currentSearch = searchParams.toString();
-  const backToListUrl = activeCategory ? `/mercado/blog-news?categoria=${encodeURIComponent(activeCategory)}` : "/mercado/blog-news";
+  const backToListUrl = activeCategory ? `${basePath}?categoria=${encodeURIComponent(activeCategory)}` : basePath;
   const canManagePosts = Boolean(user?.is_superuser || ["owner", "manager"].includes(user?.role));
   const canDeletePosts = Boolean(user?.is_superuser);
 
@@ -937,12 +937,13 @@ export function MarketNewsPage() {
     if (!post?.id) {
       return;
     }
+    const duplicatedEditorState = toEditorState({});
     const payload = {
       titulo: `${post.titulo || "Sem titulo"} (Copia)`,
       categorias: Array.isArray(post.categorias) ? post.categorias : [],
       conteudo_html: post.conteudo_html || "",
       status_artigo: "draft",
-      data_publicacao: toEditorState({}).data_publicacao,
+      data_publicacao: duplicatedEditorState.data_publicacao ? new Date(duplicatedEditorState.data_publicacao).toISOString() : null,
     };
     try {
       await resourceService.create("market-news-posts", payload);
@@ -1020,7 +1021,7 @@ export function MarketNewsPage() {
                     <span>{dateParts.month}</span>
                     <small>{dateParts.year}</small>
                   </div>
-                  <Link className="market-news-list-link" to={`/mercado/blog-news/${post.id}${currentSearch ? `?${currentSearch}` : ""}`}>
+                  <Link className="market-news-list-link" to={`${basePath}/${post.id}${currentSearch ? `?${currentSearch}` : ""}`}>
                     <div className="market-news-list-body">
                       <h3>{post.titulo}</h3>
                       <div className="market-news-list-meta">
@@ -1062,7 +1063,7 @@ export function MarketNewsPage() {
                     key={category}
                     type="button"
                     onClick={() => {
-                      navigate(`/mercado/blog-news?categoria=${encodeURIComponent(category)}`);
+                      navigate(`${basePath}?categoria=${encodeURIComponent(category)}`);
                     }}
                   >
                     {category}

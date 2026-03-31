@@ -12,17 +12,30 @@ const PUBLIC_AUTH_PATHS = [
   "/auth/login/",
 ];
 
-const isPublicRequest = (config) => {
+const PUBLIC_GET_PATHS = [
+  "/market-news-posts/",
+];
+
+const isPublicAuthPath = (config) => {
   const requestUrl = String(config?.url || "");
   return PUBLIC_AUTH_PATHS.some((path) => requestUrl.includes(path));
 };
 
+const isPublicGetRequest = (config) => {
+  const requestUrl = String(config?.url || "");
+  const requestMethod = String(config?.method || "get").toLowerCase();
+  return requestMethod === "get" && PUBLIC_GET_PATHS.some((path) => requestUrl.includes(path));
+};
+
+const isPublicRequest = (config) => isPublicAuthPath(config) || isPublicGetRequest(config);
+
 export const api = axios.create({
   baseURL,
+  timeout: 15000,
 });
 
 api.interceptors.request.use((config) => {
-  if (isPublicRequest(config)) {
+  if (isPublicAuthPath(config)) {
     if (config.headers?.Authorization) {
       delete config.headers.Authorization;
     }
@@ -71,6 +84,11 @@ api.interceptors.response.use(
 
     try {
       const refresh = tokenStorage.getRefresh();
+      if (!refresh) {
+        tokenStorage.clear();
+        window.location.href = "/login";
+        return Promise.reject(error);
+      }
       const { data } = await axios.post(`${baseURL}/auth/refresh/`, { refresh });
       tokenStorage.setTokens({ access: data.access, refresh: data.refresh || refresh });
       flushQueue(null, data.access);

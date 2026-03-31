@@ -20,6 +20,47 @@ const relationResourceLabels = {
   strategies: "descricao_estrategia",
 };
 
+const resolveRelationLikeLabel = (value, preferredKey = "") => {
+  if (value === null || value === undefined || value === "") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => resolveRelationLikeLabel(item, preferredKey))
+      .filter((item) => item !== null && item !== undefined && item !== "")
+      .join(", ");
+  }
+  if (typeof value === "object") {
+    const candidates = [
+      preferredKey,
+      "grupo_name",
+      "subgrupo_name",
+      "grupo",
+      "subgrupo",
+      "contraparte",
+      "descricao_estrategia",
+      "ativo",
+      "safra",
+      "nome",
+      "name",
+      "label",
+      "title",
+    ].filter(Boolean);
+
+    for (const key of candidates) {
+      const candidateValue = value?.[key];
+      if (candidateValue !== null && candidateValue !== undefined && candidateValue !== "") {
+        return candidateValue;
+      }
+    }
+
+    if ("id" in value) {
+      return value.id;
+    }
+  }
+  return value;
+};
+
 const formatTenantUsageMetric = (currentValue, maxValue) => {
   const current = Number(currentValue || 0);
   const limit = maxValue === null || maxValue === undefined || maxValue === "" ? null : Number(maxValue);
@@ -43,6 +84,12 @@ const formatTenantUsageMetric = (currentValue, maxValue) => {
     ratioLabel: `${ratioPercent}% usado`,
     tone: ratio >= 1 ? "critical" : ratio >= 0.8 ? "warning" : "healthy",
   };
+};
+
+const addDaysToIsoDate = (days) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
 };
 
 const normalizeDerivativeLookupValue = (value) =>
@@ -242,14 +289,19 @@ const useLookupRows = (columns, rows) => {
         columns.forEach((column) => {
           if (column.type === "relation" && column.resource && row[column.key]) {
             const options = lookupCache[column.resource] || [];
-            const option = options.find((item) => item.id === row[column.key]);
-            nextRow[column.key] = option?.[column.labelKey || relationResourceLabels[column.resource]] || row[column.key];
+            const rawValue = row[column.key];
+            const preferredKey = column.labelKey || relationResourceLabels[column.resource];
+            const relationId = typeof rawValue === "object" ? rawValue?.id : rawValue;
+            const option = options.find((item) => item.id === relationId);
+            nextRow[column.key] = option?.[preferredKey] || resolveRelationLikeLabel(rawValue, preferredKey);
           }
           if (column.type === "multirelation" && column.resource && Array.isArray(row[column.key])) {
             const options = lookupCache[column.resource] || [];
-            nextRow[column.key] = row[column.key].map((itemId) => {
-              const option = options.find((item) => item.id === itemId);
-              return option?.[column.labelKey || relationResourceLabels[column.resource]] || itemId;
+            const preferredKey = column.labelKey || relationResourceLabels[column.resource];
+            nextRow[column.key] = row[column.key].map((itemValue) => {
+              const relationId = typeof itemValue === "object" ? itemValue?.id : itemValue;
+              const option = options.find((item) => item.id === relationId);
+              return option?.[preferredKey] || resolveRelationLikeLabel(itemValue, preferredKey);
             });
           }
         });
@@ -470,6 +522,7 @@ export function ResourcePage({ definition }) {
   );
   const [current, setCurrent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalBusyMessage, setModalBusyMessage] = useState("");
   const [detailItem, setDetailItem] = useState(null);
   const [attachments, setAttachments] = useState([]);
   const [accessRequestValues, setAccessRequestValues] = useState([""]);
@@ -499,7 +552,7 @@ export function ResourcePage({ definition }) {
     return value ? String(value) : "";
   }, [location.search]);
   const { normalizedRows, effectiveTableColumns, displayRows } = usePreparedResourceTable(definition, rows);
-  const supportsAccessWorkflow = definition.resource === "groups" || definition.resource === "subgroups";
+  const supportsAccessWorkflow = false;
   const summaryCards = useMemo(() => {
     if (definition.resource === "groups") {
       return [
@@ -1002,24 +1055,16 @@ export function ResourcePage({ definition }) {
     }
     if (definition.resource === "admin-invitations") {
       return baseFields.filter((field) => {
-        if (field.name === "tenant") {
-          return false;
-        }
-        if (field.name === "target_tenant_slug" && !user?.is_superuser && user?.tenant_slug !== "admin") {
+        if (!user?.is_superuser && user?.tenant_slug !== "admin" && ["target_tenant_slug", "master_user"].includes(field.name)) {
           return false;
         }
         return true;
       });
     }
-    if (!["invitations", "admin-invitations"].includes(definition.resource)) {
+    if (definition.resource !== "admin-invitations") {
       return baseFields;
     }
-    return baseFields.filter((field) => {
-      if (field.name === "tenant" && !user?.is_superuser) {
-        return false;
-      }
-      return true;
-    });
+    return baseFields.filter((field) => field.name !== "tenant" || user?.is_superuser);
   }, [current, definition.editFields, definition.fields, definition.resource, user?.is_superuser, user?.tenant_slug]);
 
   const canCreateRecord = useMemo(() => {
@@ -1103,18 +1148,13 @@ export function ResourcePage({ definition }) {
             status_operacao: "Em aberto",
             siblingRows: [],
           }
-        : supportsAccessWorkflow
-          ? {
-              owner: user?.id,
-              users_with_access: user?.id ? [user.id] : [],
-            }
-          : definition.resource === "admin-invitations"
+        : definition.resource === "users"
+          ? {}
+        : definition.resource === "admin-invitations"
             ? {
+                expires_at: addDaysToIsoDate(7),
+                access_status: "active",
                 ...(user?.is_superuser || user?.tenant_slug === "admin" ? {} : { target_tenant_slug: "usuario" }),
-              }
-          : definition.resource === "invitations" && user?.tenant_id
-            ? {
-                tenant: user.tenant_id,
               }
         : null,
     );
@@ -1122,7 +1162,18 @@ export function ResourcePage({ definition }) {
     setIsModalOpen(true);
   };
 
-  const handleEdit = (item) => {
+  const handleEdit = async (item) => {
+    if (definition.resource === "users") {
+      try {
+        const detailedItem = await resourceService.getOne(definition.resource, item.id, { force: true });
+        setCurrent(detailedItem);
+        setError("");
+        setIsModalOpen(true);
+      } catch (requestError) {
+        setError(requestError?.response?.data?.detail || "Nao foi possivel carregar o usuario para edicao.");
+      }
+      return;
+    }
     const rawItem =
       definition.customForm === "derivative-operation"
         ? normalizedRows.find((row) => row.id === item.id) || item
@@ -1556,6 +1607,9 @@ export function ResourcePage({ definition }) {
           }}
           error={error}
           onClose={() => {
+            if (modalBusyMessage) {
+              return;
+            }
             setIsModalOpen(false);
             setCurrent(null);
             setAttachments([]);
@@ -1690,35 +1744,50 @@ export function ResourcePage({ definition }) {
               ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== attachmentField.name))
               : payload;
 
-            if (definition.resource === "admin-invitations" && !user?.is_superuser && user?.tenant_slug !== "admin") {
-              cleanPayload = {
-                ...cleanPayload,
-                target_tenant_slug: "usuario",
-              };
-            }
-
-            if (definition.resource === "physical-sales" && cleanPayload.cultura_produto) {
-              const crops = await resourceService.listAll("crops");
-              const selectedCrop = crops.find((item) => (item.ativo || item.cultura) === cleanPayload.cultura_produto);
-              if (selectedCrop) {
-                cleanPayload.cultura = selectedCrop.id;
+            try {
+              if (definition.resource === "admin-invitations" && !user?.is_superuser && user?.tenant_slug !== "admin") {
+                cleanPayload = {
+                  ...cleanPayload,
+                  target_tenant_slug: "usuario",
+                };
               }
-            }
 
-            const saved = await save(cleanPayload, current);
-            if (saved) {
-              await refreshProfile();
-              if (attachmentField && files.length) {
-                await resourceService.uploadAttachments(definition.resource, saved.id, files);
+              if (definition.resource === "admin-invitations") {
+                setModalBusyMessage("Enviando...");
               }
-              setIsModalOpen(false);
-              setCurrent(null);
-              setAttachments([]);
-              setError("");
-              clearOpenQuery();
+
+              if (definition.resource === "physical-sales" && cleanPayload.cultura_produto) {
+                const crops = await resourceService.listAll("crops");
+                const selectedCrop = crops.find((item) => (item.ativo || item.cultura) === cleanPayload.cultura_produto);
+                if (selectedCrop) {
+                  cleanPayload.cultura = selectedCrop.id;
+                }
+              }
+
+              const saved = await save(cleanPayload, current);
+              if (saved) {
+                await refreshProfile();
+                if (attachmentField && files.length) {
+                  await resourceService.uploadAttachments(definition.resource, saved.id, files);
+                }
+                setIsModalOpen(false);
+                setCurrent(null);
+                setAttachments([]);
+                setError("");
+                clearOpenQuery();
+              }
+            } finally {
+              setModalBusyMessage("");
             }
           }}
         />
+      ) : null}
+      {modalBusyMessage ? (
+        <div className="modal-busy-backdrop" role="status" aria-live="polite">
+          <div className="modal-busy-card">
+            <strong>{modalBusyMessage}</strong>
+          </div>
+        </div>
       ) : null}
 
       {isAccessRequestOpen ? (

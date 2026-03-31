@@ -5,6 +5,10 @@ import { resourceService } from "../services/resourceService";
 const RESOURCE_VIEW_CACHE_TTL_MS = 60000;
 const resourceViewStateCache = new Map();
 
+export const clearResourceViewCache = () => {
+  resourceViewStateCache.clear();
+};
+
 const toMessage = (value) => {
   if (Array.isArray(value)) {
     return value.join(" ");
