@@ -1027,12 +1027,19 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
     setLoading(true);
     setError("");
     try {
-      const [items, categories] = await Promise.all([
+      const [itemsResult, categoriesResult] = await Promise.allSettled([
         resourceService.listAll("market-news-posts", {}, { force: true }),
         resourceService.listMarketNewsCategories({ force: true }),
       ]);
-      setPosts(Array.isArray(items) ? items : []);
-      setCategoryPool(normalizeCategories(categories));
+      if (itemsResult.status !== "fulfilled") {
+        throw itemsResult.reason;
+      }
+      setPosts(Array.isArray(itemsResult.value) ? itemsResult.value : []);
+      if (categoriesResult.status === "fulfilled") {
+        setCategoryPool(normalizeCategories(categoriesResult.value));
+      } else {
+        setCategoryPool([]);
+      }
     } catch {
       setError("Não foi possível carregar os posts de mercado.");
     } finally {
