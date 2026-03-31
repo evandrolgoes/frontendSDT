@@ -9,10 +9,51 @@ const IMAGE_UPLOAD_MAX_DIMENSION = 1600;
 const IMAGE_UPLOAD_OUTPUT_TYPE = "image/webp";
 const IMAGE_UPLOAD_OUTPUT_QUALITY = 0.82;
 const TRADINGVIEW_REFRESH_MS = 60_000;
+const DEFAULT_TOOLBAR_STATE = {
+  block: "p",
+  align: "left",
+  bold: false,
+  italic: false,
+  underline: false,
+  unordered: false,
+  ordered: false,
+};
 
 const pad = (value) => String(value).padStart(2, "0");
 
 const preventToolbarMouseDown = (event) => event.preventDefault();
+
+const getNodeElement = (node) => {
+  if (!node) {
+    return null;
+  }
+  if (node.nodeType === 1) {
+    return node;
+  }
+  if (node.nodeType === 3) {
+    return node.parentElement || null;
+  }
+  return null;
+};
+
+const rangeBelongsToEditor = (range, editor) => {
+  if (!range || !editor) {
+    return false;
+  }
+  const containerElement = getNodeElement(range.commonAncestorContainer);
+  return Boolean(containerElement && editor.contains(containerElement));
+};
+
+const findClosestEditorElement = (node, editor, selector) => {
+  let element = getNodeElement(node);
+  while (element && element !== editor) {
+    if (element.matches?.(selector)) {
+      return element;
+    }
+    element = element.parentElement;
+  }
+  return null;
+};
 
 const toLocalDatetimeValue = (value = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -435,11 +476,25 @@ const normalizeEditorMedia = (editor) => {
   editor.querySelectorAll(".market-news-resizable").forEach((wrapper) => ensureResizeHandle(wrapper));
 };
 
-function ToolbarButton({ label, onClick }) {
+function ToolbarAction({ label, onClick, isActive = false, variant = "default" }) {
   return (
-    <button type="button" className="btn btn-secondary market-news-toolbar-btn" onMouseDown={preventToolbarMouseDown} onClick={onClick}>
+    <button
+      type="button"
+      className={`blog-studio-toolbar-action${isActive ? " is-active" : ""}${variant === "accent" ? " is-accent" : ""}`}
+      onMouseDown={preventToolbarMouseDown}
+      onClick={onClick}
+    >
       {label}
     </button>
+  );
+}
+
+function ToolbarGroup({ label, children, grow = false }) {
+  return (
+    <div className={`blog-studio-toolbar-group${grow ? " is-grow" : ""}`}>
+      <span className="blog-studio-toolbar-group-label">{label}</span>
+      <div className="blog-studio-toolbar-group-controls">{children}</div>
+    </div>
   );
 }
 
@@ -802,12 +857,14 @@ function BlogComposer({
   const [attachmentFiles, setAttachmentFiles] = useState([]);
   const [fontSize, setFontSize] = useState("18");
   const [fontColor, setFontColor] = useState("#4b5563");
+  const [toolbarState, setToolbarState] = useState(DEFAULT_TOOLBAR_STATE);
   const [htmlDialogOpen, setHtmlDialogOpen] = useState(false);
   const [htmlDraft, setHtmlDraft] = useState("");
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [formError, setFormError] = useState("");
   const editorRef = useRef(null);
+  const savedSelectionRef = useRef(null);
   const imageInputRef = useRef(null);
   const attachmentInputRef = useRef(null);
   const audioInputRef = useRef(null);
@@ -834,6 +891,8 @@ function BlogComposer({
       editorRef.current.innerHTML = nextState.conteudo_html || "";
       normalizeEditorMedia(editorRef.current);
     }
+    savedSelectionRef.current = null;
+    setToolbarState(DEFAULT_TOOLBAR_STATE);
   }, [initialPost]);
 
   useEffect(() => {
@@ -914,26 +973,117 @@ function BlogComposer({
     editorRef.current?.focus();
   };
 
+  const readToolbarState = () => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || !selection.rangeCount) {
+      return DEFAULT_TOOLBAR_STATE;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!rangeBelongsToEditor(range, editor)) {
+      return DEFAULT_TOOLBAR_STATE;
+    }
+
+    const blockElement = findClosestEditorElement(selection.anchorNode, editor, "h1, h2, h3, blockquote, p, li");
+    const nextBlock = blockElement?.tagName === "H1"
+      ? "h1"
+      : blockElement?.tagName === "H2"
+        ? "h2"
+        : blockElement?.tagName === "H3"
+          ? "h3"
+          : blockElement?.tagName === "BLOCKQUOTE"
+            ? "blockquote"
+            : "p";
+
+    const safeCommandState = (command) => {
+      try {
+        return document.queryCommandState(command);
+      } catch {
+        return false;
+      }
+    };
+
+    return {
+      block: nextBlock,
+      align: safeCommandState("justifyCenter") ? "center" : safeCommandState("justifyRight") ? "right" : "left",
+      bold: safeCommandState("bold"),
+      italic: safeCommandState("italic"),
+      underline: safeCommandState("underline"),
+      unordered: safeCommandState("insertUnorderedList"),
+      ordered: safeCommandState("insertOrderedList"),
+    };
+  };
+
+  const refreshToolbarState = () => {
+    setToolbarState(readToolbarState());
+  };
+
+  const saveEditorSelection = () => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || !selection.rangeCount) {
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    if (!rangeBelongsToEditor(range, editor)) {
+      return;
+    }
+    savedSelectionRef.current = range.cloneRange();
+    refreshToolbarState();
+  };
+
+  const restoreEditorSelection = () => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection) {
+      return false;
+    }
+    editor.focus();
+    if (!savedSelectionRef.current) {
+      return false;
+    }
+    selection.removeAllRanges();
+    selection.addRange(savedSelectionRef.current);
+    return true;
+  };
+
   const runCommand = (command, value = null) => {
-    focusEditor();
+    restoreEditorSelection() || focusEditor();
     document.execCommand(command, false, value);
     syncEditorHtml();
+    saveEditorSelection();
   };
 
   const insertHtml = (html) => {
     if (!html) {
       return;
     }
-    focusEditor();
+    restoreEditorSelection() || focusEditor();
     document.execCommand("insertHTML", false, html);
     syncEditorHtml();
+    saveEditorSelection();
   };
 
   const wrapSelectionWithStyle = (styleText) => {
+    restoreEditorSelection() || focusEditor();
     const selection = window.getSelection();
     const text = selection?.toString() || "";
     const safeText = text || "Texto";
     insertHtml(`<span style="${styleText}">${safeText}</span>`);
+  };
+
+  const applyBlockFormat = (value) => {
+    if (value === "blockquote") {
+      runCommand("formatBlock", "<blockquote>");
+      return;
+    }
+    runCommand("formatBlock", `<${value || "p"}>`);
+  };
+
+  const applyAlignment = (value) => {
+    const command = value === "center" ? "justifyCenter" : value === "right" ? "justifyRight" : "justifyLeft";
+    runCommand(command);
   };
 
   const toggleCategory = (category) => {
@@ -1135,7 +1285,14 @@ function BlogComposer({
             <div className="field blog-studio-form-field is-wide">
               <label>Mídia e arquivos</label>
               <div className="market-news-file-actions blog-studio-file-actions">
-                <button className="btn btn-secondary" type="button" onClick={() => imageInputRef.current?.click()}>
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={() => {
+                    saveEditorSelection();
+                    imageInputRef.current?.click();
+                  }}
+                >
                   Inserir imagem
                 </button>
                 <button className="btn btn-secondary" type="button" onClick={() => attachmentInputRef.current?.click()}>
@@ -1205,59 +1362,87 @@ function BlogComposer({
           </aside>
 
           <div className="blog-studio-editor-column">
-            <div className="market-news-editor-toolbar blog-studio-toolbar">
-              <ToolbarButton label="P" onClick={() => runCommand("formatBlock", "<p>")} />
-              <ToolbarButton label="H1" onClick={() => runCommand("formatBlock", "<h1>")} />
-              <ToolbarButton label="H2" onClick={() => runCommand("formatBlock", "<h2>")} />
-              <ToolbarButton label="H3" onClick={() => runCommand("formatBlock", "<h3>")} />
-              <ToolbarButton label="B" onClick={() => runCommand("bold")} />
-              <ToolbarButton label="I" onClick={() => runCommand("italic")} />
-              <ToolbarButton label="U" onClick={() => runCommand("underline")} />
-              <ToolbarButton label="Lista" onClick={() => runCommand("insertUnorderedList")} />
-              <ToolbarButton label="1.2.3" onClick={() => runCommand("insertOrderedList")} />
-              <ToolbarButton label="Citação" onClick={() => runCommand("formatBlock", "<blockquote>")} />
-              <ToolbarButton label="E" onClick={() => runCommand("justifyLeft")} />
-              <ToolbarButton label="C" onClick={() => runCommand("justifyCenter")} />
-              <ToolbarButton label="D" onClick={() => runCommand("justifyRight")} />
-              <ToolbarButton
-                label="Link"
-                onClick={() => {
-                  const url = window.prompt("URL do link");
-                  if (url) {
-                    runCommand("createLink", url);
-                  }
-                }}
-              />
-              <select
-                className="form-control market-news-toolbar-select"
-                value={fontSize}
-                onChange={(event) => {
-                  setFontSize(event.target.value);
-                  wrapSelectionWithStyle(`font-size:${event.target.value}px;`);
-                }}
-              >
-                <option value="16">F16</option>
-                <option value="18">F18</option>
-                <option value="22">F22</option>
-                <option value="28">F28</option>
-                <option value="36">F36</option>
-                <option value="48">F48</option>
-              </select>
-              <label className="market-news-color-picker">
-                <input
-                  type="color"
-                  value={fontColor}
+            <div className="market-news-editor-toolbar blog-studio-toolbar-shell">
+              <ToolbarGroup label="Bloco">
+                <select
+                  className="form-control blog-studio-toolbar-field"
+                  value={toolbarState.block}
+                  onChange={(event) => applyBlockFormat(event.target.value)}
+                >
+                  <option value="p">Paragrafo</option>
+                  <option value="h1">Titulo H1</option>
+                  <option value="h2">Titulo H2</option>
+                  <option value="h3">Titulo H3</option>
+                  <option value="blockquote">Citacao</option>
+                </select>
+              </ToolbarGroup>
+
+              <ToolbarGroup label="Texto" grow>
+                <ToolbarAction label="Negrito" isActive={toolbarState.bold} onClick={() => runCommand("bold")} />
+                <ToolbarAction label="Italico" isActive={toolbarState.italic} onClick={() => runCommand("italic")} />
+                <ToolbarAction label="Sublinhado" isActive={toolbarState.underline} onClick={() => runCommand("underline")} />
+                <ToolbarAction label="Lista" isActive={toolbarState.unordered} onClick={() => runCommand("insertUnorderedList")} />
+                <ToolbarAction label="Numerada" isActive={toolbarState.ordered} onClick={() => runCommand("insertOrderedList")} />
+              </ToolbarGroup>
+
+              <ToolbarGroup label="Alinhamento">
+                <ToolbarAction label="Esquerda" isActive={toolbarState.align === "left"} onClick={() => applyAlignment("left")} />
+                <ToolbarAction label="Centro" isActive={toolbarState.align === "center"} onClick={() => applyAlignment("center")} />
+                <ToolbarAction label="Direita" isActive={toolbarState.align === "right"} onClick={() => applyAlignment("right")} />
+              </ToolbarGroup>
+
+              <ToolbarGroup label="Tipografia">
+                <select
+                  className="form-control blog-studio-toolbar-field is-narrow"
+                  value={fontSize}
                   onChange={(event) => {
-                    setFontColor(event.target.value);
-                    wrapSelectionWithStyle(`color:${event.target.value};`);
+                    setFontSize(event.target.value);
+                    wrapSelectionWithStyle(`font-size:${event.target.value}px;`);
+                  }}
+                >
+                  <option value="16">16 px</option>
+                  <option value="18">18 px</option>
+                  <option value="22">22 px</option>
+                  <option value="28">28 px</option>
+                  <option value="36">36 px</option>
+                  <option value="48">48 px</option>
+                </select>
+                <label className="blog-studio-toolbar-color">
+                  <span>Cor</span>
+                  <input
+                    type="color"
+                    value={fontColor}
+                    onChange={(event) => {
+                      setFontColor(event.target.value);
+                      wrapSelectionWithStyle(`color:${event.target.value};`);
+                    }}
+                  />
+                </label>
+              </ToolbarGroup>
+
+              <ToolbarGroup label="Insercao">
+                <ToolbarAction
+                  label="Link"
+                  onClick={() => {
+                    const url = window.prompt("URL do link");
+                    if (url) {
+                      runCommand("createLink", url);
+                    }
                   }}
                 />
-              </label>
-              <ToolbarButton label="HTML" onClick={() => setHtmlDialogOpen(true)} />
-              <ToolbarButton label="Limpar" onClick={() => runCommand("removeFormat")} />
+                <ToolbarAction
+                  label="HTML"
+                  variant="accent"
+                  onClick={() => {
+                    saveEditorSelection();
+                    setHtmlDialogOpen(true);
+                  }}
+                />
+                <ToolbarAction label="Limpar" onClick={() => runCommand("removeFormat")} />
+              </ToolbarGroup>
             </div>
 
-            <div className="blog-studio-help-text">Cole embed HTML no ponto desejado do texto ou use a toolbar para ajustar tipografia e cor.</div>
+            <div className="blog-studio-help-text">Use os controles acima para formatar o texto e inserir HTML no ponto exato do cursor.</div>
 
             <input
               ref={imageInputRef}
@@ -1306,7 +1491,14 @@ function BlogComposer({
               className="market-news-rich-editor blog-studio-rich-editor"
               contentEditable
               suppressContentEditableWarning
-              onInput={syncEditorHtml}
+              onInput={() => {
+                syncEditorHtml();
+                saveEditorSelection();
+              }}
+              onKeyUp={saveEditorSelection}
+              onMouseUp={saveEditorSelection}
+              onFocus={saveEditorSelection}
+              onBlur={saveEditorSelection}
               onPaste={async (event) => {
                 const imageFiles = Array.from(event.clipboardData?.items || [])
                   .filter((item) => item.kind === "file" && String(item.type || "").startsWith("image/"))
