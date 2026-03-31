@@ -54,6 +54,9 @@ const getDateParts = (value) => {
 };
 
 const buildExcerpt = (post) => {
+  if (post?.excerpt) {
+    return String(post.excerpt);
+  }
   const excerpt = stripHtml(post?.conteudo_html || "");
   return excerpt.length > 220 ? `${excerpt.slice(0, 217)}...` : excerpt;
 };
@@ -375,6 +378,10 @@ function NewsComposerModal({
   const videoInputRef = useRef(null);
   const audioInputRef = useRef(null);
   const lastAppliedHtmlRef = useRef("");
+  const visibleEditorAttachments = useMemo(
+    () => filterStandaloneAttachments(attachments, form.conteudo_html),
+    [attachments, form.conteudo_html],
+  );
 
   useEffect(() => {
     const nextState = toEditorState(initialPost);
@@ -737,7 +744,7 @@ function NewsComposerModal({
             <div className="field">
               <label>Anexos</label>
               <div className="market-news-file-stack">
-                {attachments.map((attachment) => (
+                {visibleEditorAttachments.map((attachment) => (
                   <div className="market-news-file-row" key={attachment.id}>
                     <button
                       className="market-news-attachment-link"
@@ -1002,8 +1009,10 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
   const [categoryPool, setCategoryPool] = useState([]);
   const [postAttachments, setPostAttachments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedPostLoading, setSelectedPostLoading] = useState(false);
   const [error, setError] = useState("");
   const [editorState, setEditorState] = useState(null);
+  const [selectedPostDetail, setSelectedPostDetail] = useState(null);
   const [isSavingPost, setIsSavingPost] = useState(false);
   const [audioRate, setAudioRate] = useState(1);
   const audioRef = useRef(null);
@@ -1049,10 +1058,11 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
     );
   }, [activeCategory, posts]);
 
-  const selectedPost = useMemo(
+  const selectedPostSummary = useMemo(
     () => posts.find((item) => String(item.id) === String(postId)) || null,
     [posts, postId],
   );
+  const selectedPost = selectedPostDetail || selectedPostSummary;
   const visibleAttachments = useMemo(
     () => filterStandaloneAttachments(postAttachments, editorState?.conteudo_html || selectedPost?.conteudo_html || ""),
     [editorState?.conteudo_html, postAttachments, selectedPost?.conteudo_html],
@@ -1060,15 +1070,29 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
 
   useEffect(() => {
     if (!postId) {
+      setSelectedPostDetail(null);
+      setSelectedPostLoading(false);
       return;
     }
-    if (loading) {
+    setSelectedPostLoading(true);
+    resourceService
+      .getOne("market-news-posts", postId, { force: true })
+      .then((item) => setSelectedPostDetail(item || null))
+      .catch(() => setSelectedPostDetail(null))
+      .finally(() => setSelectedPostLoading(false));
+  }, [postId]);
+
+  useEffect(() => {
+    if (!postId) {
       return;
     }
-    if (!posts.some((item) => String(item.id) === String(postId))) {
+    if (loading || selectedPostLoading) {
+      return;
+    }
+    if (!selectedPostSummary && !selectedPostDetail) {
       navigate(backToListUrl, { replace: true });
     }
-  }, [backToListUrl, loading, navigate, postId, posts]);
+  }, [backToListUrl, loading, navigate, postId, selectedPostDetail, selectedPostLoading, selectedPostSummary]);
 
   useEffect(() => {
     const currentPostId = editorState?.id || selectedPost?.id;
@@ -1102,6 +1126,9 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
       }
       resourceService.invalidateCache("market-news-posts");
       resourceService.invalidateCache("attachments");
+      if (saved?.id) {
+        setSelectedPostDetail(saved);
+      }
       setEditorState(null);
       window.dispatchEvent(new Event("market-news-categories-changed"));
       await loadPosts();
@@ -1156,6 +1183,7 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
     try {
       await resourceService.remove("market-news-posts", post.id);
       resourceService.invalidateCache("market-news-posts");
+      setSelectedPostDetail(null);
       window.dispatchEvent(new Event("market-news-categories-changed"));
       navigate(backToListUrl, { replace: true });
       await loadPosts();
@@ -1168,11 +1196,20 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
     if (!post?.id) {
       return;
     }
+    let sourcePost = post;
+    if (!sourcePost.conteudo_html) {
+      try {
+        sourcePost = await resourceService.getOne("market-news-posts", post.id, { force: true });
+      } catch {
+        setError("Não foi possível carregar o post para duplicação.");
+        return;
+      }
+    }
     const duplicatedEditorState = toEditorState({});
     const payload = {
-      titulo: `${post.titulo || "Sem titulo"} (Copia)`,
-      categorias: Array.isArray(post.categorias) ? post.categorias : [],
-      conteudo_html: post.conteudo_html || "",
+      titulo: `${sourcePost.titulo || "Sem titulo"} (Copia)`,
+      categorias: Array.isArray(sourcePost.categorias) ? sourcePost.categorias : [],
+      conteudo_html: sourcePost.conteudo_html || "",
       status_artigo: "draft",
       data_publicacao: duplicatedEditorState.data_publicacao ? new Date(duplicatedEditorState.data_publicacao).toISOString() : null,
     };
@@ -1209,11 +1246,11 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
               </button>
             ) : null}
             {!editorState && selectedPost ? (
-              <button className="btn btn-secondary" type="button" onClick={() => navigate(backToListUrl)}>
+              <button className="btn btn-secondary" type="button" onClick={() => navigate(backToListUrl)} disabled={selectedPostLoading}>
                 Voltar
               </button>
             ) : null}
-            {canManagePosts && !editorState ? (
+            {canManagePosts && !editorState && !selectedPostLoading ? (
               <button className="btn btn-primary" type="button" onClick={() => setEditorState(selectedPost || {})}>
                 {selectedPost ? "Editar post" : "Novo post"}
               </button>
@@ -1228,12 +1265,13 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
 
         {error ? <div className="form-error">{error}</div> : null}
         {loading ? <div className="market-news-empty">Carregando posts...</div> : null}
+        {!loading && selectedPostLoading && postId && editorState === null ? <div className="market-news-empty">Carregando post...</div> : null}
 
         {!loading && editorState !== null ? (
           <NewsComposerModal
             initialPost={editorState}
             existingCategories={categoryPool}
-            attachments={visibleAttachments}
+            attachments={postAttachments}
             onClose={() => setEditorState(null)}
             onSave={handleSavePost}
             onRemoveAttachment={handleRemoveAttachment}
@@ -1243,7 +1281,7 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
           />
         ) : null}
 
-        {!loading && !selectedPost && editorState === null ? (
+        {!loading && !selectedPost && !selectedPostLoading && editorState === null ? (
           <div className="market-news-list">
             {filteredPosts.map((post) => {
               const dateParts = getDateParts(post.data_publicacao || post.created_at);
@@ -1287,7 +1325,7 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
           </div>
         ) : null}
 
-        {!loading && selectedPost && editorState === null ? (
+        {!loading && selectedPost && !selectedPostLoading && editorState === null ? (
           <article className="market-news-detail">
             <div className="market-news-detail-meta">
               <div className="market-news-detail-badges">
