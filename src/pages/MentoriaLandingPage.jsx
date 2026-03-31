@@ -16,6 +16,7 @@ const NAV_ITEMS = [
 ];
 
 const LANDING_PAGE_TITLE = "Traders do Agro - turma 02";
+const WHATSAPP_CONTACT_NUMBER = "554237420699";
 
 const INITIAL_FORM = {
   nome: "",
@@ -26,6 +27,30 @@ const INITIAL_FORM = {
   empresa: "",
   objetivo_mentoria: "",
   mensagem: "",
+};
+
+const buildWhatsAppUrl = ({ nome, whatsapp, email, perfil, objetivo_mentoria, mensagem }) => {
+  const message = [
+    `Olá! Acabei de preencher o formulário da ${LANDING_PAGE_TITLE} e tenho interesse em uma vaga.`,
+    "",
+    `Nome: ${nome.trim()}`,
+    `WhatsApp: ${whatsapp.trim()}`,
+    `E-mail: ${email.trim()}`,
+    `Perfil: ${perfil}`,
+    `Objetivo: ${objetivo_mentoria}`,
+    mensagem.trim() ? `Mensagem: ${mensagem.trim()}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return `https://wa.me/${WHATSAPP_CONTACT_NUMBER}?text=${encodeURIComponent(message)}`;
+};
+
+const openWhatsAppConversation = (url) => {
+  const popup = window.open(url, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    window.location.assign(url);
+  }
 };
 
 function MentoriaSection({ children, className = "", id }) {
@@ -46,6 +71,7 @@ export function MentoriaLandingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
   const [formState, setFormState] = useState(INITIAL_FORM);
+  const [whatsAppUrl, setWhatsAppUrl] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -83,6 +109,7 @@ export function MentoriaLandingPage() {
       setFormState(INITIAL_FORM);
       setIsSubmitted(false);
       setIsSubmitting(false);
+      setWhatsAppUrl("");
     }
   }, [isModalOpen]);
 
@@ -102,7 +129,7 @@ export function MentoriaLandingPage() {
     setIsSubmitting(true);
 
     try {
-      await api.post("/leads/", {
+      const { data } = await api.post("/leads/", {
         nome: formState.nome,
         whatsapp: formState.whatsapp,
         email: formState.email,
@@ -113,7 +140,15 @@ export function MentoriaLandingPage() {
         objetivo: formState.objetivo_mentoria,
         mensagem: formState.mensagem,
       });
+
+      if (data?.mail_warning) {
+        console.warn("Lead salvo, mas o envio de e-mail falhou.");
+      }
+
+      const nextWhatsAppUrl = buildWhatsAppUrl(formState);
+      setWhatsAppUrl(nextWhatsAppUrl);
       setIsSubmitted(true);
+      openWhatsAppConversation(nextWhatsAppUrl);
     } catch (error) {
       console.error("Erro ao enviar formulário da mentoria", error);
     } finally {
@@ -233,9 +268,13 @@ export function MentoriaLandingPage() {
               <div className="mentoria-landing-modal-success">
                 <div className="mentoria-landing-modal-success-icon">✓</div>
                 <h2>Enviado!</h2>
-                <p>Em breve, nossa equipe entrará em contato via WhatsApp.</p>
-                <button type="button" className="mentoria-landing-primary-btn" onClick={() => setIsModalOpen(false)}>
-                  Voltar
+                <p>Seu WhatsApp foi aberto para você falar conosco. Se não abrir automaticamente, use o botão abaixo.</p>
+                <button
+                  type="button"
+                  className="mentoria-landing-primary-btn"
+                  onClick={() => openWhatsAppConversation(whatsAppUrl)}
+                >
+                  Abrir WhatsApp
                 </button>
               </div>
             )}

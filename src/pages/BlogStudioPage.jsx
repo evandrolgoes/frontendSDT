@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Quill from "quill";
+import "quill/dist/quill.snow.css";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { PageHeader } from "../components/PageHeader";
@@ -9,51 +11,40 @@ const IMAGE_UPLOAD_MAX_DIMENSION = 1600;
 const IMAGE_UPLOAD_OUTPUT_TYPE = "image/webp";
 const IMAGE_UPLOAD_OUTPUT_QUALITY = 0.82;
 const TRADINGVIEW_REFRESH_MS = 60_000;
-const DEFAULT_TOOLBAR_STATE = {
-  block: "p",
-  align: "left",
-  bold: false,
-  italic: false,
-  underline: false,
-  unordered: false,
-  ordered: false,
-};
+const QUILL_FONTS = ["sans-serif", "serif", "monospace"];
+const QUILL_SIZES = ["small", "normal", "large", "huge"];
 
 const pad = (value) => String(value).padStart(2, "0");
 
-const preventToolbarMouseDown = (event) => event.preventDefault();
+const FontFormat = Quill.import("formats/font");
+FontFormat.whitelist = QUILL_FONTS;
+Quill.register(FontFormat, true);
 
-const getNodeElement = (node) => {
-  if (!node) {
-    return null;
-  }
-  if (node.nodeType === 1) {
+const SizeFormat = Quill.import("formats/size");
+SizeFormat.whitelist = QUILL_SIZES;
+Quill.register(SizeFormat, true);
+
+const BlockEmbed = Quill.import("blots/block/embed");
+
+class HtmlEmbedBlot extends BlockEmbed {
+  static blotName = "htmlEmbed";
+  static tagName = "div";
+  static className = "blog-studio-html-embed";
+
+  static create(value) {
+    const node = super.create();
+    node.setAttribute("contenteditable", "false");
+    node.dataset.html = String(value || "");
+    node.innerHTML = String(value || "");
     return node;
   }
-  if (node.nodeType === 3) {
-    return node.parentElement || null;
-  }
-  return null;
-};
 
-const rangeBelongsToEditor = (range, editor) => {
-  if (!range || !editor) {
-    return false;
+  static value(node) {
+    return node?.dataset?.html || node?.innerHTML || "";
   }
-  const containerElement = getNodeElement(range.commonAncestorContainer);
-  return Boolean(containerElement && editor.contains(containerElement));
-};
+}
 
-const findClosestEditorElement = (node, editor, selector) => {
-  let element = getNodeElement(node);
-  while (element && element !== editor) {
-    if (element.matches?.(selector)) {
-      return element;
-    }
-    element = element.parentElement;
-  }
-  return null;
-};
+Quill.register(HtmlEmbedBlot, true);
 
 const toLocalDatetimeValue = (value = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -314,6 +305,11 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+const normalizeEditorHtml = (value) => {
+  const html = String(value || "").trim();
+  return html === "<p><br></p>" ? "" : html;
+};
+
 const loadImageElement = (file) =>
   new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
@@ -475,28 +471,6 @@ const normalizeEditorMedia = (editor) => {
   });
   editor.querySelectorAll(".market-news-resizable").forEach((wrapper) => ensureResizeHandle(wrapper));
 };
-
-function ToolbarAction({ label, onClick, isActive = false, variant = "default" }) {
-  return (
-    <button
-      type="button"
-      className={`blog-studio-toolbar-action${isActive ? " is-active" : ""}${variant === "accent" ? " is-accent" : ""}`}
-      onMouseDown={preventToolbarMouseDown}
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ToolbarGroup({ label, children, grow = false }) {
-  return (
-    <div className={`blog-studio-toolbar-group${grow ? " is-grow" : ""}`}>
-      <span className="blog-studio-toolbar-group-label">{label}</span>
-      <div className="blog-studio-toolbar-group-controls">{children}</div>
-    </div>
-  );
-}
 
 function BlogAudioPlayer({ audioUrl }) {
   const [audioRate, setAudioRate] = useState(1);
@@ -855,16 +829,15 @@ function BlogComposer({
   const [form, setForm] = useState(toEditorState(initialPost));
   const [newCategory, setNewCategory] = useState("");
   const [attachmentFiles, setAttachmentFiles] = useState([]);
-  const [fontSize, setFontSize] = useState("18");
-  const [fontColor, setFontColor] = useState("#4b5563");
-  const [toolbarState, setToolbarState] = useState(DEFAULT_TOOLBAR_STATE);
   const [htmlDialogOpen, setHtmlDialogOpen] = useState(false);
   const [htmlDraft, setHtmlDraft] = useState("");
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [formError, setFormError] = useState("");
-  const editorRef = useRef(null);
-  const savedSelectionRef = useRef(null);
+  const quillRef = useRef(null);
+  const quillHostRef = useRef(null);
+  const quillToolbarRef = useRef(null);
+  const savedRangeRef = useRef(null);
   const imageInputRef = useRef(null);
   const attachmentInputRef = useRef(null);
   const audioInputRef = useRef(null);
@@ -887,203 +860,120 @@ function BlogComposer({
     setHtmlDraft("");
     setUploadError("");
     setFormError("");
-    if (editorRef.current) {
-      editorRef.current.innerHTML = nextState.conteudo_html || "";
-      normalizeEditorMedia(editorRef.current);
+    if (quillRef.current) {
+      quillRef.current.setText("", "silent");
+      if (nextState.conteudo_html) {
+        quillRef.current.clipboard.dangerouslyPasteHTML(0, nextState.conteudo_html, "silent");
+      }
+      const lastIndex = Math.max(0, quillRef.current.getLength() - 1);
+      quillRef.current.setSelection(lastIndex, 0, "silent");
+      savedRangeRef.current = { index: lastIndex, length: 0 };
     }
-    savedSelectionRef.current = null;
-    setToolbarState(DEFAULT_TOOLBAR_STATE);
   }, [initialPost]);
 
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) {
+    if (!quillHostRef.current || quillRef.current) {
       return undefined;
     }
+    const quill = new Quill(quillHostRef.current, {
+      theme: "snow",
+      placeholder: "Escreva o conteúdo do post aqui...",
+      modules: {
+        toolbar: {
+          container: quillToolbarRef.current,
+          handlers: {
+            image: () => imageInputRef.current?.click(),
+          },
+        },
+      },
+    });
+    quillRef.current = quill;
 
-    const clearSelectedMedia = () => {
-      editor.querySelectorAll(".market-news-resizable.is-selected").forEach((item) => item.classList.remove("is-selected"));
+    if (form.conteudo_html) {
+      quill.clipboard.dangerouslyPasteHTML(0, form.conteudo_html, "silent");
+    }
+
+    const handleTextChange = () => {
+      const nextHtml = normalizeEditorHtml(quill.root.innerHTML);
+      const nextInlineAttachmentIds = getInlineAttachmentIds(nextHtml);
+      setForm((current) => ({ ...current, conteudo_html: nextHtml, inline_attachment_ids: nextInlineAttachmentIds }));
     };
 
-    const handlePointerDown = (event) => {
-      const eventTarget = event.target instanceof Element ? event.target : null;
-      const resizeHandle = eventTarget?.closest(".market-news-resize-handle") || null;
-      const resizeTarget = resizeHandle?.closest(".market-news-resizable") || null;
-      if (resizeHandle && resizeTarget && editor.contains(resizeTarget)) {
-        clearSelectedMedia();
-        resizeTarget.classList.add("is-selected");
-        resizeTarget.focus();
+    const handleSelectionChange = (range) => {
+      if (range) {
+        savedRangeRef.current = range;
+      }
+    };
 
-        const startRect = resizeTarget.getBoundingClientRect();
-        const startWidth = startRect.width;
-        const startHeight = startRect.height;
-        const startX = event.clientX;
-        const startY = event.clientY;
-        const parentWidth = resizeTarget.parentElement?.getBoundingClientRect().width || Number.POSITIVE_INFINITY;
-        const maxWidth = Math.max(220, parentWidth - 8);
-
-        const handleMove = (moveEvent) => {
-          const width = Math.max(180, Math.min(maxWidth, startWidth + (moveEvent.clientX - startX)));
-          const height = Math.max(120, startHeight + (moveEvent.clientY - startY));
-          resizeTarget.style.width = `${Math.round(width)}px`;
-          resizeTarget.style.height = `${Math.round(height)}px`;
-        };
-
-        const handleUp = () => {
-          window.removeEventListener("mousemove", handleMove);
-          window.removeEventListener("mouseup", handleUp);
-          syncEditorHtml();
-        };
-
-        window.addEventListener("mousemove", handleMove);
-        window.addEventListener("mouseup", handleUp);
-        event.preventDefault();
+    const handlePaste = async (event) => {
+      const imageFiles = Array.from(event.clipboardData?.items || [])
+        .filter((item) => item.kind === "file" && String(item.type || "").startsWith("image/"))
+        .map((item) => item.getAsFile())
+        .filter(Boolean);
+      if (!imageFiles.length) {
         return;
       }
-
-      const directMedia = eventTarget && (isMediaTag(eventTarget) ? eventTarget : eventTarget.closest("img, video, iframe, figure"));
-      const upgradedMediaBlock = directMedia ? wrapMediaNode(directMedia) : null;
-      const mediaBlock = upgradedMediaBlock || eventTarget?.closest(".market-news-resizable") || null;
-      if (!mediaBlock || !editor.contains(mediaBlock)) {
-        clearSelectedMedia();
-        return;
-      }
-      ensureResizeHandle(mediaBlock);
-      clearSelectedMedia();
-      mediaBlock.classList.add("is-selected");
-      mediaBlock.focus();
       event.preventDefault();
+      await uploadImagesAndInsert(imageFiles);
     };
 
-    editor.addEventListener("mousedown", handlePointerDown);
+    quill.on("text-change", handleTextChange);
+    quill.on("selection-change", handleSelectionChange);
+    quill.root.addEventListener("paste", handlePaste);
+
     return () => {
-      editor.removeEventListener("mousedown", handlePointerDown);
+      quill.off("text-change", handleTextChange);
+      quill.off("selection-change", handleSelectionChange);
+      quill.root.removeEventListener("paste", handlePaste);
+      quillRef.current = null;
+      if (quillHostRef.current) {
+        quillHostRef.current.innerHTML = "";
+      }
     };
   }, []);
 
   const syncEditorHtml = () => {
-    normalizeEditorMedia(editorRef.current);
-    const nextHtml = editorRef.current?.innerHTML || "";
+    const nextHtml = normalizeEditorHtml(quillRef.current?.root?.innerHTML || "");
     const nextInlineAttachmentIds = getInlineAttachmentIds(nextHtml);
     setForm((current) => ({ ...current, conteudo_html: nextHtml, inline_attachment_ids: nextInlineAttachmentIds }));
     return nextHtml;
   };
 
   const focusEditor = () => {
-    editorRef.current?.focus();
+    quillRef.current?.focus();
   };
 
-  const readToolbarState = () => {
-    const editor = editorRef.current;
-    const selection = window.getSelection();
-    if (!editor || !selection || !selection.rangeCount) {
-      return DEFAULT_TOOLBAR_STATE;
+  const getEditorRange = () => {
+    const quill = quillRef.current;
+    if (!quill) {
+      return { index: 0, length: 0 };
     }
-
-    const range = selection.getRangeAt(0);
-    if (!rangeBelongsToEditor(range, editor)) {
-      return DEFAULT_TOOLBAR_STATE;
+    const liveRange = quill.getSelection(true);
+    if (liveRange) {
+      savedRangeRef.current = liveRange;
+      return liveRange;
     }
-
-    const blockElement = findClosestEditorElement(selection.anchorNode, editor, "h1, h2, h3, blockquote, p, li");
-    const nextBlock = blockElement?.tagName === "H1"
-      ? "h1"
-      : blockElement?.tagName === "H2"
-        ? "h2"
-        : blockElement?.tagName === "H3"
-          ? "h3"
-          : blockElement?.tagName === "BLOCKQUOTE"
-            ? "blockquote"
-            : "p";
-
-    const safeCommandState = (command) => {
-      try {
-        return document.queryCommandState(command);
-      } catch {
-        return false;
-      }
-    };
-
-    return {
-      block: nextBlock,
-      align: safeCommandState("justifyCenter") ? "center" : safeCommandState("justifyRight") ? "right" : "left",
-      bold: safeCommandState("bold"),
-      italic: safeCommandState("italic"),
-      underline: safeCommandState("underline"),
-      unordered: safeCommandState("insertUnorderedList"),
-      ordered: safeCommandState("insertOrderedList"),
-    };
-  };
-
-  const refreshToolbarState = () => {
-    setToolbarState(readToolbarState());
-  };
-
-  const saveEditorSelection = () => {
-    const editor = editorRef.current;
-    const selection = window.getSelection();
-    if (!editor || !selection || !selection.rangeCount) {
-      return;
+    if (savedRangeRef.current) {
+      return savedRangeRef.current;
     }
-    const range = selection.getRangeAt(0);
-    if (!rangeBelongsToEditor(range, editor)) {
-      return;
-    }
-    savedSelectionRef.current = range.cloneRange();
-    refreshToolbarState();
-  };
-
-  const restoreEditorSelection = () => {
-    const editor = editorRef.current;
-    const selection = window.getSelection();
-    if (!editor || !selection) {
-      return false;
-    }
-    editor.focus();
-    if (!savedSelectionRef.current) {
-      return false;
-    }
-    selection.removeAllRanges();
-    selection.addRange(savedSelectionRef.current);
-    return true;
-  };
-
-  const runCommand = (command, value = null) => {
-    restoreEditorSelection() || focusEditor();
-    document.execCommand(command, false, value);
-    syncEditorHtml();
-    saveEditorSelection();
+    return { index: Math.max(0, quill.getLength() - 1), length: 0 };
   };
 
   const insertHtml = (html) => {
     if (!html) {
       return;
     }
-    restoreEditorSelection() || focusEditor();
-    document.execCommand("insertHTML", false, html);
-    syncEditorHtml();
-    saveEditorSelection();
-  };
-
-  const wrapSelectionWithStyle = (styleText) => {
-    restoreEditorSelection() || focusEditor();
-    const selection = window.getSelection();
-    const text = selection?.toString() || "";
-    const safeText = text || "Texto";
-    insertHtml(`<span style="${styleText}">${safeText}</span>`);
-  };
-
-  const applyBlockFormat = (value) => {
-    if (value === "blockquote") {
-      runCommand("formatBlock", "<blockquote>");
+    const quill = quillRef.current;
+    if (!quill) {
       return;
     }
-    runCommand("formatBlock", `<${value || "p"}>`);
-  };
-
-  const applyAlignment = (value) => {
-    const command = value === "center" ? "justifyCenter" : value === "right" ? "justifyRight" : "justifyLeft";
-    runCommand(command);
+    const range = getEditorRange();
+    quill.insertEmbed(range.index, "htmlEmbed", html, "user");
+    quill.insertText(range.index + 1, "\n", "user");
+    const nextIndex = range.index + 2;
+    quill.setSelection(nextIndex, 0, "silent");
+    savedRangeRef.current = { index: nextIndex, length: 0 };
+    syncEditorHtml();
   };
 
   const toggleCategory = (category) => {
@@ -1145,23 +1035,24 @@ function BlogComposer({
       const createdAttachments = await resourceService.uploadAttachments("market-news-posts", postId, preparedFiles);
       const nextAttachments = Array.isArray(createdAttachments) ? createdAttachments : [];
       onAttachmentsUploaded?.(nextAttachments);
-
-      const imageHtml = nextAttachments
-        .map((attachment) => {
-          const imageUrl = getAttachmentUrl(attachment);
-          if (!imageUrl) {
-            return "";
-          }
-          const fileName = escapeHtml(attachment.original_name || "Imagem");
-          return buildResizableMediaHtml(
-            `<figure><img src="${imageUrl}" alt="${fileName}" style="width:100%;height:100%;object-fit:contain;" /></figure>`,
-            { width: "520px", height: "360px" },
-          );
-        })
-        .filter(Boolean)
-        .join("");
-
-      insertHtml(imageHtml);
+      const quill = quillRef.current;
+      if (!quill) {
+        return;
+      }
+      let insertAt = getEditorRange().index;
+      nextAttachments.forEach((attachment) => {
+        const imageUrl = getAttachmentUrl(attachment);
+        if (!imageUrl) {
+          return;
+        }
+        quill.insertEmbed(insertAt, "image", imageUrl, "user");
+        insertAt += 1;
+        quill.insertText(insertAt, "\n", "user");
+        insertAt += 1;
+      });
+      quill.setSelection(insertAt, 0, "silent");
+      savedRangeRef.current = { index: insertAt, length: 0 };
+      syncEditorHtml();
     } catch {
       setUploadError("Nao foi possivel enviar a imagem colada. Tente novamente.");
     } finally {
@@ -1289,7 +1180,10 @@ function BlogComposer({
                   className="btn btn-secondary"
                   type="button"
                   onClick={() => {
-                    saveEditorSelection();
+                    const liveRange = quillRef.current?.getSelection(true);
+                    if (liveRange) {
+                      savedRangeRef.current = liveRange;
+                    }
                     imageInputRef.current?.click();
                   }}
                 >
@@ -1362,87 +1256,82 @@ function BlogComposer({
           </aside>
 
           <div className="blog-studio-editor-column">
-            <div className="market-news-editor-toolbar blog-studio-toolbar-shell">
-              <ToolbarGroup label="Bloco">
-                <select
-                  className="form-control blog-studio-toolbar-field"
-                  value={toolbarState.block}
-                  onChange={(event) => applyBlockFormat(event.target.value)}
-                >
-                  <option value="p">Paragrafo</option>
-                  <option value="h1">Titulo H1</option>
-                  <option value="h2">Titulo H2</option>
-                  <option value="h3">Titulo H3</option>
-                  <option value="blockquote">Citacao</option>
-                </select>
-              </ToolbarGroup>
+            <div className="blog-studio-quill-toolbar-shell">
+              <div ref={quillToolbarRef} className="blog-studio-quill-toolbar">
+                <span className="ql-formats">
+                  <select className="ql-font" defaultValue="">
+                    <option value="">Sans</option>
+                    <option value="serif">Serif</option>
+                    <option value="monospace">Mono</option>
+                  </select>
+                  <select className="ql-size" defaultValue="">
+                    <option value="small">P</option>
+                    <option value="">Normal</option>
+                    <option value="large">G</option>
+                    <option value="huge">GG</option>
+                  </select>
+                  <select className="ql-header" defaultValue="">
+                    <option value="1">H1</option>
+                    <option value="2">H2</option>
+                    <option value="">P</option>
+                  </select>
+                </span>
 
-              <ToolbarGroup label="Texto" grow>
-                <ToolbarAction label="Negrito" isActive={toolbarState.bold} onClick={() => runCommand("bold")} />
-                <ToolbarAction label="Italico" isActive={toolbarState.italic} onClick={() => runCommand("italic")} />
-                <ToolbarAction label="Sublinhado" isActive={toolbarState.underline} onClick={() => runCommand("underline")} />
-                <ToolbarAction label="Lista" isActive={toolbarState.unordered} onClick={() => runCommand("insertUnorderedList")} />
-                <ToolbarAction label="Numerada" isActive={toolbarState.ordered} onClick={() => runCommand("insertOrderedList")} />
-              </ToolbarGroup>
+                <span className="ql-formats">
+                  <button type="button" className="ql-bold" aria-label="Negrito" />
+                  <button type="button" className="ql-italic" aria-label="Italico" />
+                  <button type="button" className="ql-underline" aria-label="Sublinhado" />
+                </span>
 
-              <ToolbarGroup label="Alinhamento">
-                <ToolbarAction label="Esquerda" isActive={toolbarState.align === "left"} onClick={() => applyAlignment("left")} />
-                <ToolbarAction label="Centro" isActive={toolbarState.align === "center"} onClick={() => applyAlignment("center")} />
-                <ToolbarAction label="Direita" isActive={toolbarState.align === "right"} onClick={() => applyAlignment("right")} />
-              </ToolbarGroup>
+                <span className="ql-formats">
+                  <button type="button" className="ql-list" value="ordered" aria-label="Lista numerada" />
+                  <button type="button" className="ql-list" value="bullet" aria-label="Lista com marcadores" />
+                  <button type="button" className="ql-blockquote" aria-label="Citacao" />
+                  <button type="button" className="ql-code-block" aria-label="Codigo" />
+                </span>
 
-              <ToolbarGroup label="Tipografia">
-                <select
-                  className="form-control blog-studio-toolbar-field is-narrow"
-                  value={fontSize}
-                  onChange={(event) => {
-                    setFontSize(event.target.value);
-                    wrapSelectionWithStyle(`font-size:${event.target.value}px;`);
-                  }}
-                >
-                  <option value="16">16 px</option>
-                  <option value="18">18 px</option>
-                  <option value="22">22 px</option>
-                  <option value="28">28 px</option>
-                  <option value="36">36 px</option>
-                  <option value="48">48 px</option>
-                </select>
-                <label className="blog-studio-toolbar-color">
-                  <span>Cor</span>
-                  <input
-                    type="color"
-                    value={fontColor}
-                    onChange={(event) => {
-                      setFontColor(event.target.value);
-                      wrapSelectionWithStyle(`color:${event.target.value};`);
-                    }}
-                  />
-                </label>
-              </ToolbarGroup>
+                <span className="ql-formats">
+                  <button type="button" className="ql-link" aria-label="Link" />
+                  <button type="button" className="ql-image" aria-label="Imagem" />
+                </span>
 
-              <ToolbarGroup label="Insercao">
-                <ToolbarAction
-                  label="Link"
+                <span className="ql-formats">
+                  <select className="ql-color" />
+                  <select className="ql-background" />
+                  <select className="ql-align" />
+                </span>
+              </div>
+
+              <div className="blog-studio-quill-toolbar-actions">
+                <button
+                  className="btn btn-secondary"
+                  type="button"
                   onClick={() => {
-                    const url = window.prompt("URL do link");
-                    if (url) {
-                      runCommand("createLink", url);
+                    const liveRange = quillRef.current?.getSelection(true);
+                    if (liveRange) {
+                      savedRangeRef.current = liveRange;
                     }
-                  }}
-                />
-                <ToolbarAction
-                  label="HTML"
-                  variant="accent"
-                  onClick={() => {
-                    saveEditorSelection();
                     setHtmlDialogOpen(true);
                   }}
-                />
-                <ToolbarAction label="Limpar" onClick={() => runCommand("removeFormat")} />
-              </ToolbarGroup>
+                >
+                  Inserir HTML
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={() => {
+                    quillRef.current?.focus();
+                    const range = getEditorRange();
+                    quillRef.current?.removeFormat(range.index, Math.max(range.length, 1), "user");
+                    syncEditorHtml();
+                  }}
+                >
+                  Limpar formato
+                </button>
+              </div>
             </div>
 
-            <div className="blog-studio-help-text">Use os controles acima para formatar o texto e inserir HTML no ponto exato do cursor.</div>
+            <div className="blog-studio-help-text">Voce pode digitar, colar imagem direto no texto e inserir embed HTML no ponto do cursor.</div>
 
             <input
               ref={imageInputRef}
@@ -1486,31 +1375,9 @@ function BlogComposer({
               }}
             />
 
-            <div
-              ref={editorRef}
-              className="market-news-rich-editor blog-studio-rich-editor"
-              contentEditable
-              suppressContentEditableWarning
-              onInput={() => {
-                syncEditorHtml();
-                saveEditorSelection();
-              }}
-              onKeyUp={saveEditorSelection}
-              onMouseUp={saveEditorSelection}
-              onFocus={saveEditorSelection}
-              onBlur={saveEditorSelection}
-              onPaste={async (event) => {
-                const imageFiles = Array.from(event.clipboardData?.items || [])
-                  .filter((item) => item.kind === "file" && String(item.type || "").startsWith("image/"))
-                  .map((item) => item.getAsFile())
-                  .filter(Boolean);
-                if (!imageFiles.length) {
-                  return;
-                }
-                event.preventDefault();
-                await uploadImagesAndInsert(imageFiles);
-              }}
-            />
+            <div className="blog-studio-rich-editor-shell">
+              <div ref={quillHostRef} className="blog-studio-rich-editor" />
+            </div>
           </div>
         </div>
       </form>
