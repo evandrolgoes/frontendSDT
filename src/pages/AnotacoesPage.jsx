@@ -212,6 +212,7 @@ function AnotacaoComposerModal({
   onClose,
   onSave,
   onRemoveAttachment,
+  isSaving = false,
 }) {
   const formId = "anotacoes-editor-form";
   const [form, setForm] = useState(toEditorState(initialPost));
@@ -380,6 +381,9 @@ function AnotacaoComposerModal({
         className="market-news-editor-panel"
         onSubmit={(event) => {
           event.preventDefault();
+          if (isSaving) {
+            return;
+          }
           onSave(normalizeSavePayload(form, syncEditorHtml()), form.id, { attachmentFiles });
         }}
       >
@@ -389,10 +393,10 @@ function AnotacaoComposerModal({
             <div className="muted">Ata de reuniao com o mesmo editor rico do Blog/News e suporte a anexos.</div>
           </div>
           <div className="modal-header-actions">
-            <button className="btn btn-primary" type="submit">
-              Salvar
+            <button className="btn btn-primary" type="submit" disabled={isSaving}>
+              {isSaving ? "Salvando..." : "Salvar"}
             </button>
-            <button className="btn btn-secondary" type="button" onClick={onClose}>
+            <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving}>
               Fechar
             </button>
           </div>
@@ -665,11 +669,11 @@ function AnotacaoComposerModal({
         </div>
 
         <div className="modal-actions">
-          <button className="btn btn-secondary" type="button" onClick={onClose}>
+          <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving}>
             Cancelar
           </button>
-          <button className="btn btn-primary" type="submit">
-            Salvar
+          <button className="btn btn-primary" type="submit" disabled={isSaving}>
+            {isSaving ? "Salvando..." : "Salvar"}
           </button>
         </div>
       </form>
@@ -725,6 +729,7 @@ export function AnotacoesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editorState, setEditorState] = useState(null);
+  const [isSavingPost, setIsSavingPost] = useState(false);
 
   const backToListUrl = "/anotacoes";
   const canManagePosts = Boolean(user?.is_superuser || ["owner", "manager"].includes(user?.role));
@@ -785,6 +790,7 @@ export function AnotacoesPage() {
   }, [editorState?.id, selectedPost?.id]);
 
   const handleSavePost = async (payload, currentPostId, options = {}) => {
+    setIsSavingPost(true);
     try {
       let saved = null;
       if (currentPostId) {
@@ -804,6 +810,8 @@ export function AnotacoesPage() {
       await loadData();
     } catch {
       setError("Não foi possível salvar a anotação.");
+    } finally {
+      setIsSavingPost(false);
     }
   };
 
@@ -871,13 +879,13 @@ export function AnotacoesPage() {
           <h2>{editorState ? (editorState?.titulo || "Nova anotacao") : selectedPost ? selectedPost.titulo : "Atas e anotacoes"}</h2>
           <div className="market-news-toolbar-actions">
             {editorState ? (
-              <button className="btn btn-secondary" type="button" onClick={() => setEditorState(null)}>
+              <button className="btn btn-secondary" type="button" onClick={() => setEditorState(null)} disabled={isSavingPost}>
                 Voltar
               </button>
             ) : null}
             {editorState ? (
-              <button className="btn btn-primary" type="submit" form="anotacoes-editor-form">
-                Salvar
+              <button className="btn btn-primary" type="submit" form="anotacoes-editor-form" disabled={isSavingPost}>
+                {isSavingPost ? "Salvando..." : "Salvar"}
               </button>
             ) : null}
             {!editorState && selectedPost ? (
@@ -910,6 +918,7 @@ export function AnotacoesPage() {
             onClose={() => setEditorState(null)}
             onSave={handleSavePost}
             onRemoveAttachment={handleRemoveAttachment}
+            isSaving={isSavingPost}
           />
         ) : null}
 

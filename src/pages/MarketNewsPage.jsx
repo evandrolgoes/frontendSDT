@@ -224,7 +224,7 @@ const readFileAsDataUrl = (file) =>
     reader.readAsDataURL(file);
   });
 
-function NewsComposerModal({ initialPost, existingCategories, attachments, onClose, onSave, onRemoveAttachment }) {
+function NewsComposerModal({ initialPost, existingCategories, attachments, onClose, onSave, onRemoveAttachment, isSaving = false }) {
   const formId = "market-news-editor-form";
   const [form, setForm] = useState(toEditorState(initialPost));
   const [newCategory, setNewCategory] = useState("");
@@ -412,6 +412,9 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
         className="market-news-editor-panel"
         onSubmit={(event) => {
           event.preventDefault();
+          if (isSaving) {
+            return;
+          }
           onSave(normalizeSavePayload(form, syncEditorHtml()), form.id, { attachmentFiles });
         }}
       >
@@ -421,10 +424,10 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
             <div className="muted">Conteúdo corrido com formatação rica, imagens, vídeos e HTML no mesmo fluxo.</div>
           </div>
           <div className="modal-header-actions">
-            <button className="btn btn-primary" type="submit">
-              Salvar
+            <button className="btn btn-primary" type="submit" disabled={isSaving}>
+              {isSaving ? "Salvando..." : "Salvar"}
             </button>
-            <button className="btn btn-secondary" type="button" onClick={onClose}>
+            <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving}>
               Fechar
             </button>
           </div>
@@ -738,11 +741,11 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
         </div>
 
         <div className="modal-actions">
-          <button className="btn btn-secondary" type="button" onClick={onClose}>
+          <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving}>
             Cancelar
           </button>
-          <button className="btn btn-primary" type="submit">
-            Salvar
+          <button className="btn btn-primary" type="submit" disabled={isSaving}>
+            {isSaving ? "Salvando..." : "Salvar"}
           </button>
         </div>
       </form>
@@ -798,6 +801,7 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editorState, setEditorState] = useState(null);
+  const [isSavingPost, setIsSavingPost] = useState(false);
   const [audioRate, setAudioRate] = useState(1);
   const audioRef = useRef(null);
 
@@ -878,6 +882,7 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
   }, [audioRate, selectedPost?.id]);
 
   const handleSavePost = async (payload, postId, options = {}) => {
+    setIsSavingPost(true);
     try {
       let saved = null;
       if (postId) {
@@ -895,6 +900,8 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
       await loadPosts();
     } catch {
       setError("Não foi possível salvar o post.");
+    } finally {
+      setIsSavingPost(false);
     }
   };
 
@@ -968,13 +975,13 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
           <h2>{editorState ? (editorState?.titulo || "Novo post") : selectedPost ? selectedPost.titulo : "News"}</h2>
           <div className="market-news-toolbar-actions">
             {editorState ? (
-              <button className="btn btn-secondary" type="button" onClick={() => setEditorState(null)}>
+              <button className="btn btn-secondary" type="button" onClick={() => setEditorState(null)} disabled={isSavingPost}>
                 Voltar
               </button>
             ) : null}
             {editorState ? (
-              <button className="btn btn-primary" type="submit" form="market-news-editor-form">
-                Salvar
+              <button className="btn btn-primary" type="submit" form="market-news-editor-form" disabled={isSavingPost}>
+                {isSavingPost ? "Salvando..." : "Salvar"}
               </button>
             ) : null}
             {!editorState && selectedPost ? (
@@ -1006,6 +1013,7 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
             onClose={() => setEditorState(null)}
             onSave={handleSavePost}
             onRemoveAttachment={handleRemoveAttachment}
+            isSaving={isSavingPost}
           />
         ) : null}
 
