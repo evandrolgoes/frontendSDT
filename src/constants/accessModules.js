@@ -11,7 +11,7 @@ export const moduleOptions = [
   { value: "insights_commercialization", label: "Insights: Comercializacao" },
   { value: "market_fund_positions", label: "Mercado: Posição de Fundos" },
   { value: "market_quotes", label: "Mercado: Cotações" },
-  { value: "market_blog_news", label: "Mercado: Blog/News" },
+  { value: "market_blog_news", label: "Mercado: Blog" },
   { value: "market_exports", label: "Mercado: Exportações" },
   { value: "market_basis", label: "Mercado: Basis" },
   { value: "market_interest_rates", label: "Mercado: Taxa de Juros" },

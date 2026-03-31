@@ -472,7 +472,7 @@ function CommercialRiskNewsSummaryCard({ rows, onOpen, onOpenPost }) {
   return (
     <div className="card stat-card risk-kpi-news-stat-card">
       <button type="button" className="stat-card-primary-title risk-kpi-card-title risk-kpi-news-stat-title" onClick={onOpen}>
-        Blog/News
+        Blog
       </button>
       <div className="risk-kpi-news-stat-list">
         {latestPosts.length ? (
@@ -527,7 +527,13 @@ const formatMarketNewsPostDate = (value) => {
 
 const getMarketNewsAttachmentUrl = (attachment) => attachment?.file_url || attachment?.file || "";
 
-const isMarketNewsImageAttachment = (attachment) => /\.(png|jpe?g|gif|webp|svg)$/i.test(getMarketNewsAttachmentUrl(attachment));
+const isMarketNewsImageAttachment = (attachment) => {
+  const mimeType = String(attachment?.stored_content_type || "").toLowerCase();
+  if (mimeType.startsWith("image/")) {
+    return true;
+  }
+  return /\.(png|jpe?g|gif|webp|svg)$/i.test(`${attachment?.original_name || ""} ${getMarketNewsAttachmentUrl(attachment)}`);
+};
 
 function MarketNewsPreviewModal({ post, attachments, attachmentsLoading, onClose }) {
   const [audioRate, setAudioRate] = useState(1);
@@ -5378,7 +5384,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   };
 
   const openBlogNewsPage = () => {
-    navigateFromSummary(navigate, "/mercado/blog-news", "Blog/News");
+    navigateFromSummary(navigate, "/mercado/blog", "Blog");
   };
 
   const openMarketNewsPreview = useCallback((post) => {

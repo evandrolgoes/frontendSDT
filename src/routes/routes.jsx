@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import { hasModuleAccess, hasUserTypeAccess } from "../constants/accessModules";
-import { matchPath, Navigate } from "react-router-dom";
+import { matchPath, Navigate, useLocation, useParams } from "react-router-dom";
 import { resourceService } from "../services/resourceService";
 
 const loadDashboardPageModule = () => import("../pages/DashboardPage");
@@ -11,7 +11,7 @@ const loadCopyBasePageModule = () => import("../pages/CopyBasePage");
 const loadMassImportPageModule = () => import("../pages/MassImportPage");
 const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
 const loadMercadoPageModule = () => import("../pages/MercadoPage");
-const loadMarketNewsPageModule = () => import("../pages/MarketNewsPage");
+const loadBlogStudioPageModule = () => import("../pages/BlogStudioPage");
 const loadInsightsPageModule = () => import("../pages/InsightsPage");
 const loadInsightsQuestionLabPageModule = () => import("../pages/InsightsQuestionLabPage");
 const loadMarketSummaryPageModule = () => import("../pages/MarketSummaryPage");
@@ -38,14 +38,21 @@ const CopyBasePage = lazyNamedExport(loadCopyBasePageModule, "CopyBasePage");
 const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage");
 const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage");
 const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
-const MarketNewsPage = lazyNamedExport(loadMarketNewsPageModule, "MarketNewsPage");
+const BlogStudioPage = lazyNamedExport(loadBlogStudioPageModule, "BlogStudioPage");
 const InsightsPage = lazyNamedExport(loadInsightsPageModule, "InsightsPage");
 const InsightsQuestionLabPage = lazyNamedExport(loadInsightsQuestionLabPageModule, "InsightsQuestionLabPage");
 const MarketSummaryPage = lazyNamedExport(loadMarketSummaryPageModule, "MarketSummaryPage");
 const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
 const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
-const warmMarketNewsCategories = () => resourceService.listMarketNewsCategories().catch(() => []);
+const warmBlogPosts = (params = {}) => resourceService.listAll("market-news-posts", params).catch(() => []);
 const SHEETY_QUOTES_URL = "https://api.sheety.co/90083751cf0794f44c9730c96a94cedf/apiCotacoesSpotGetBubble/planilha1";
+
+function LegacyBlogNewsRedirect() {
+  const { postId } = useParams();
+  const location = useLocation();
+  const destination = postId ? `/mercado/blog/${postId}` : "/mercado/blog";
+  return <Navigate to={`${destination}${location.search || ""}`} replace />;
+}
 
 const warmDashboardKind = (kind) => {
   switch (kind) {
@@ -182,7 +189,7 @@ const baseNavigationSections = [
   {
     label: "Mercado",
     items: [
-      { path: "/mercado/blog-news", label: "Blog/News", module: "market_blog_news" },
+      { path: "/mercado/blog", label: "Blog", module: "market_blog_news" },
       { path: "/mercado/cotacoes", label: "Cotacoes", module: "market_quotes" },
       { path: "/mercado/posicao-de-fundos", label: "Posicao de Fundos", module: "market_fund_positions" },
       { path: "/mercado/exportacoes", label: "Exportacoes", module: "market_exports" },
@@ -196,8 +203,8 @@ const baseNavigationSections = [
 const navigationItems = baseNavigationSections.flatMap((section) => section.items);
 
 export const publicAppRoutes = [
-  { path: "/blog", element: <MarketNewsPage basePath="/blog" />, title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
-  { path: "/blog/:postId", element: <MarketNewsPage basePath="/blog" />, title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
+  { path: "/blog", element: <BlogStudioPage basePath="/blog" />, title: "Blog", preload: loadBlogStudioPageModule, warmup: () => warmBlogPosts({ public: 1 }) },
+  { path: "/blog/:postId", element: <BlogStudioPage basePath="/blog" />, title: "Blog", preload: loadBlogStudioPageModule, warmup: () => warmBlogPosts({ public: 1 }) },
 ];
 
 export function getNavigationSections(user) {
@@ -243,8 +250,10 @@ export const appRoutes = [
   },
   { path: "/mercado/posicao-de-fundos", element: <MercadoPage kind="fundPositions" />, module: "market_fund_positions", preload: loadMercadoPageModule },
   { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes" },
-  { path: "/mercado/blog-news", element: <MarketNewsPage />, module: "market_blog_news", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
-  { path: "/mercado/blog-news/:postId", element: <MarketNewsPage />, module: "market_blog_news", title: "Blog/News", preload: loadMarketNewsPageModule, warmup: warmMarketNewsCategories },
+  { path: "/mercado/blog", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
+  { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
+  { path: "/mercado/blog-news", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
+  { path: "/mercado/blog-news/:postId", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
   { path: "/insights/comercializacao", element: <InsightsPage />, module: "insights_commercialization", preload: loadInsightsPageModule },
   { path: "/insights/perguntas-prontas", element: <InsightsQuestionLabPage />, module: "insights_commercialization", preload: loadInsightsQuestionLabPageModule },
   { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", preload: loadMercadoPageModule },

@@ -4,7 +4,6 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { getNavigationSections } from "../routes/routes";
-import { resourceService } from "../services/resourceService";
 
 const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [], localidade: [] };
 
@@ -72,7 +71,6 @@ export function AdminLayout({ children }) {
   const { filter, hasActiveFilter, options, panelOpen, setPanelOpen, saveFilter, isSaving } = useDashboardFilter();
   const isCashflowDashboard = location.pathname === "/dashboard/fluxo-caixa";
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
-  const [marketNewsCategories, setMarketNewsCategories] = useState([]);
   const [isMobileSidebar, setIsMobileSidebar] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false,
   );
@@ -210,61 +208,10 @@ export function AdminLayout({ children }) {
     });
   }, [navigationSections]);
 
-  useEffect(() => {
-    const hasBlogAccess = navigationSections.some((section) =>
-      section.items.some((item) => item.path === "/mercado/blog-news"),
-    );
-    if (!hasBlogAccess) {
-      setMarketNewsCategories([]);
-      return undefined;
-    }
-
-    let active = true;
-    const loadCategories = async (force = false) => {
-      try {
-        const items = await resourceService.listMarketNewsCategories({ force });
-        if (active) {
-          setMarketNewsCategories(Array.isArray(items) ? items : []);
-        }
-      } catch {
-        if (active) {
-          setMarketNewsCategories([]);
-        }
-      }
-    };
-
-    loadCategories();
-    const handleCategoriesChanged = () => loadCategories(true);
-    window.addEventListener("market-news-categories-changed", handleCategoriesChanged);
-    return () => {
-      active = false;
-      window.removeEventListener("market-news-categories-changed", handleCategoriesChanged);
-    };
-  }, [navigationSections]);
-
-  const navigationWithChildren = useMemo(
-    () =>
-      navigationSections.map((section) => ({
-        ...section,
-        items: section.items.map((item) =>
-          item.path === "/mercado/blog-news"
-            ? {
-                ...item,
-                children: marketNewsCategories.map((category) => ({
-                  path: `/mercado/blog-news?categoria=${encodeURIComponent(category)}`,
-                  label: category,
-                })),
-              }
-            : item,
-        ),
-      })),
-    [marketNewsCategories, navigationSections],
-  );
-
   const isNavItemActive = (path) => {
     const [pathname, search = ""] = String(path || "").split("?");
-    if (pathname === "/mercado/blog-news") {
-      const blogPathActive = location.pathname === pathname || location.pathname.startsWith("/mercado/blog-news/");
+    if (pathname === "/mercado/blog") {
+      const blogPathActive = location.pathname === pathname || location.pathname.startsWith("/mercado/blog/");
       if (!blogPathActive) {
         return false;
       }
@@ -276,7 +223,7 @@ export function AdminLayout({ children }) {
     }
     const currentSearch = location.search.startsWith("?") ? location.search.slice(1) : location.search;
     if (!search) {
-      return pathname === "/mercado/blog-news" ? !currentSearch : true;
+      return pathname === "/mercado/blog" ? !currentSearch : true;
     }
     return currentSearch === search;
   };
@@ -302,7 +249,7 @@ export function AdminLayout({ children }) {
             <h1>Hedge Position</h1>
           </div>
           <nav className="sidebar-sections">
-            {navigationWithChildren.map((section) => (
+            {navigationSections.map((section) => (
               <div className="nav-section" key={section.label}>
                 <button
                   type="button"

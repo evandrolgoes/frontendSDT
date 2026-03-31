@@ -383,39 +383,6 @@ const baseResourceDefinitions = {
     ],
     fields: [],
   },
-  marketNewsPosts: {
-    resource: "market-news-posts",
-    title: "Blog/News",
-    description: "",
-    searchPlaceholder: "Buscar titulo ou categoria...",
-    columns: [
-      { key: "data_publicacao", label: "Data publicacao", type: "date" },
-      { key: "titulo", label: "Titulo" },
-      { key: "categorias", label: "Categorias", type: "select-multi" },
-      { key: "status_artigo", label: "Status do artigo" },
-      { key: "published_by_name", label: "Publicado por" },
-    ],
-    fields: [
-      { name: "titulo", label: "Titulo" },
-      { name: "data_publicacao", label: "Data publicacao", type: "date", optional: true },
-      {
-        name: "status_artigo",
-        label: "Status do artigo",
-        type: "select",
-        options: [
-          { value: "draft", label: "Rascunho" },
-          { value: "published", label: "Publicado" },
-        ],
-      },
-      { name: "categorias", label: "Categorias", type: "json-list", helpText: "Separe as categorias por virgula." },
-      {
-        name: "conteudo_html",
-        label: "Conteudo HTML",
-        type: "textarea",
-        helpText: "A tela principal do blog usa editor rico continuo com HTML no mesmo fluxo do texto.",
-      },
-    ],
-  },
   budgetCosts: {
     resource: "budget-costs",
     title: "Custo Orcamento",

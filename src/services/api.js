@@ -12,7 +12,11 @@ const PUBLIC_AUTH_PATHS = [
   "/auth/login/",
 ];
 
-const PUBLIC_GET_PATHS = [
+const ALWAYS_PUBLIC_GET_PATHS = [
+  "/tradingview-watchlist-quotes/",
+];
+
+const PUBLIC_FLAG_GET_PATHS = [
   "/market-news-posts/",
 ];
 
@@ -21,10 +25,31 @@ const isPublicAuthPath = (config) => {
   return PUBLIC_AUTH_PATHS.some((path) => requestUrl.includes(path));
 };
 
+const hasPublicFlag = (config) => {
+  const paramValue = config?.params?.public;
+  if (paramValue !== undefined && paramValue !== null && paramValue !== "") {
+    return ["1", "true", "yes"].includes(String(paramValue).trim().toLowerCase());
+  }
+  const requestUrl = String(config?.url || "");
+  try {
+    const baseOrigin = baseURL.replace(/\/api\/?$/, "") || "http://localhost:8000";
+    const parsedUrl = new URL(requestUrl, baseOrigin);
+    return ["1", "true", "yes"].includes(String(parsedUrl.searchParams.get("public") || "").trim().toLowerCase());
+  } catch {
+    return /(?:\?|&)public=(?:1|true|yes)(?:&|$)/i.test(requestUrl);
+  }
+};
+
 const isPublicGetRequest = (config) => {
   const requestUrl = String(config?.url || "");
   const requestMethod = String(config?.method || "get").toLowerCase();
-  return requestMethod === "get" && PUBLIC_GET_PATHS.some((path) => requestUrl.includes(path));
+  if (requestMethod !== "get") {
+    return false;
+  }
+  if (ALWAYS_PUBLIC_GET_PATHS.some((path) => requestUrl.includes(path))) {
+    return true;
+  }
+  return hasPublicFlag(config) && PUBLIC_FLAG_GET_PATHS.some((path) => requestUrl.includes(path));
 };
 
 const isPublicRequest = (config) => isPublicAuthPath(config) || isPublicGetRequest(config);
@@ -35,7 +60,7 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  if (isPublicAuthPath(config)) {
+  if (isPublicRequest(config)) {
     if (config.headers?.Authorization) {
       delete config.headers.Authorization;
     }

@@ -182,21 +182,23 @@ export const resourceService = {
       });
   },
   listAttachments: (resource, id, options = {}) => {
-    const cacheKey = buildCacheKey("attachments", `${resource}/${id}`, {});
+    const normalizedParams = normalizeRequestParams(options.params) || {};
+    const cacheKey = buildCacheKey("attachments", `${resource}/${id}`, normalizedParams);
     if (options.force) {
       responseCache.delete(cacheKey);
     }
     return remember(cacheKey, () =>
-      api.get(`/${resource}/${id}/attachments/`).then((response) => response.data),
+      api.get(`/${resource}/${id}/attachments/`, { params: normalizedParams }).then((response) => response.data),
     );
   },
   getOne: (resource, id, options = {}) => {
-    const cacheKey = buildCacheKey("detail", `${resource}/${id}`, {});
+    const normalizedParams = normalizeRequestParams(options.params) || {};
+    const cacheKey = buildCacheKey("detail", `${resource}/${id}`, normalizedParams);
     if (options.force) {
       responseCache.delete(cacheKey);
     }
     return remember(cacheKey, () =>
-      api.get(`/${resource}/${id}/`).then((response) => response.data),
+      api.get(`/${resource}/${id}/`, { params: normalizedParams }).then((response) => response.data),
     );
   },
   listDerivativeContracts: (secao) =>
@@ -235,15 +237,6 @@ export const resourceService = {
         price: item?.price,
       }));
     });
-  },
-  listMarketNewsCategories: (options = {}) => {
-    const cacheKey = buildCacheKey("lookup", "market-news-categories", {});
-    if (options.force) {
-      responseCache.delete(cacheKey);
-    }
-    return remember(cacheKey, () =>
-      api.get("market-news-posts/categories/").then((response) => response.data),
-    );
   },
   getCommercialRiskSummary: (params = {}, options = {}) => {
     const normalizedParams = normalizeRequestParams(params) || {};
