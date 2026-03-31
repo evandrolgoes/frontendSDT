@@ -5184,17 +5184,15 @@ tfoot td {
 }
 
 .market-news-attachment-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
   color: #0f766e;
   text-decoration: none;
+  text-align: left;
   font-size: 0.86rem;
   font-weight: 600;
-}
-
-.market-news-attachment-preview {
-  width: 100%;
-  max-width: 640px;
-  border-radius: 16px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
+  cursor: pointer;
 }
 
 .market-news-empty {

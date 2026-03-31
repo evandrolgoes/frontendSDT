@@ -60,7 +60,43 @@ const buildExcerpt = (post) => {
 
 const getAttachmentUrl = (attachment) => attachment?.file_url || attachment?.file || "";
 
-const isImageAttachment = (attachment) => /\.(png|jpe?g|gif|webp|svg)$/i.test(getAttachmentUrl(attachment));
+const normalizeComparableUrl = (value) => {
+  const rawValue = String(value || "").trim();
+  if (!rawValue) {
+    return "";
+  }
+  try {
+    const baseOrigin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const url = new URL(rawValue, baseOrigin);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return rawValue.split("#")[0].split("?")[0];
+  }
+};
+
+const getInlineMediaUrls = (html) => {
+  const content = String(html || "").trim();
+  if (!content) {
+    return new Set();
+  }
+  if (typeof DOMParser === "undefined") {
+    return new Set();
+  }
+  const documentRef = new DOMParser().parseFromString(content, "text/html");
+  return new Set(
+    Array.from(documentRef.querySelectorAll("img[src], video[src], source[src], a[href]"))
+      .map((element) => normalizeComparableUrl(element.getAttribute("src") || element.getAttribute("href")))
+      .filter(Boolean),
+  );
+};
+
+const filterStandaloneAttachments = (attachments, html) => {
+  const inlineUrls = getInlineMediaUrls(html);
+  return (Array.isArray(attachments) ? attachments : []).filter((attachment) => {
+    const attachmentUrl = normalizeComparableUrl(getAttachmentUrl(attachment));
+    return attachmentUrl && !inlineUrls.has(attachmentUrl);
+  });
+};
 
 const normalizeCategories = (items) => {
   const result = [];
@@ -216,6 +252,14 @@ const normalizeEditorMedia = (editor) => {
   editor.querySelectorAll(".market-news-resizable").forEach((wrapper) => ensureResizeHandle(wrapper));
 };
 
+const escapeHtml = (value) =>
+  String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
 const readFileAsDataUrl = (file) =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -224,7 +268,24 @@ const readFileAsDataUrl = (file) =>
     reader.readAsDataURL(file);
   });
 
-function NewsComposerModal({ initialPost, existingCategories, attachments, onClose, onSave, onRemoveAttachment, isSaving = false }) {
+const openAttachmentPopup = (url) => {
+  if (!url || typeof window === "undefined") {
+    return;
+  }
+  window.open(url, "_blank", "popup,width=960,height=720,noopener,noreferrer");
+};
+
+function NewsComposerModal({
+  initialPost,
+  existingCategories,
+  attachments,
+  onClose,
+  onSave,
+  onRemoveAttachment,
+  onDraftCreated,
+  onAttachmentsUploaded,
+  isSaving = false,
+}) {
   const formId = "market-news-editor-form";
   const [form, setForm] = useState(toEditorState(initialPost));
   const [newCategory, setNewCategory] = useState("");
@@ -233,6 +294,8 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
   const [fontColor, setFontColor] = useState("#5b6472");
   const [htmlDialogOpen, setHtmlDialogOpen] = useState(false);
   const [htmlDraft, setHtmlDraft] = useState("");
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const editorRef = useRef(null);
   const imageInputRef = useRef(null);
   const videoInputRef = useRef(null);
@@ -246,6 +309,8 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
     setAttachmentFiles([]);
     setHtmlDraft("");
     setHtmlDialogOpen(false);
+    setIsUploadingMedia(false);
+    setUploadError("");
     lastAppliedHtmlRef.current = nextState.conteudo_html || "";
     if (editorRef.current) {
       editorRef.current.innerHTML = nextState.conteudo_html || "";
@@ -354,19 +419,6 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
     insertHtml(`<span style="${styleText}">${safeText}</span>`);
   };
 
-  const insertImageFromFile = async (file) => {
-    if (!file) {
-      return;
-    }
-    const dataUrl = await readFileAsDataUrl(file);
-    insertHtml(
-      buildResizableMediaHtml(
-        `<figure><img src="${dataUrl}" alt="${file.name}" style="width:100%;height:100%;object-fit:contain;" /><figcaption>${file.name}</figcaption></figure>`,
-        { width: "520px", height: "360px" },
-      ),
-    );
-  };
-
   const insertVideoFromFile = async (file) => {
     if (!file) {
       return;
@@ -405,6 +457,64 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
     setNewCategory("");
   };
 
+  const ensurePersistedPost = async () => {
+    if (form.id) {
+      return form.id;
+    }
+
+    const html = syncEditorHtml();
+    const fallbackTitle = String(form.titulo || "").trim() || "Novo post";
+    const draftPayload = normalizeSavePayload({ ...form, titulo: fallbackTitle }, html);
+    const created = await resourceService.create("market-news-posts", draftPayload);
+
+    setForm((current) => ({
+      ...current,
+      id: created?.id || current.id,
+      titulo: current.titulo || created?.titulo || fallbackTitle,
+      data_publicacao: created?.data_publicacao ? toLocalDatetimeValue(created.data_publicacao) : current.data_publicacao,
+      status_artigo: created?.status_artigo || current.status_artigo,
+    }));
+    onDraftCreated?.(created);
+    return created?.id;
+  };
+
+  const uploadImagesAndInsert = async (files) => {
+    const imageFiles = (Array.isArray(files) ? files : []).filter((file) => file && String(file.type || "").startsWith("image/"));
+    if (!imageFiles.length) {
+      return;
+    }
+
+    setUploadError("");
+    setIsUploadingMedia(true);
+    try {
+      const postId = await ensurePersistedPost();
+      const createdAttachments = await resourceService.uploadAttachments("market-news-posts", postId, imageFiles);
+      const nextAttachments = Array.isArray(createdAttachments) ? createdAttachments : [];
+      onAttachmentsUploaded?.(nextAttachments);
+
+      const imageHtml = nextAttachments
+        .map((attachment) => {
+          const imageUrl = getAttachmentUrl(attachment);
+          if (!imageUrl) {
+            return "";
+          }
+          const fileName = escapeHtml(attachment.original_name || "Imagem");
+          return buildResizableMediaHtml(
+            `<figure><img src="${imageUrl}" alt="${fileName}" style="width:100%;height:100%;object-fit:contain;" /><figcaption>${fileName}</figcaption></figure>`,
+            { width: "520px", height: "360px" },
+          );
+        })
+        .filter(Boolean)
+        .join("");
+
+      insertHtml(imageHtml);
+    } catch {
+      setUploadError("Nao foi possivel enviar a imagem colada. Tente novamente.");
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
   return (
     <div className="market-news-editor-page">
       <form
@@ -412,7 +522,7 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
         className="market-news-editor-panel"
         onSubmit={(event) => {
           event.preventDefault();
-          if (isSaving) {
+          if (isSaving || isUploadingMedia) {
             return;
           }
           onSave(normalizeSavePayload(form, syncEditorHtml()), form.id, { attachmentFiles });
@@ -422,12 +532,14 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
           <div>
             <strong>{form.id ? "Editar post" : "Novo post"}</strong>
             <div className="muted">Conteúdo corrido com formatação rica, imagens, vídeos e HTML no mesmo fluxo.</div>
+            {isUploadingMedia ? <div className="muted">Enviando imagem para o post...</div> : null}
+            {uploadError ? <div className="form-error">{uploadError}</div> : null}
           </div>
           <div className="modal-header-actions">
-            <button className="btn btn-primary" type="submit" disabled={isSaving}>
-              {isSaving ? "Salvando..." : "Salvar"}
+            <button className="btn btn-primary" type="submit" disabled={isSaving || isUploadingMedia}>
+              {isSaving ? "Salvando..." : isUploadingMedia ? "Enviando imagem..." : "Salvar"}
             </button>
-            <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving}>
+            <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving || isUploadingMedia}>
               Fechar
             </button>
           </div>
@@ -552,9 +664,13 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
               <div className="market-news-file-stack">
                 {attachments.map((attachment) => (
                   <div className="market-news-file-row" key={attachment.id}>
-                    <a href={getAttachmentUrl(attachment)} target="_blank" rel="noreferrer">
+                    <button
+                      className="market-news-attachment-link"
+                      type="button"
+                      onClick={() => openAttachmentPopup(getAttachmentUrl(attachment))}
+                    >
                       {attachment.original_name}
-                    </a>
+                    </button>
                     <button className="btn btn-secondary" type="button" onClick={() => onRemoveAttachment?.(attachment.id)}>
                       Remover
                     </button>
@@ -697,9 +813,9 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
             accept="image/*"
             className="market-news-hidden-input"
             onChange={async (event) => {
-              const file = event.target.files?.[0];
-              if (file) {
-                await insertImageFromFile(file);
+              const files = Array.from(event.target.files || []);
+              if (files.length) {
+                await uploadImagesAndInsert(files);
               }
               event.target.value = "";
             }}
@@ -737,15 +853,26 @@ function NewsComposerModal({ initialPost, existingCategories, attachments, onClo
             contentEditable
             suppressContentEditableWarning
             onInput={syncEditorHtml}
+            onPaste={async (event) => {
+              const imageFiles = Array.from(event.clipboardData?.items || [])
+                .filter((item) => item.kind === "file" && String(item.type || "").startsWith("image/"))
+                .map((item) => item.getAsFile())
+                .filter(Boolean);
+              if (!imageFiles.length) {
+                return;
+              }
+              event.preventDefault();
+              await uploadImagesAndInsert(imageFiles);
+            }}
           />
         </div>
 
         <div className="modal-actions">
-          <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving}>
+          <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSaving || isUploadingMedia}>
             Cancelar
           </button>
-          <button className="btn btn-primary" type="submit" disabled={isSaving}>
-            {isSaving ? "Salvando..." : "Salvar"}
+          <button className="btn btn-primary" type="submit" disabled={isSaving || isUploadingMedia}>
+            {isSaving ? "Salvando..." : isUploadingMedia ? "Enviando imagem..." : "Salvar"}
           </button>
         </div>
       </form>
@@ -850,6 +977,10 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
     () => posts.find((item) => String(item.id) === String(postId)) || null,
     [posts, postId],
   );
+  const visibleAttachments = useMemo(
+    () => filterStandaloneAttachments(postAttachments, editorState?.conteudo_html || selectedPost?.conteudo_html || ""),
+    [editorState?.conteudo_html, postAttachments, selectedPost?.conteudo_html],
+  );
 
   useEffect(() => {
     if (!postId) {
@@ -919,6 +1050,23 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
     } catch {
       setError("Não foi possível remover o anexo.");
     }
+  };
+
+  const handleDraftCreated = (draft) => {
+    if (!draft?.id) {
+      return;
+    }
+    setEditorState((current) => ({
+      ...(current || {}),
+      ...draft,
+    }));
+  };
+
+  const handleAttachmentsUploaded = (createdAttachments = []) => {
+    if (!Array.isArray(createdAttachments) || !createdAttachments.length) {
+      return;
+    }
+    setPostAttachments((current) => [...createdAttachments, ...current]);
   };
 
   const handleDeletePost = async (post = selectedPost) => {
@@ -1009,10 +1157,12 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
           <NewsComposerModal
             initialPost={editorState}
             existingCategories={categoryPool}
-            attachments={postAttachments}
+            attachments={visibleAttachments}
             onClose={() => setEditorState(null)}
             onSave={handleSavePost}
             onRemoveAttachment={handleRemoveAttachment}
+            onDraftCreated={handleDraftCreated}
+            onAttachmentsUploaded={handleAttachmentsUploaded}
             isSaving={isSavingPost}
           />
         ) : null}
@@ -1084,18 +1234,19 @@ export function MarketNewsPage({ basePath = "/mercado/blog-news" }) {
               </div>
             </div>
 
-            {postAttachments.length ? (
+            {visibleAttachments.length ? (
               <div className="market-news-attachments-card">
                 <strong>Anexos</strong>
                 <div className="market-news-attachments-list">
-                  {postAttachments.map((attachment) => (
+                  {visibleAttachments.map((attachment) => (
                     <div key={attachment.id} className="market-news-attachment-item">
-                      {isImageAttachment(attachment) ? (
-                        <img className="market-news-attachment-preview" src={getAttachmentUrl(attachment)} alt={attachment.original_name} />
-                      ) : null}
-                      <a href={getAttachmentUrl(attachment)} target="_blank" rel="noreferrer" className="market-news-attachment-link">
+                      <button
+                        type="button"
+                        className="market-news-attachment-link"
+                        onClick={() => openAttachmentPopup(getAttachmentUrl(attachment))}
+                      >
                         {attachment.original_name}
-                      </a>
+                      </button>
                     </div>
                   ))}
                 </div>
