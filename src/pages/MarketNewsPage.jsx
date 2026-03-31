@@ -58,6 +58,10 @@ const buildExcerpt = (post) => {
   return excerpt.length > 220 ? `${excerpt.slice(0, 217)}...` : excerpt;
 };
 
+const IMAGE_UPLOAD_MAX_DIMENSION = 1600;
+const IMAGE_UPLOAD_OUTPUT_TYPE = "image/webp";
+const IMAGE_UPLOAD_OUTPUT_QUALITY = 0.82;
+
 const getAttachmentUrl = (attachment) => attachment?.file_url || attachment?.file || "";
 
 const normalizeComparableUrl = (value) => {
@@ -267,6 +271,76 @@ const readFileAsDataUrl = (file) =>
     reader.onerror = () => reject(new Error("file-read-error"));
     reader.readAsDataURL(file);
   });
+
+const loadImageElement = (file) =>
+  new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("image-load-error"));
+    };
+    image.src = objectUrl;
+  });
+
+const renameWithExtension = (fileName, extension) => {
+  const baseName = String(fileName || "imagem").replace(/\.[^.]+$/, "") || "imagem";
+  return `${baseName}.${extension}`;
+};
+
+const optimizeImageFile = async (file) => {
+  const mimeType = String(file?.type || "").toLowerCase();
+  if (!mimeType.startsWith("image/") || mimeType === "image/svg+xml" || mimeType === "image/gif") {
+    return file;
+  }
+
+  const image = await loadImageElement(file);
+  const width = image.naturalWidth || image.width || 0;
+  const height = image.naturalHeight || image.height || 0;
+  if (!width || !height) {
+    return file;
+  }
+
+  const scale = Math.min(1, IMAGE_UPLOAD_MAX_DIMENSION / Math.max(width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return file;
+  }
+
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => {
+    canvas.toBlob(resolve, IMAGE_UPLOAD_OUTPUT_TYPE, IMAGE_UPLOAD_OUTPUT_QUALITY);
+  });
+  if (!blob) {
+    return file;
+  }
+  if (blob.size >= file.size && scale === 1) {
+    return file;
+  }
+
+  return new File([blob], renameWithExtension(file.name, "webp"), {
+    type: blob.type,
+    lastModified: file.lastModified,
+  });
+};
+
+const optimizeUploadFiles = async (files) =>
+  Promise.all(
+    (Array.isArray(files) ? files : []).map(async (file) => {
+      try {
+        return await optimizeImageFile(file);
+      } catch {
+        return file;
+      }
+    }),
+  );
 
 const openAttachmentPopup = (url) => {
   if (!url || typeof window === "undefined") {
@@ -488,7 +562,8 @@ function NewsComposerModal({
     setIsUploadingMedia(true);
     try {
       const postId = await ensurePersistedPost();
-      const createdAttachments = await resourceService.uploadAttachments("market-news-posts", postId, imageFiles);
+      const preparedFiles = await optimizeUploadFiles(imageFiles);
+      const createdAttachments = await resourceService.uploadAttachments("market-news-posts", postId, preparedFiles);
       const nextAttachments = Array.isArray(createdAttachments) ? createdAttachments : [];
       onAttachmentsUploaded?.(nextAttachments);
 
@@ -695,10 +770,11 @@ function NewsComposerModal({
                       type="file"
                       multiple
                       className="market-news-hidden-input"
-                      onChange={(event) => {
+                      onChange={async (event) => {
                         const files = Array.from(event.target.files || []);
                         if (files.length) {
-                          setAttachmentFiles((current) => [...current, ...files]);
+                          const preparedFiles = await optimizeUploadFiles(files);
+                          setAttachmentFiles((current) => [...current, ...preparedFiles]);
                         }
                         event.target.value = "";
                       }}
