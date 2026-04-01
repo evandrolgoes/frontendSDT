@@ -147,42 +147,64 @@ const resolveUserAssignmentScopeTenantId = (values, lookupOptions) => {
   return String(selectedMasterUser.tenant ?? selectedMasterUser.tenant_id ?? "").trim() || null;
 };
 
+const getUserScopeGroupOptions = (lookupOptions, values) => {
+  const scopeTenantId = resolveUserAssignmentScopeTenantId(values, lookupOptions);
+  if (!scopeTenantId) {
+    return [];
+  }
+  return (lookupOptions?.groups || []).filter((option) => String(option?.tenant ?? "") === scopeTenantId);
+};
+
+const getUserScopeSubgroupOptions = (lookupOptions, values) => {
+  const scopeTenantId = resolveUserAssignmentScopeTenantId(values, lookupOptions);
+  if (!scopeTenantId) {
+    return [];
+  }
+
+  const selectedGroupIds = new Set(
+    (Array.isArray(values?.assigned_groups) ? values.assigned_groups : [])
+      .map((item) => String(item))
+      .filter(Boolean),
+  );
+
+  return (lookupOptions?.subgroups || []).filter((option) => {
+    if (String(option?.tenant ?? "") !== scopeTenantId) {
+      return false;
+    }
+    if (!selectedGroupIds.size) {
+      return true;
+    }
+    return selectedGroupIds.has(String(option?.grupo ?? ""));
+  });
+};
+
 const userAssignmentScopeFields = [
   {
     ...assignmentScopeFields[0],
     pruneInvalidSelections: true,
+    visibleWhen: {
+      predicate: (values, lookupOptions) => {
+        const selectedValues = Array.isArray(values?.assigned_groups) ? values.assigned_groups : [];
+        return selectedValues.length > 0 || getUserScopeGroupOptions(lookupOptions, values).length > 0;
+      },
+    },
     filterOptions: ({ options, lookupOptions, values }) => {
-      const scopeTenantId = resolveUserAssignmentScopeTenantId(values, lookupOptions);
-      if (!scopeTenantId) {
-        return [];
-      }
-      return (options || []).filter((option) => String(option?.tenant ?? "") === scopeTenantId);
+      const allowedIds = new Set(getUserScopeGroupOptions(lookupOptions, values).map((option) => String(option.id)));
+      return (options || []).filter((option) => allowedIds.has(String(option?.id)));
     },
   },
   {
     ...assignmentScopeFields[1],
     pruneInvalidSelections: true,
+    visibleWhen: {
+      predicate: (values, lookupOptions) => {
+        const selectedValues = Array.isArray(values?.assigned_subgroups) ? values.assigned_subgroups : [];
+        return selectedValues.length > 0 || getUserScopeSubgroupOptions(lookupOptions, values).length > 0;
+      },
+    },
     filterOptions: ({ options, lookupOptions, values }) => {
-      const scopeTenantId = resolveUserAssignmentScopeTenantId(values, lookupOptions);
-      if (!scopeTenantId) {
-        return [];
-      }
-
-      const selectedGroupIds = new Set(
-        (Array.isArray(values?.assigned_groups) ? values.assigned_groups : [])
-          .map((item) => String(item))
-          .filter(Boolean),
-      );
-
-      return (options || []).filter((option) => {
-        if (String(option?.tenant ?? "") !== scopeTenantId) {
-          return false;
-        }
-        if (!selectedGroupIds.size) {
-          return true;
-        }
-        return selectedGroupIds.has(String(option?.grupo ?? ""));
-      });
+      const allowedIds = new Set(getUserScopeSubgroupOptions(lookupOptions, values).map((option) => String(option.id)));
+      return (options || []).filter((option) => allowedIds.has(String(option?.id)));
     },
   },
 ];
