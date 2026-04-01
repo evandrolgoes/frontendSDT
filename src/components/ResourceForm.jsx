@@ -292,6 +292,18 @@ const matchesCurrentFilters = (option, filterByCurrent, values) =>
     return normalizedCurrentValues.includes(String(optionValue ?? ""));
   });
 
+const getRelationOptions = (field, lookupOptions, values) => {
+  let options = lookupOptions[field.resource] || [];
+
+  if (typeof field.filterOptions === "function") {
+    options = field.filterOptions({ options, lookupOptions, values }) || [];
+  } else if (field.filterByCurrent) {
+    options = options.filter((option) => matchesCurrentFilters(option, field.filterByCurrent, values));
+  }
+
+  return options;
+};
+
 const isFieldVisible = (field, values, lookupOptions) => {
   if (!field.visibleWhen) {
     return true;
@@ -414,7 +426,10 @@ export function ResourceForm({
       const nextValues = { ...currentValues };
 
       fields.forEach((field) => {
-        const options = getSelectOptions(field, lookupOptions, currentValues);
+        const options =
+          field.type === "relation" || field.type === "multirelation"
+            ? getRelationOptions(field, lookupOptions, currentValues)
+            : getSelectOptions(field, lookupOptions, currentValues);
         const allowedValues = new Set(
           options.map((option) =>
             String(
@@ -450,7 +465,7 @@ export function ResourceForm({
           return;
         }
 
-        if (!field.filterByCurrent || !field.resource) {
+        if (!(field.filterByCurrent || field.filterOptions || field.pruneInvalidSelections) || !field.resource) {
           return;
         }
 
@@ -866,7 +881,7 @@ export function ResourceForm({
     }
 
     if (field.type === "relation") {
-      const options = (lookupOptions[field.resource] || []).filter((option) => matchesCurrentFilters(option, field.filterByCurrent, values));
+      const options = getRelationOptions(field, lookupOptions, values);
       return (
         <select className="form-control" id={field.name} value={currentValue ?? ""} disabled={field.readOnly} onChange={(event) => handleChange(field, event.target.value)}>
           <option value="">Selecione</option>
@@ -880,7 +895,7 @@ export function ResourceForm({
     }
 
     if (field.type === "multirelation") {
-      const options = (lookupOptions[field.resource] || []).filter((option) => matchesCurrentFilters(option, field.filterByCurrent, values));
+      const options = getRelationOptions(field, lookupOptions, values);
       if (field.single) {
         const selectedValue = Array.isArray(currentValue) ? String(currentValue[0] ?? "") : (currentValue ?? "");
 
