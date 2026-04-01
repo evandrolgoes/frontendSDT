@@ -1580,7 +1580,7 @@ export function ResourcePage({ definition }) {
             setFilters({ page: 1, search: "" });
             setCurrent(null);
           }}
-          onEdit={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : handleEdit}
+          onEdit={definition.allowEdit === false ? undefined : (definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : handleEdit)}
           onDuplicate={definition.readonly || definition.allowDuplicate === false ? undefined : handleDuplicate}
           onDelete={definition.allowDelete === false || !user?.is_superuser || (definition.readonly && definition.allowDelete !== true) ? undefined : handleDelete}
           onDeleteSelected={definition.allowDelete === false || !user?.is_superuser || (definition.readonly && definition.allowDelete !== true) ? undefined : handleDeleteSelected}

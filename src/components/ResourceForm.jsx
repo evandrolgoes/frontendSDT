@@ -348,6 +348,19 @@ const groupVisibleFields = (fields, values, lookupOptions) => {
   return sections;
 };
 
+const isFieldFullWidth = (field) =>
+  Boolean(
+    field.fullWidth
+      || field.type === "textarea"
+      || field.type === "file"
+      || field.type === "file-multi"
+      || field.type === "localidade-list"
+      || field.type === "select-multi"
+      || field.accessManager
+      || field.checkboxList
+      || (field.type === "multirelation" && !field.single),
+  );
+
 export function ResourceForm({
   title,
   fields,
@@ -1207,7 +1220,7 @@ export function ResourceForm({
             <div className="form-section" key={`${section.title || "default"}-${sectionIndex}`}>
               {section.title ? <div className="form-section-title">{section.title}</div> : null}
               {section.fields.map((field) => (
-                <div className={`field${field.type === "textarea" || field.checkboxList ? " field-full" : ""}`} key={field.name}>
+                <div className={`field${isFieldFullWidth(field) ? " field-full" : ""}`} key={field.name}>
                   <label htmlFor={field.checkboxList ? undefined : field.name}>{field.label}</label>
                   {renderField(field)}
                   {hasClearableValue(field, values[field.name]) ? (

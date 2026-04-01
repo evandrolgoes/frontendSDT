@@ -8,11 +8,6 @@ const accessStatusOptions = [
   { value: "active", label: "Ativo" },
 ];
 
-const scopeAccessLevelOptions = [
-  { value: "read", label: "Leitura" },
-  { value: "write", label: "Edicao" },
-];
-
 const userRoleOptions = [
   { value: "owner", label: "Owner" },
   { value: "manager", label: "Manager" },
@@ -89,6 +84,49 @@ const catalogSelectFields = {
 };
 
 const STANDARD_FIELD_SEQUENCE = ["grupo", "grupos", "subgrupo", "subgrupos", "cultura", "fazer_frente_com", "safra"];
+
+const assignmentScopeFields = [
+  {
+    name: "assigned_groups",
+    label: "Grupos liberados",
+    type: "multirelation",
+    resource: "groups",
+    labelKey: "grupo",
+    optional: true,
+    section: "Acesso",
+    accessManager: true,
+    accessManagerTitle: "Grupos com acesso liberado",
+    accessManagerEmptyText: "Sem restricao por grupo.",
+    searchPlaceholder: "Buscar grupo...",
+    helpText: "Deixe vazio para o usuario continuar vendo todos os grupos do tenant.",
+  },
+  {
+    name: "assigned_subgroups",
+    label: "Subgrupos liberados",
+    type: "multirelation",
+    resource: "subgroups",
+    labelKey: "subgrupo",
+    filterByCurrent: { grupo: "assigned_groups" },
+    optional: true,
+    section: "Acesso",
+    accessManager: true,
+    accessManagerTitle: "Subgrupos com acesso liberado",
+    accessManagerEmptyText: "Sem restricao por subgrupo.",
+    searchPlaceholder: "Buscar subgrupo...",
+    helpText: "Deixe vazio para o usuario continuar vendo todos os subgrupos do tenant.",
+  },
+];
+
+const adminInvitationBaseFields = [
+  { name: "target_tenant_slug", label: "Tipo de convite", type: "select", resource: "tenants", labelKey: "name", valueKey: "slug", section: "Convite" },
+  { name: "expires_at", label: "Expira em", type: "date", optional: true, section: "Convite" },
+  { name: "master_user", label: "Carteira", type: "relation", resource: "users", labelKey: "full_name", optional: true, section: "Usuario" },
+  { name: "full_name", label: "Nome completo", section: "Usuario" },
+  { name: "email", label: "Email", type: "email", section: "Usuario" },
+  { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
+  { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
+  ...assignmentScopeFields,
+];
 
 const orderDefinitionEntries = (entries = [], keyName) => {
   const weightFor = (entry) => {
@@ -901,6 +939,7 @@ const baseResourceDefinitions = {
       { name: "password", label: "Senha", type: "password", optional: true, helpText: "Preencha para definir ou alterar a senha do usuario.", section: "Usuario" },
       { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
       { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
+      ...assignmentScopeFields,
     ],
   },
   adminInvitations: {
@@ -909,6 +948,8 @@ const baseResourceDefinitions = {
     description: "Envie convites administrativos para novos usuarios.",
     searchPlaceholder: "Buscar convite por email ou tenant...",
     submitLabel: "Enviar convite",
+    allowEdit: false,
+    allowDuplicate: false,
     columns: [
       { key: "target_tenant_name", label: "Tenant" },
       { key: "email", label: "Email" },
@@ -916,24 +957,8 @@ const baseResourceDefinitions = {
       { key: "accepted_user_name", label: "Usuario criado" },
       { key: "invite_url", label: "Link do convite" },
     ],
-    fields: [
-      { name: "target_tenant_slug", label: "Tipo de convite", type: "select", resource: "tenants", labelKey: "name", valueKey: "slug", section: "Convite" },
-      { name: "expires_at", label: "Expira em", type: "date", optional: true, section: "Convite" },
-      { name: "master_user", label: "Carteira", type: "relation", resource: "users", labelKey: "full_name", optional: true, section: "Usuario" },
-      { name: "full_name", label: "Nome completo", section: "Usuario" },
-      { name: "email", label: "Email", type: "email", section: "Usuario" },
-      { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
-      { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
-    ],
-    editFields: [
-      { name: "target_tenant_slug", label: "Tipo de convite", type: "select", resource: "tenants", labelKey: "name", valueKey: "slug", section: "Convite" },
-      { name: "expires_at", label: "Expira em", type: "date", optional: true, section: "Convite" },
-      { name: "master_user", label: "Carteira", type: "relation", resource: "users", labelKey: "full_name", optional: true, section: "Usuario" },
-      { name: "full_name", label: "Nome completo", section: "Usuario" },
-      { name: "email", label: "Email", type: "email", section: "Usuario" },
-      { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
-      { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
-    ],
+    fields: adminInvitationBaseFields,
+    editFields: adminInvitationBaseFields,
   },
 };
 
