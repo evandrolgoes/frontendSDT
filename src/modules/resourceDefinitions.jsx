@@ -117,98 +117,6 @@ const assignmentScopeFields = [
   },
 ];
 
-const resolveUserAssignmentScopeTenantId = (values, lookupOptions) => {
-  const selectedTenantId = String(values?.tenant || "").trim();
-  if (!selectedTenantId) {
-    return null;
-  }
-
-  const tenants = lookupOptions?.tenants || [];
-  const selectedTenant = tenants.find((item) => String(item.id) === selectedTenantId);
-  if (!selectedTenant) {
-    return null;
-  }
-
-  if (String(selectedTenant.slug || "").trim().toLowerCase() !== "usuario") {
-    return selectedTenantId;
-  }
-
-  const selectedMasterUserId = String(values?.master_user || "").trim();
-  if (!selectedMasterUserId) {
-    return null;
-  }
-
-  const users = lookupOptions?.users || [];
-  const selectedMasterUser = users.find((item) => String(item.id) === selectedMasterUserId);
-  if (!selectedMasterUser) {
-    return null;
-  }
-
-  return String(selectedMasterUser.tenant ?? selectedMasterUser.tenant_id ?? "").trim() || null;
-};
-
-const getUserScopeGroupOptions = (lookupOptions, values) => {
-  const scopeTenantId = resolveUserAssignmentScopeTenantId(values, lookupOptions);
-  if (!scopeTenantId) {
-    return [];
-  }
-  return (lookupOptions?.groups || []).filter((option) => String(option?.tenant ?? "") === scopeTenantId);
-};
-
-const getUserScopeSubgroupOptions = (lookupOptions, values) => {
-  const scopeTenantId = resolveUserAssignmentScopeTenantId(values, lookupOptions);
-  if (!scopeTenantId) {
-    return [];
-  }
-
-  const selectedGroupIds = new Set(
-    (Array.isArray(values?.assigned_groups) ? values.assigned_groups : [])
-      .map((item) => String(item))
-      .filter(Boolean),
-  );
-
-  return (lookupOptions?.subgroups || []).filter((option) => {
-    if (String(option?.tenant ?? "") !== scopeTenantId) {
-      return false;
-    }
-    if (!selectedGroupIds.size) {
-      return true;
-    }
-    return selectedGroupIds.has(String(option?.grupo ?? ""));
-  });
-};
-
-const userAssignmentScopeFields = [
-  {
-    ...assignmentScopeFields[0],
-    pruneInvalidSelections: true,
-    visibleWhen: {
-      predicate: (values, lookupOptions) => {
-        const selectedValues = Array.isArray(values?.assigned_groups) ? values.assigned_groups : [];
-        return selectedValues.length > 0 || getUserScopeGroupOptions(lookupOptions, values).length > 0;
-      },
-    },
-    filterOptions: ({ options, lookupOptions, values }) => {
-      const allowedIds = new Set(getUserScopeGroupOptions(lookupOptions, values).map((option) => String(option.id)));
-      return (options || []).filter((option) => allowedIds.has(String(option?.id)));
-    },
-  },
-  {
-    ...assignmentScopeFields[1],
-    pruneInvalidSelections: true,
-    visibleWhen: {
-      predicate: (values, lookupOptions) => {
-        const selectedValues = Array.isArray(values?.assigned_subgroups) ? values.assigned_subgroups : [];
-        return selectedValues.length > 0 || getUserScopeSubgroupOptions(lookupOptions, values).length > 0;
-      },
-    },
-    filterOptions: ({ options, lookupOptions, values }) => {
-      const allowedIds = new Set(getUserScopeSubgroupOptions(lookupOptions, values).map((option) => String(option.id)));
-      return (options || []).filter((option) => allowedIds.has(String(option?.id)));
-    },
-  },
-];
-
 const adminInvitationBaseFields = [
   { name: "target_tenant_slug", label: "Tipo de convite", type: "select", resource: "tenants", labelKey: "name", valueKey: "slug", section: "Convite" },
   { name: "expires_at", label: "Expira em", type: "date", optional: true, section: "Convite" },
@@ -1031,7 +939,7 @@ const baseResourceDefinitions = {
       { name: "password", label: "Senha", type: "password", optional: true, helpText: "Preencha para definir ou alterar a senha do usuario.", section: "Usuario" },
       { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
       { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
-      ...userAssignmentScopeFields,
+      ...assignmentScopeFields,
     ],
   },
   adminInvitations: {
