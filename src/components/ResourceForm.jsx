@@ -720,12 +720,26 @@ export function ResourceForm({
             return [field.name, {}];
           }
           const options = getRelationOptions(field, lookupOptions, values);
-          return [
-            field.name,
-            Object.fromEntries(
-              options.map((option) => [String(option.id), getOptionLabel(field, option)]),
-            ),
-          ];
+          const labelsFromOptions = Object.fromEntries(
+            options.map((option) => [String(option.id), getOptionLabel(field, option)]),
+          );
+
+          if (field.type !== "multirelation" || !field.displayField) {
+            return [field.name, labelsFromOptions];
+          }
+
+          const selectedValues = Array.isArray(values[field.name]) ? values[field.name] : [];
+          const displayValues = Array.isArray(values[field.displayField]) ? values[field.displayField] : [];
+          const labelsFromDisplay = selectedValues.reduce((acc, value, index) => {
+            const displayLabel = displayValues[index];
+            if (!displayLabel) {
+              return acc;
+            }
+            acc[String(value)] = displayLabel;
+            return acc;
+          }, {});
+
+          return [field.name, { ...labelsFromDisplay, ...labelsFromOptions }];
         }),
       ),
     [fields, lookupOptions, values],
