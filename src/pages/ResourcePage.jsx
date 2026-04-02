@@ -1733,7 +1733,12 @@ export function ResourcePage({ definition }) {
                 }
               }
 
-              const saved = await save(cleanPayload, current);
+              const saved = current?.id && definition.resource === "users"
+                ? await resourceService.patch(definition.resource, current.id, cleanPayload)
+                : await save(cleanPayload, current);
+              if (saved && current?.id && definition.resource === "users") {
+                upsertRows(saved);
+              }
               if (saved) {
                 await refreshProfile();
                 if (attachmentField && files.length) {
