@@ -169,6 +169,15 @@ const normalizeFieldValue = (field, value) => {
   if (field.type === "number") {
     return parseBrazilianNumber(value);
   }
+  if (field.type === "json") {
+    if (typeof value === "string" && !value.trim()) {
+      return field.optional ? undefined : {};
+    }
+    if (typeof value !== "string") {
+      return value ?? (field.optional ? undefined : {});
+    }
+    return JSON.parse(value);
+  }
   if (isPhoneField(field)) {
     return formatBrazilianPhone(value);
   }
@@ -401,6 +410,9 @@ export function ResourceForm({
         }
         if (field.type === "date") {
           return [field.name, formatBrazilianDate(currentValue)];
+        }
+        if (field.type === "json") {
+          return [field.name, currentValue ? JSON.stringify(currentValue, null, 2) : ""];
         }
         if (isPhoneField(field)) {
           return [field.name, formatBrazilianPhone(currentValue)];
@@ -825,6 +837,19 @@ export function ResourceForm({
           className="form-control form-control-textarea"
           id={field.name}
           rows="3"
+          value={currentValue || ""}
+          disabled={field.readOnly}
+          onChange={(event) => handleChange(field, event.target.value)}
+        />
+      );
+    }
+
+    if (field.type === "json") {
+      return (
+        <textarea
+          className="form-control form-control-textarea"
+          id={field.name}
+          rows="6"
           value={currentValue || ""}
           disabled={field.readOnly}
           onChange={(event) => handleChange(field, event.target.value)}

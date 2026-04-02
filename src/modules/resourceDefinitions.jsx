@@ -8,6 +8,11 @@ const accessStatusOptions = [
   { value: "active", label: "Ativo" },
 ];
 
+const scopeAccessLevelOptions = [
+  { value: "read", label: "Leitura" },
+  { value: "write", label: "Edicao" },
+];
+
 const userRoleOptions = [
   { value: "owner", label: "Owner" },
   { value: "manager", label: "Manager" },
@@ -85,96 +90,6 @@ const catalogSelectFields = {
 
 const STANDARD_FIELD_SEQUENCE = ["grupo", "grupos", "subgrupo", "subgrupos", "cultura", "fazer_frente_com", "safra"];
 
-const findLookupItem = (items = [], key, value) =>
-  items.find((item) => String(item?.[key] ?? "") === String(value ?? ""));
-
-const getOptionTenantId = (option) => option?.tenant_id ?? option?.tenant ?? null;
-
-const normalizeSelectedIds = (value) =>
-  (Array.isArray(value) ? value : value === undefined || value === null || value === "" ? [] : [value])
-    .map((item) => String(item ?? ""))
-    .filter(Boolean);
-
-const resolveAssignmentScopeTenantId = ({ values, lookupOptions, tenantFieldName, tenantValueKey = "id" }) => {
-  const tenants = lookupOptions?.tenants || [];
-  const selectedTenant = findLookupItem(tenants, tenantValueKey, values?.[tenantFieldName]);
-  if (!selectedTenant) {
-    return null;
-  }
-  if (selectedTenant.requires_master_user || selectedTenant.slug === "usuario") {
-    const selectedMasterUser = findLookupItem(lookupOptions?.users || [], "id", values?.master_user);
-    return selectedMasterUser?.tenant_id ?? selectedMasterUser?.tenant ?? null;
-  }
-  return selectedTenant.id ?? null;
-};
-
-const getScopedAssignmentOptions = ({ resource, lookupOptions, values, currentFieldName, tenantFieldName, tenantValueKey = "id" }) => {
-  const options = lookupOptions?.[resource] || [];
-  const selectedIds = new Set(normalizeSelectedIds(values?.[currentFieldName]));
-  const scopeTenantId = resolveAssignmentScopeTenantId({ values, lookupOptions, tenantFieldName, tenantValueKey });
-
-  if (!scopeTenantId) {
-    return options.filter((option) => selectedIds.has(String(option.id)));
-  }
-
-  return options.filter((option) => selectedIds.has(String(option.id)) || String(getOptionTenantId(option)) === String(scopeTenantId));
-};
-
-const buildAssignmentScopeFields = ({ tenantFieldName, tenantValueKey = "id" }) => [
-  {
-    name: "assigned_groups",
-    label: "Grupos liberados",
-    type: "multirelation",
-    resource: "groups",
-    resources: ["groups", "tenants", "users"],
-    labelKey: "grupo",
-    optional: true,
-    section: "Acesso",
-    accessManager: true,
-    accessManagerTitle: "Grupos com acesso liberado",
-    accessManagerEmptyText: "Sem restricao por grupo.",
-    searchPlaceholder: "Buscar grupo...",
-    helpText: "Deixe vazio para o usuario continuar vendo todos os grupos do contexto dele.",
-    getOptions: ({ lookupOptions, values }) =>
-      getScopedAssignmentOptions({
-        resource: "groups",
-        lookupOptions,
-        values,
-        currentFieldName: "assigned_groups",
-        tenantFieldName,
-        tenantValueKey,
-      }),
-  },
-  {
-    name: "assigned_subgroups",
-    label: "Subgrupos liberados",
-    type: "multirelation",
-    resource: "subgroups",
-    resources: ["subgroups", "tenants", "users"],
-    labelKey: "subgrupo",
-    filterByCurrent: { grupo: "assigned_groups" },
-    optional: true,
-    section: "Acesso",
-    accessManager: true,
-    accessManagerTitle: "Subgrupos com acesso liberado",
-    accessManagerEmptyText: "Sem restricao por subgrupo.",
-    searchPlaceholder: "Buscar subgrupo...",
-    helpText: "Deixe vazio para o usuario continuar vendo todos os subgrupos do contexto dele.",
-    getOptions: ({ lookupOptions, values }) =>
-      getScopedAssignmentOptions({
-        resource: "subgroups",
-        lookupOptions,
-        values,
-        currentFieldName: "assigned_subgroups",
-        tenantFieldName,
-        tenantValueKey,
-      }),
-  },
-];
-
-const userAssignmentScopeFields = buildAssignmentScopeFields({ tenantFieldName: "tenant" });
-const adminInvitationAssignmentScopeFields = buildAssignmentScopeFields({ tenantFieldName: "target_tenant_slug", tenantValueKey: "slug" });
-
 const adminInvitationBaseFields = [
   { name: "target_tenant_slug", label: "Tipo de convite", type: "select", resource: "tenants", labelKey: "name", valueKey: "slug", section: "Convite" },
   { name: "expires_at", label: "Expira em", type: "date", optional: true, section: "Convite" },
@@ -183,7 +98,6 @@ const adminInvitationBaseFields = [
   { name: "email", label: "Email", type: "email", section: "Usuario" },
   { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
   { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
-  ...adminInvitationAssignmentScopeFields,
 ];
 
 const orderDefinitionEntries = (entries = [], keyName) => {
@@ -418,7 +332,7 @@ const baseResourceDefinitions = {
       { name: "titulo", label: "Titulo" },
       { name: "data", label: "Data", type: "date", optional: true },
       { name: "grupos", label: "Grupos", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
-      { name: "subgrupos", label: "Subgrupos", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true, filterByCurrent: { grupo: "grupos" } },
+      { name: "subgrupos", label: "Subgrupos", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
       { name: "participantes", label: "Participantes", type: "textarea", optional: true },
       { name: "conteudo_html", label: "Texto completo", type: "textarea", optional: true },
     ],
@@ -493,7 +407,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true, filterByCurrent: { grupo: "grupo" } },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "considerar_na_politica_de_hedge", label: "Considerar na politica de hedge", type: "select", options: yesNoOptions },
@@ -518,7 +432,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true, filterByCurrent: { grupo: "grupo" } },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       {
@@ -577,7 +491,7 @@ const baseResourceDefinitions = {
       { name: "data_validade", label: "Data validade", type: "date" },
       { name: "descricao_estrategia", label: "Descricao da estrategia", type: "textarea" },
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true, filterByCurrent: { grupo: "grupo" } },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "obs", label: "Observacoes", type: "textarea" },
       { name: "status", label: "Status" },
     ],
@@ -604,7 +518,7 @@ const baseResourceDefinitions = {
       { name: "codigo_derivativo", label: "Codigo derivativo" },
       { name: "codigos_estrategia", label: "Codigos da estrategia", type: "json-list", helpText: "Separe por virgula." },
       { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
-      { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true, filterByCurrent: { grupo: "grupos" } },
+      { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
       { name: "posicao", label: "Posicao" },
       { name: "produto_bolsa", label: "Produto/Bolsa" },
       { name: "status_gatilho", label: "Status gatilho" },
@@ -632,7 +546,7 @@ const baseResourceDefinitions = {
     fields: [
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
-      { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true, filterByCurrent: { grupo: "grupos" } },
+      { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "insumos_travados_maximo", label: "Insumos travados maximo", type: "number" },
       { name: "insumos_travados_minimo", label: "Insumos travados minimo", type: "number" },
@@ -663,7 +577,7 @@ const baseResourceDefinitions = {
     fields: [
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true, filterByCurrent: { grupo: "grupo" } },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "localidade", label: "Locais de producao", type: "localidade-list" },
       { name: "area", label: "Area", type: "number" },
@@ -696,7 +610,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true, filterByCurrent: { grupo: "grupo" } },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       {
         name: "localidade",
@@ -843,7 +757,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true, filterByCurrent: { grupo: "grupo" } },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "fazer_frente_com", label: "Fazer frente com", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "classificacao", label: "Classificacao", type: "select", options: physicalPaymentClassificationOptions },
@@ -882,7 +796,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true, filterByCurrent: { grupo: "grupo" } },
+      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
       { name: "fazer_frente_com", label: "Fazer frente com", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "volume", label: "Valor parcela", type: "number" },
@@ -968,6 +882,7 @@ const baseResourceDefinitions = {
       { key: "email", label: "Email" },
       { key: "tenant_name", label: "Perfil / tenant" },
       { key: "carteira_name", label: "Carteira" },
+      { key: "role", label: "Perfil" },
       { key: "access_status", label: "Status" },
       { key: "is_active", label: "Ativo" },
     ],
@@ -991,14 +906,29 @@ const baseResourceDefinitions = {
           },
         },
       },
+      { name: "role", label: "Perfil", type: "select", options: userRoleOptions, section: "Usuario" },
       { name: "username", label: "Usuario", section: "Usuario" },
       { name: "full_name", label: "Nome completo", section: "Usuario" },
       { name: "email", label: "Email", type: "email", section: "Usuario" },
       { name: "phone", label: "Telefone", section: "Usuario" },
+      { name: "cpf", label: "CPF", section: "Usuario" },
+      { name: "cep", label: "CEP", section: "Usuario" },
+      { name: "estado", label: "Estado", section: "Usuario" },
+      { name: "cidade", label: "Cidade", section: "Usuario" },
+      { name: "endereco_completo", label: "Endereco completo", type: "textarea", optional: true, section: "Usuario" },
       { name: "password", label: "Senha", type: "password", optional: true, helpText: "Preencha para definir ou alterar a senha do usuario.", section: "Usuario" },
+      { name: "scope_access_level", label: "Nivel de acesso", type: "select", options: scopeAccessLevelOptions, section: "Acesso" },
+      { name: "accessible_groups", label: "Grupos", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true, section: "Acesso" },
+      { name: "accessible_subgroups", label: "Subgrupos", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true, section: "Acesso" },
       { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
       { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
-      ...userAssignmentScopeFields,
+      { name: "max_owned_groups", label: "Maximo de grupos", type: "number", optional: true, section: "Usuario" },
+      { name: "max_owned_subgroups", label: "Maximo de subgrupos", type: "number", optional: true, section: "Usuario" },
+      { name: "active_admin_invitations_count", label: "Convites admin ativos", type: "number", readOnly: true, section: "Acompanhamento" },
+      { name: "owned_groups_count", label: "Grupos cadastrados", type: "number", readOnly: true, section: "Acompanhamento" },
+      { name: "owned_subgroups_count", label: "Subgrupos cadastrados", type: "number", readOnly: true, section: "Acompanhamento" },
+      { name: "dashboard_filter", label: "Dashboard filter", type: "json", optional: true, section: "Sistema" },
+      { name: "created_at", label: "Criado em", readOnly: true, section: "Sistema" },
     ],
   },
   adminInvitations: {

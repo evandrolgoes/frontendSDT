@@ -1050,22 +1050,8 @@ export function ResourcePage({ definition }) {
 
   const activeFormFields = useMemo(() => {
     const baseFields = current ? definition.editFields || definition.fields : definition.fields;
-    if (definition.resource === "users") {
-      return baseFields.filter((field) => !(field.name === "tenant" && !user?.is_superuser && user?.tenant_slug !== "admin"));
-    }
-    if (definition.resource === "admin-invitations") {
-      return baseFields.filter((field) => {
-        if (!user?.is_superuser && user?.tenant_slug !== "admin" && ["target_tenant_slug", "master_user"].includes(field.name)) {
-          return false;
-        }
-        return true;
-      });
-    }
-    if (definition.resource !== "admin-invitations") {
-      return baseFields;
-    }
-    return baseFields.filter((field) => field.name !== "tenant" || user?.is_superuser);
-  }, [current, definition.editFields, definition.fields, definition.resource, user?.is_superuser, user?.tenant_slug]);
+    return baseFields;
+  }, [current, definition.editFields, definition.fields]);
 
   const canCreateRecord = useMemo(() => {
     if (definition.allowCreate === false) {
@@ -1148,13 +1134,10 @@ export function ResourcePage({ definition }) {
             status_operacao: "Em aberto",
             siblingRows: [],
           }
-        : definition.resource === "users"
-          ? {}
         : definition.resource === "admin-invitations"
             ? {
                 expires_at: addDaysToIsoDate(7),
                 access_status: "active",
-                ...(user?.is_superuser || user?.tenant_slug === "admin" ? {} : { target_tenant_slug: "usuario" }),
               }
         : null,
     );
@@ -1178,14 +1161,7 @@ export function ResourcePage({ definition }) {
       definition.customForm === "derivative-operation"
         ? normalizedRows.find((row) => row.id === item.id) || item
         : rows.find((row) => row.id === item.id) || item;
-    setCurrent(
-      definition.resource === "admin-invitations" && !user?.is_superuser && user?.tenant_slug !== "admin"
-        ? {
-            ...rawItem,
-            target_tenant_slug: rawItem.target_tenant_slug || "usuario",
-          }
-        : rawItem,
-    );
+    setCurrent(rawItem);
     setError("");
     setIsModalOpen(true);
   };
@@ -1745,13 +1721,6 @@ export function ResourcePage({ definition }) {
               : payload;
 
             try {
-              if (definition.resource === "admin-invitations" && !user?.is_superuser && user?.tenant_slug !== "admin") {
-                cleanPayload = {
-                  ...cleanPayload,
-                  target_tenant_slug: "usuario",
-                };
-              }
-
               if (definition.resource === "admin-invitations") {
                 setModalBusyMessage("Enviando...");
               }
