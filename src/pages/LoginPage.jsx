@@ -53,7 +53,7 @@ export function LoginPage() {
   const [accessState, setAccessState] = useState({ loading: false, error: "", success: "" });
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard/kpis-risco-comercial" replace />;
+    return <Navigate to="/resumo" replace />;
   }
 
   const handleSubmit = async (event) => {
@@ -127,7 +127,7 @@ export function LoginPage() {
           {error ? (
             <p style={{ color: "#b91c1c", marginTop: 16 }}>{error}</p>
           ) : null}
-          <div className="form-actions" style={{ paddingLeft: 0, paddingRight: 0, marginTop: 20 }}>
+          <div className="form-actions login-form-actions" style={{ paddingLeft: 0, paddingRight: 0, marginTop: 20 }}>
             <button type="submit" className="btn btn-primary">
               {submitting ? "Entrando..." : "Entrar"}
             </button>

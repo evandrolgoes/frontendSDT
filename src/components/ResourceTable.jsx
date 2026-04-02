@@ -567,6 +567,7 @@ export function usePreparedResourceTable(definition, rows) {
 export function ResourceTable({
   definition,
   rows,
+  cardTitle = null,
   searchValue,
   searchPlaceholder,
   onSearchChange,
@@ -589,6 +590,7 @@ export function ResourceTable({
     <DataTable
       columns={effectiveTableColumns}
       rows={displayRows}
+      cardTitle={cardTitle}
       searchValue={searchValue}
       searchPlaceholder={searchPlaceholder}
       onSearchChange={onSearchChange}

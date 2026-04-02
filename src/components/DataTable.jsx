@@ -331,6 +331,7 @@ const formatCellValue = (column, value, row) => {
 export function DataTable({
   rows,
   columns,
+  cardTitle = null,
   searchValue,
   searchPlaceholder,
   onSearchChange,
@@ -689,6 +690,7 @@ export function DataTable({
     >
       <div className="bubble-toolbar">
         <div className="bubble-toolbar-left">
+          {cardTitle ? <div className="bubble-table-card-title">{cardTitle}</div> : null}
           {canCreate ? (
             <button className="bubble-btn bubble-btn-primary" type="button" onClick={onCreate}>
               Novo

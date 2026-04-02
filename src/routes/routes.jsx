@@ -110,7 +110,7 @@ const baseNavigationSections = [
   {
     label: "Dashboard",
     items: [
-      { path: "/dashboard/kpis-risco-comercial", label: "Resumo", module: "dashboard_summary" },
+      { path: "/resumo", label: "Resumo", module: "dashboard_summary" },
       { path: "/dashboard/fluxo-caixa", label: "Fluxo de Caixa", module: "dashboard_cashflow" },
       { path: "/dashboard/politica-hedge", label: "Politica de Hedge", module: "dashboard_hedge_policy" },
       { path: "/dashboard/composicao-precos", label: "Composicao de Precos", module: "dashboard_price_composition" },
@@ -224,14 +224,22 @@ export function getNavigationSections(user) {
 export const appRoutes = [
   {
     path: "/dashboard",
-    element: <Navigate to="/dashboard/kpis-risco-comercial" replace />,
+    element: <Navigate to="/resumo" replace />,
     module: "dashboard_summary",
     title: "Resumo",
     preload: loadDashboardPageModule,
     warmup: () => warmDashboardKind("commercialRisk"),
   },
+  {
+    path: "/dashboard/kpis-risco-comercial",
+    element: <Navigate to="/resumo" replace />,
+    module: "dashboard_summary",
+    title: "Resumo",
+    preload: loadDashboardPageModule,
+    warmup: () => warmDashboardKind("commercialRisk"),
+  },
+  dashboardRoute("/resumo", "commercialRisk", "dashboard_summary"),
   dashboardRoute("/dashboard/fluxo-caixa", "cashflow", "dashboard_cashflow"),
-  dashboardRoute("/dashboard/kpis-risco-comercial", "commercialRisk", "dashboard_summary"),
   dashboardRoute("/dashboard/estrategias-gatilhos", "strategiesTriggers", "dashboard_strategies_triggers"),
   dashboardRoute("/dashboard/politica-hedge", "hedgePolicy", "dashboard_hedge_policy"),
   dashboardRoute("/dashboard/composicao-precos", "priceComposition", "dashboard_price_composition", {
@@ -316,7 +324,7 @@ export const appRoutes = [
 
 export function getAccessibleRoutePath(user) {
   const firstSection = getNavigationSections(user)[0];
-  return firstSection?.items?.[0]?.path || "/dashboard/kpis-risco-comercial";
+  return firstSection?.items?.[0]?.path || "/resumo";
 }
 
 export function getRouteDefinition(pathname) {

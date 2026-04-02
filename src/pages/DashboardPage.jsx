@@ -1623,7 +1623,7 @@ function HedgeSummaryGaugeCards({
       metricLabel: physicalMetricLabel,
       color: "rgba(250, 204, 21, 0.75)",
     },
-  ].filter((item) => item.value > 0);
+  ];
   const gaugeSegments = hasPolicyBand
     ? [
         { from: 0, to: warnLowBand, color: "#ff1a1a" },
@@ -1678,14 +1678,8 @@ function HedgeSummaryGaugeCards({
   const donutCircumference = 2 * Math.PI * 70;
   const physicalArc = (physicalValue / 100) * donutCircumference;
   const derivativeArc = (derivativeValue / 100) * donutCircumference;
-  const distributionRows = distributionSlices.length
-    ? distributionSlices
-    : [
-        { label: "Físico", value: 0, metricLabel: "—", color: "rgba(250, 204, 21, 0.75)" },
-        { label: "Derivativos", value: 0, metricLabel: "—", color: "rgba(251, 146, 60, 0.85)" },
-      ];
-  const physicalRow = distributionRows.find((item) => item.label === "Físico") || distributionRows[0];
-  const derivativeRow = distributionRows.find((item) => item.label === "Derivativos") || distributionRows.at(-1);
+  const donutGapOffset = physicalArc > 0 && derivativeArc > 0 ? 6 : 0;
+  const [derivativeRow, physicalRow] = distributionSlices;
 
   return (
     <>
@@ -1776,7 +1770,7 @@ function HedgeSummaryGaugeCards({
                 stroke={derivativeRow?.color || "rgba(251, 146, 60, 0.85)"}
                 strokeWidth="20"
                 strokeDasharray={`${derivativeArc} ${donutCircumference}`}
-                strokeDashoffset={-physicalArc - 6}
+                strokeDashoffset={-physicalArc - donutGapOffset}
                 transform="rotate(-90 110 110)"
               />
               <text x="110" y="104" textAnchor="middle" className="risk-kpi-distribution-mix-label">Mix</text>
@@ -4803,12 +4797,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const marketNewsPosts = Array.isArray(summaryData?.marketNewsPosts) ? summaryData.marketNewsPosts : [];
   const upcomingMaturityRows = Array.isArray(summaryData?.upcomingMaturityRows) ? summaryData.upcomingMaturityRows : [];
   const formCompletionRows = Array.isArray(summaryData?.formCompletionRows) ? summaryData.formCompletionRows : [];
-  const formCompletionSummary = summaryData?.formCompletionSummary || {
-    totalForms: 0,
-    filledForms: 0,
-    pendingForms: 0,
-    totalRecords: 0,
-  };
 
   const filteredSales = useMemo(
     () => physicalSales.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
@@ -5572,33 +5560,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
                 </div>
               </div>
             ))}
-          </div>
-        </article>
-
-        <article className="chart-card risk-kpi-forms-summary-card">
-          <div className="chart-card-header">
-            <div>
-              <h3>Resumo de preenchimento</h3>
-              <p className="muted">Leitura rápida para orientar o usuário sobre a cobertura cadastral do sistema.</p>
-            </div>
-          </div>
-          <div className="risk-kpi-forms-summary">
-            <div className="risk-kpi-summary-item">
-              <span>Formulários monitorados</span>
-              <strong>{formCompletionSummary.totalForms}</strong>
-            </div>
-            <div className="risk-kpi-summary-item">
-              <span>Já preenchidos</span>
-              <strong>{formCompletionSummary.filledForms}</strong>
-            </div>
-            <div className="risk-kpi-summary-item">
-              <span>Ainda pendentes</span>
-              <strong>{formCompletionSummary.pendingForms}</strong>
-            </div>
-            <div className="risk-kpi-summary-item">
-              <span>Total de registros</span>
-              <strong>{formatNumber0(formCompletionSummary.totalRecords)}</strong>
-            </div>
           </div>
         </article>
       </section>
@@ -6889,34 +6850,38 @@ function HedgePolicyChart({
             <div className="hedge-detail-header">
               <strong>Detalhes — {formatHedgeTitleDate(detailPoint.date)}</strong>
             </div>
-            <section className="hedge-detail-section">
-              <h4>Vendas Físico (≤ dia)</h4>
-              <ResourceTable
-                definition={resourceDefinitions.physicalSales}
-                rows={detailRows.physical}
-                searchValue={detailPhysicalSearch}
-                searchPlaceholder={resourceDefinitions.physicalSales.searchPlaceholder || "Buscar..."}
-                onSearchChange={setDetailPhysicalSearch}
-                onClear={() => setDetailPhysicalSearch("")}
-                onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.physicalSales.resource, row) : undefined}
-                tableHeight="34vh"
-                showClearButton={false}
-              />
-            </section>
-            <section className="hedge-detail-section">
-              <h4>Derivativos (dia entre início e liquidação — inclusivo)</h4>
-              <ResourceTable
-                definition={resourceDefinitions.derivativeOperations}
-                rows={detailRows.derivatives}
-                searchValue={detailDerivativeSearch}
-                searchPlaceholder={resourceDefinitions.derivativeOperations.searchPlaceholder || "Buscar..."}
-                onSearchChange={setDetailDerivativeSearch}
-                onClear={() => setDetailDerivativeSearch("")}
-                onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.derivativeOperations.resource, row) : undefined}
-                tableHeight="34vh"
-                showClearButton={false}
-              />
-            </section>
+            {detailRows.physical.length ? (
+              <section className="hedge-detail-section">
+                <ResourceTable
+                  definition={resourceDefinitions.physicalSales}
+                  rows={detailRows.physical}
+                  cardTitle="Vendas Físico (≤ dia)"
+                  searchValue={detailPhysicalSearch}
+                  searchPlaceholder={resourceDefinitions.physicalSales.searchPlaceholder || "Buscar..."}
+                  onSearchChange={setDetailPhysicalSearch}
+                  onClear={() => setDetailPhysicalSearch("")}
+                  onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.physicalSales.resource, row) : undefined}
+                  tableHeight="34vh"
+                  showClearButton={false}
+                />
+              </section>
+            ) : null}
+            {detailRows.derivatives.length ? (
+              <section className="hedge-detail-section">
+                <ResourceTable
+                  definition={resourceDefinitions.derivativeOperations}
+                  rows={detailRows.derivatives}
+                  cardTitle="Derivativos (dia entre início e liquidação — inclusivo)"
+                  searchValue={detailDerivativeSearch}
+                  searchPlaceholder={resourceDefinitions.derivativeOperations.searchPlaceholder || "Buscar..."}
+                  onSearchChange={setDetailDerivativeSearch}
+                  onClear={() => setDetailDerivativeSearch("")}
+                  onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.derivativeOperations.resource, row) : undefined}
+                  tableHeight="34vh"
+                  showClearButton={false}
+                />
+              </section>
+            ) : null}
           </div>
         </div>
       ) : null}

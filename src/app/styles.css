@@ -20,10 +20,12 @@
   --shell-footer-bg: #0f172a;
   --shell-footer-text: #f8fafc;
   --shell-footer-muted: rgba(248, 250, 252, 0.72);
-  --table-header-bg: var(--table-footer-bg);
+  --table-header-bg: #0f172a;
   --table-header-text: #f8fafc;
-  --table-footer-bg: #0f172a;
-  --table-footer-text: #f8fafc;
+  --table-footer-bg: #e5e7eb;
+  --table-footer-text: #000000;
+  --table-footer-label: #ea580c;
+  --table-footer-muted: #000000;
   --agro-bg: #173337;
   --agro-green: #2d5a27;
   --agro-green-soft: #4ade80;
@@ -2552,7 +2554,7 @@ textarea {
 
 .risk-kpi-forms-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -3799,6 +3801,15 @@ textarea {
   height: 100%;
 }
 
+.bubble-table-card-title {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.35;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
 .bubble-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -4234,7 +4245,14 @@ textarea {
   font-size: 9px;
   font-weight: 900;
   text-transform: uppercase;
-  color: var(--shell-footer-muted);
+}
+
+.bubble-footer-count span {
+  color: var(--table-footer-muted);
+}
+
+.bubble-footer-stat span {
+  color: var(--table-footer-label);
 }
 
 .bubble-footer-count strong,
@@ -8073,6 +8091,10 @@ tfoot td {
 
 .login-form {
   padding: 40px;
+}
+
+.login-form-actions {
+  background: #fff;
 }
 
 .login-support-actions {

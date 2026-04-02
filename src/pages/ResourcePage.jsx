@@ -1039,7 +1039,7 @@ export function ResourcePage({ definition }) {
           try {
             const { data } = await api.post(`/auth/impersonate/${row.id}/`);
             impersonate(data);
-            window.location.href = "/dashboard/kpis-risco-comercial";
+            window.location.href = "/resumo";
           } catch (requestError) {
             setError(requestError?.response?.data?.detail || "Nao foi possivel acessar como este usuario.");
           }

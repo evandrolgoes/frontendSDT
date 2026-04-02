@@ -126,7 +126,7 @@ export default function App() {
               />
             ))}
           </Route>
-          <Route path="*" element={<Navigate to="/dashboard/kpis-risco-comercial" replace />} />
+          <Route path="*" element={<Navigate to="/resumo" replace />} />
         </Routes>
       </Suspense>
     </>
