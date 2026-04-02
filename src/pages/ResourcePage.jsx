@@ -1051,7 +1051,7 @@ export function ResourcePage({ definition }) {
   const activeFormFields = useMemo(() => {
     const baseFields = current ? definition.editFields || definition.fields : definition.fields;
     if (definition.resource === "users") {
-      return baseFields.filter((field) => !(field.name === "tenant" && !user?.is_superuser));
+      return baseFields.filter((field) => !(field.name === "tenant" && !user?.is_superuser && user?.tenant_slug !== "admin"));
     }
     if (definition.resource === "admin-invitations") {
       return baseFields.filter((field) => {

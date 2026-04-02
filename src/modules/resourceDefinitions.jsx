@@ -85,12 +85,48 @@ const catalogSelectFields = {
 
 const STANDARD_FIELD_SEQUENCE = ["grupo", "grupos", "subgrupo", "subgrupos", "cultura", "fazer_frente_com", "safra"];
 
-const assignmentScopeFields = [
+const findLookupItem = (items = [], key, value) =>
+  items.find((item) => String(item?.[key] ?? "") === String(value ?? ""));
+
+const getOptionTenantId = (option) => option?.tenant_id ?? option?.tenant ?? null;
+
+const normalizeSelectedIds = (value) =>
+  (Array.isArray(value) ? value : value === undefined || value === null || value === "" ? [] : [value])
+    .map((item) => String(item ?? ""))
+    .filter(Boolean);
+
+const resolveAssignmentScopeTenantId = ({ values, lookupOptions, tenantFieldName, tenantValueKey = "id" }) => {
+  const tenants = lookupOptions?.tenants || [];
+  const selectedTenant = findLookupItem(tenants, tenantValueKey, values?.[tenantFieldName]);
+  if (!selectedTenant) {
+    return null;
+  }
+  if (selectedTenant.requires_master_user || selectedTenant.slug === "usuario") {
+    const selectedMasterUser = findLookupItem(lookupOptions?.users || [], "id", values?.master_user);
+    return selectedMasterUser?.tenant_id ?? selectedMasterUser?.tenant ?? null;
+  }
+  return selectedTenant.id ?? null;
+};
+
+const getScopedAssignmentOptions = ({ resource, lookupOptions, values, currentFieldName, tenantFieldName, tenantValueKey = "id" }) => {
+  const options = lookupOptions?.[resource] || [];
+  const selectedIds = new Set(normalizeSelectedIds(values?.[currentFieldName]));
+  const scopeTenantId = resolveAssignmentScopeTenantId({ values, lookupOptions, tenantFieldName, tenantValueKey });
+
+  if (!scopeTenantId) {
+    return options.filter((option) => selectedIds.has(String(option.id)));
+  }
+
+  return options.filter((option) => selectedIds.has(String(option.id)) || String(getOptionTenantId(option)) === String(scopeTenantId));
+};
+
+const buildAssignmentScopeFields = ({ tenantFieldName, tenantValueKey = "id" }) => [
   {
     name: "assigned_groups",
     label: "Grupos liberados",
     type: "multirelation",
     resource: "groups",
+    resources: ["groups", "tenants", "users"],
     labelKey: "grupo",
     optional: true,
     section: "Acesso",
@@ -98,13 +134,23 @@ const assignmentScopeFields = [
     accessManagerTitle: "Grupos com acesso liberado",
     accessManagerEmptyText: "Sem restricao por grupo.",
     searchPlaceholder: "Buscar grupo...",
-    helpText: "Deixe vazio para o usuario continuar vendo todos os grupos do tenant.",
+    helpText: "Deixe vazio para o usuario continuar vendo todos os grupos do contexto dele.",
+    getOptions: ({ lookupOptions, values }) =>
+      getScopedAssignmentOptions({
+        resource: "groups",
+        lookupOptions,
+        values,
+        currentFieldName: "assigned_groups",
+        tenantFieldName,
+        tenantValueKey,
+      }),
   },
   {
     name: "assigned_subgroups",
     label: "Subgrupos liberados",
     type: "multirelation",
     resource: "subgroups",
+    resources: ["subgroups", "tenants", "users"],
     labelKey: "subgrupo",
     filterByCurrent: { grupo: "assigned_groups" },
     optional: true,
@@ -113,19 +159,31 @@ const assignmentScopeFields = [
     accessManagerTitle: "Subgrupos com acesso liberado",
     accessManagerEmptyText: "Sem restricao por subgrupo.",
     searchPlaceholder: "Buscar subgrupo...",
-    helpText: "Deixe vazio para o usuario continuar vendo todos os subgrupos do tenant.",
+    helpText: "Deixe vazio para o usuario continuar vendo todos os subgrupos do contexto dele.",
+    getOptions: ({ lookupOptions, values }) =>
+      getScopedAssignmentOptions({
+        resource: "subgroups",
+        lookupOptions,
+        values,
+        currentFieldName: "assigned_subgroups",
+        tenantFieldName,
+        tenantValueKey,
+      }),
   },
 ];
+
+const userAssignmentScopeFields = buildAssignmentScopeFields({ tenantFieldName: "tenant" });
+const adminInvitationAssignmentScopeFields = buildAssignmentScopeFields({ tenantFieldName: "target_tenant_slug", tenantValueKey: "slug" });
 
 const adminInvitationBaseFields = [
   { name: "target_tenant_slug", label: "Tipo de convite", type: "select", resource: "tenants", labelKey: "name", valueKey: "slug", section: "Convite" },
   { name: "expires_at", label: "Expira em", type: "date", optional: true, section: "Convite" },
-  { name: "master_user", label: "Carteira", type: "relation", resource: "users", labelKey: "full_name", optional: true, section: "Usuario" },
+  { name: "master_user", label: "Carteira", type: "relation", resource: "users", resources: ["users", "tenants"], labelKey: "full_name", optional: true, section: "Usuario" },
   { name: "full_name", label: "Nome completo", section: "Usuario" },
   { name: "email", label: "Email", type: "email", section: "Usuario" },
   { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
   { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
-  ...assignmentScopeFields,
+  ...adminInvitationAssignmentScopeFields,
 ];
 
 const orderDefinitionEntries = (entries = [], keyName) => {
@@ -920,6 +978,7 @@ const baseResourceDefinitions = {
         label: "Carteira",
         type: "relation",
         resource: "users",
+        resources: ["users", "tenants"],
         labelKey: "full_name",
         optional: true,
         section: "Usuario",
@@ -928,7 +987,7 @@ const baseResourceDefinitions = {
             const tenantId = values.tenant;
             const tenants = lookupOptions?.tenants || [];
             const selectedTenant = tenants.find((item) => String(item.id) === String(tenantId));
-            return Boolean(selectedTenant?.requires_master_user);
+            return Boolean(selectedTenant?.requires_master_user || selectedTenant?.slug === "usuario");
           },
         },
       },
@@ -939,7 +998,7 @@ const baseResourceDefinitions = {
       { name: "password", label: "Senha", type: "password", optional: true, helpText: "Preencha para definir ou alterar a senha do usuario.", section: "Usuario" },
       { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
       { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
-      ...assignmentScopeFields,
+      ...userAssignmentScopeFields,
     ],
   },
   adminInvitations: {
