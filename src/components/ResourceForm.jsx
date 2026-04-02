@@ -555,11 +555,21 @@ export function ResourceForm({
       ];
 
       const loaded = {};
-      await Promise.all(
-        uniqueResources.map(async (resource) => {
-          loaded[resource] = await resourceService.listAll(resource);
-        }),
+      const results = await Promise.allSettled(
+        uniqueResources.map(async (resource) => ({
+          resource,
+          items: await resourceService.listAll(resource, {}, { force: true }),
+        })),
       );
+
+      results.forEach((result, index) => {
+        const resource = uniqueResources[index];
+        if (result.status === "fulfilled") {
+          loaded[result.value.resource] = result.value.items;
+          return;
+        }
+        loaded[resource] = [];
+      });
 
       if (isMounted) {
         setLookupOptions(loaded);
@@ -705,14 +715,20 @@ export function ResourceForm({
   const relationLabelMap = useMemo(
     () =>
       Object.fromEntries(
-        fields.map((field) => [
-          field.name,
-          Object.fromEntries(
-            (lookupOptions[field.resource] || []).map((option) => [option.id, getOptionLabel(field, option)]),
-          ),
-        ]),
+        fields.map((field) => {
+          if (field.type !== "relation" && field.type !== "multirelation") {
+            return [field.name, {}];
+          }
+          const options = getRelationOptions(field, lookupOptions, values);
+          return [
+            field.name,
+            Object.fromEntries(
+              options.map((option) => [String(option.id), getOptionLabel(field, option)]),
+            ),
+          ];
+        }),
       ),
-    [fields, lookupOptions],
+    [fields, lookupOptions, values],
   );
 
   const handleChange = (field, value) => {
@@ -1276,7 +1292,7 @@ export function ResourceForm({
                   {field.type === "multirelation" && !field.accessManager ? (
                     <div className="field-help">
                       {Array.isArray(values[field.name]) && values[field.name].length
-                        ? values[field.name].map((item) => relationLabelMap[field.name]?.[item] || item).join(", ")
+                        ? values[field.name].map((item) => relationLabelMap[field.name]?.[String(item)] || item).join(", ")
                         : field.single
                           ? ""
                           : field.checkboxList
