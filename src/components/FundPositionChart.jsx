@@ -14,6 +14,8 @@ import {
 import Hammer from "hammerjs";
 import zoomPlugin from "chartjs-plugin-zoom";
 
+import { InfoPopup } from "./InfoPopup";
+
 window.Hammer = Hammer;
 
 Chart.register(
@@ -257,6 +259,39 @@ const parseCsv = (text) => {
   }, []);
 };
 
+function FundInsightButton({ title, message }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="summary-insight-button"
+        aria-label={`Abrir explicação do gráfico ${title}`}
+        title="Ver explicação do gráfico"
+        onClick={() => setOpen(true)}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 3.5 13.7 8l4.8 1.8-4.8 1.7L12 16l-1.7-4.5L5.5 9.8 10.3 8 12 3.5Z" fill="currentColor" />
+          <path d="M18.5 13.5 19.4 16l2.6.9-2.6.9-.9 2.5-.9-2.5-2.6-.9 2.6-.9.9-2.5Z" fill="currentColor" opacity="0.82" />
+          <path d="M6.5 14.5 7.2 16.3 9 17l-1.8.7-.7 1.8-.7-1.8L4 17l1.8-.7.7-1.8Z" fill="currentColor" opacity="0.82" />
+        </svg>
+      </button>
+      <InfoPopup open={open} title={title} message={message} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+function FundInsightCopy({ paragraphs = [] }) {
+  return (
+    <div className="summary-insight-copy">
+      {paragraphs.map((paragraph, index) => (
+        <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>
+      ))}
+    </div>
+  );
+}
+
 function attachNativeDragPan(chart) {
   const canvas = chart.canvas;
   const state = { active: false, startX: 0, startMin: 0, startMax: 0 };
@@ -492,6 +527,42 @@ export function FundPositionChart({
     status,
   } = useFundPositionData({ csvUrl, marketName });
 
+  const latestRow = filteredRows.at(-1) || null;
+  const firstRow = filteredRows[0] || null;
+  const maxObservedPosition = useMemo(
+    () =>
+      filteredRows.reduce((maxValue, item) => {
+        const localMax = Math.max(
+          Math.abs(Number(item.nonCommLong || 0)),
+          Math.abs(Number(item.nonCommShort || 0)),
+          Math.abs(Number(item.spreading || 0)),
+          Math.abs(Number(item.net || 0)),
+        );
+        return Math.max(maxValue, localMax);
+      }, 0),
+    [filteredRows],
+  );
+  const netRiskRead = useMemo(() => {
+    if (!latestRow || !maxObservedPosition) return null;
+    const latestNet = Number(latestRow.net || 0);
+    const intensity = Math.abs(latestNet) / Math.max(maxObservedPosition, 1);
+    const isRelevant = intensity >= 0.45;
+
+    if (latestNet > 0) {
+      return isRelevant
+        ? `Os fundos estão com um NET Long relevante de ${formatInteger(latestNet)} contratos. Isso significa que há muita posição comprada acumulada. Quando esse posicionamento fica esticado, aumenta o risco de long liquidation: em algum momento futuro os fundos podem começar a vender ou reduzir essas posições compradas de forma mais intensa, e essa saída tende a gerar pressão baixista e queda de mercado.`
+        : `Os fundos estão com saldo comprador de ${formatInteger(latestNet)} contratos. Isso indica viés altista de posicionamento, mas sem um sinal tão extremo de concentração comprada no recorte atual.`;
+    }
+
+    if (latestNet < 0) {
+      return isRelevant
+        ? `Os fundos estão com um NET Short relevante de ${formatInteger(Math.abs(latestNet))} contratos. Nesse cenário aumenta o risco de short squeeze, isto é, uma recompra acelerada das posições vendidas caso o mercado suba, o que pode amplificar movimentos de alta.`
+        : `Os fundos estão com saldo vendedor de ${formatInteger(Math.abs(latestNet))} contratos. Isso sugere viés baixista de posicionamento, mas ainda sem um estresse tão forte de posição vendida no recorte atual.`;
+    }
+
+    return "O NET está próximo de zero no último ponto, indicando um posicionamento mais equilibrado entre comprados e vendidos e menor risco imediato de long liquidation ou short squeeze.";
+  }, [latestRow, maxObservedPosition]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !filteredRows.length) return undefined;
@@ -669,7 +740,27 @@ export function FundPositionChart({
   };
 
   return (
-    <section className="panel fund-position-card">
+    <section className="panel fund-position-card summary-insight-card">
+      <FundInsightButton
+        title={title}
+        message={
+          <FundInsightCopy
+            paragraphs={[
+              latestRow
+                ? `No último ponto exibido, os fundos não comerciais estão com ${formatInteger(latestRow.nonCommLong)} contratos em Long, ${formatInteger(latestRow.nonCommShort)} em Short e ${formatInteger(latestRow.spreading)} em Spreading.`
+                : "Este gráfico mostra a posição dos fundos não comerciais entre Long, Short e Spreading no período selecionado.",
+              latestRow
+                ? `A linha NET representa Long menos Short. No dado mais recente, o NET está em ${formatInteger(latestRow.net)}, indicando saldo ${latestRow.net >= 0 ? "comprado" : "vendido"} dos fundos.`
+                : "A linha NET representa a diferença entre posições compradas e vendidas dos fundos.",
+              netRiskRead ||
+                "A leitura de risco entre long liquidation e short squeeze depende do tamanho e da direção do NET no ponto mais recente do gráfico.",
+              firstRow && latestRow
+                ? `O período carregado vai de ${firstRow.date} até ${latestRow.date}, com ${formatInteger(filteredRows.length)} observações. A maior magnitude observada dentro da janela foi de ${formatInteger(maxObservedPosition)} contratos.`
+                : "Os eixos mostram contratos ao longo do tempo, permitindo comparar intensidade e direção do posicionamento dos fundos.",
+            ]}
+          />
+        }
+      />
       <div className="fund-position-top">
         <div>
           <h3 className="fund-position-title">{title}</h3>

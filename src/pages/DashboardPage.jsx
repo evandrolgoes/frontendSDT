@@ -19,6 +19,7 @@ import { useNavigate } from "react-router-dom";
 
 import { DatePickerField } from "../components/DatePickerField";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
+import { InfoPopup } from "../components/InfoPopup";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceTable } from "../components/ResourceTable";
 import { ResourceForm } from "../components/ResourceForm";
@@ -187,6 +188,42 @@ const useViewportMatch = (query) => {
 
   return matches;
 };
+
+function SummaryInsightButton({ title = "Insight do card", message, className = "" }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        className={`summary-insight-button${className ? ` ${className}` : ""}`}
+        aria-label={`Abrir explicação do card ${title}`}
+        title="Ver explicação do card"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 3.5 13.7 8l4.8 1.8-4.8 1.7L12 16l-1.7-4.5L5.5 9.8 10.3 8 12 3.5Z" fill="currentColor" />
+          <path d="M18.5 13.5 19.4 16l2.6.9-2.6.9-.9 2.5-.9-2.5-2.6-.9 2.6-.9.9-2.5Z" fill="currentColor" opacity="0.82" />
+          <path d="M6.5 14.5 7.2 16.3 9 17l-1.8.7-.7 1.8-.7-1.8L4 17l1.8-.7.7-1.8Z" fill="currentColor" opacity="0.82" />
+        </svg>
+      </button>
+      <InfoPopup open={open} title={title} message={message} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+function SummaryInsightCopy({ paragraphs = [] }) {
+  return (
+    <div className="summary-insight-copy">
+      {paragraphs.map((paragraph, index) => (
+        <p key={`${paragraph.slice(0, 24)}-${index}`}>{paragraph}</p>
+      ))}
+    </div>
+  );
+}
 
 function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
   const marqueeRepeatCount = 7;
@@ -405,7 +442,18 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
   }, [carouselRows.length, isMarqueeHovered, marqueeCenterSequenceIndex, marqueeRows.length]);
 
   return (
-    <section className="resource-filter-panel risk-kpi-quotes-strip">
+    <section className="resource-filter-panel risk-kpi-quotes-strip summary-insight-card">
+      <SummaryInsightButton
+        title="Cotações rápidas"
+        message={
+          <SummaryInsightCopy
+            paragraphs={[
+              "Em cada mini card, o número central representa o preço atual da referência de mercado daquele grupo.",
+              "A linha de baixo mostra a variação do dia ou do período da fonte, primeiro em valor absoluto e depois em percentual entre parênteses. Ao clicar no card, você segue para a página completa de cotações.",
+            ]}
+          />
+        }
+      />
       {carouselRows.length ? (
         <div
           ref={marqueeRef}
@@ -470,7 +518,18 @@ function CommercialRiskNewsSummaryCard({ rows, onOpen, onOpenPost }) {
   }, [rows]);
 
   return (
-    <div className="card stat-card risk-kpi-news-stat-card">
+    <div className="card stat-card risk-kpi-news-stat-card summary-insight-card">
+      <SummaryInsightButton
+        title="Blog"
+        message={
+          <SummaryInsightCopy
+            paragraphs={[
+              "Este card não traz valores financeiros; aqui os números são datas abreviadas de publicação para mostrar a recência de cada análise.",
+              "Ele serve como ponte entre os indicadores do resumo e a leitura qualitativa do mercado. Ao clicar em um item, você abre a prévia do conteúdo; ao clicar no título, vai para a área completa do blog.",
+            ]}
+          />
+        }
+      />
       <button type="button" className="stat-card-primary-title risk-kpi-card-title risk-kpi-news-stat-title" onClick={onOpen}>
         Blog
       </button>
@@ -634,7 +693,18 @@ function MarketNewsPreviewModal({ post, attachments, attachmentsLoading, onClose
 
 function UpcomingMaturitiesCard({ rows, onOpenItem }) {
   return (
-    <article className="card stat-card risk-kpi-maturity-card">
+    <article className="card stat-card risk-kpi-maturity-card summary-insight-card">
+      <SummaryInsightButton
+        title="Próximos vencimentos"
+        message={
+          <SummaryInsightCopy
+            paragraphs={[
+              "Cada linha mostra a data do vencimento, o tipo de operação ou formulário relacionado e o valor principal daquele compromisso.",
+              "O número em destaque no fim da linha representa o volume, valor financeiro ou indicador-chave do item que vence primeiro dentro do recorte filtrado. Ao clicar em uma linha, o sistema abre o registro correspondente para consulta ou edição.",
+            ]}
+          />
+        }
+      />
       <h2 className="stat-card-primary-title risk-kpi-card-title">Próximos vencimentos</h2>
       <div className="risk-kpi-maturity-list">
         {rows.length ? (
@@ -794,7 +864,7 @@ function StackedBarsChart({ data }) {
   );
 }
 
-function DonutChart({ slices, centerLabel, centerValue, onSliceClick }) {
+function DonutChart({ slices, centerLabel, centerValue, onSliceClick, insightTitle = "", insightMessage = null }) {
   const option = useMemo(() => ({
     animationDuration: 250,
     tooltip: { trigger: "item" },
@@ -827,7 +897,8 @@ function DonutChart({ slices, centerLabel, centerValue, onSliceClick }) {
   }, [onSliceClick]);
 
   return (
-    <div className="chart-card">
+    <div className="chart-card summary-insight-card">
+      {insightMessage ? <SummaryInsightButton title={insightTitle || centerLabel || "Distribuição"} message={insightMessage} /> : null}
       <div className="chart-card-header">
         <div>
           <h3>Distribuicao</h3>
@@ -1149,9 +1220,10 @@ function useDashboardOperationEditor({
   return { openOperationForm, editorNode };
 }
 
-function ScenarioBars({ data }) {
+function ScenarioBars({ data, insightTitle = "", insightMessage = null }) {
   return (
-    <div className="chart-card">
+    <div className="chart-card summary-insight-card">
+      {insightMessage ? <SummaryInsightButton title={insightTitle || "Cenários comparados"} message={insightMessage} /> : null}
       <div className="chart-card-header">
         <div>
           <h3>Cenarios comparados</h3>
@@ -1337,7 +1409,18 @@ function CommercialRiskLongShortChart({
 
   if (!rows.length) {
     return (
-      <article className="chart-card chart-card-large risk-kpi-long-short-card">
+      <article className="chart-card chart-card-large risk-kpi-long-short-card summary-insight-card">
+        <SummaryInsightButton
+          title="Long & Short por cultura"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Neste gráfico, cada barra representa o volume total de uma cultura em sacas, dividido entre o que já está coberto e o que ainda está livre.",
+                "Os segmentos mostram separadamente vendas via derivativos, vendas via físico, pagamentos físicos e a parte classificada como 'Nada feito', que representa a exposição ainda sem cobertura.",
+              ]}
+            />
+          }
+        />
         <div className="chart-card-header">
           <div>
             <h3>Long &amp; Short por cultura</h3>
@@ -1440,7 +1523,18 @@ function CommercialRiskLongShortChart({
   };
 
   return (
-    <article className="chart-card chart-card-large risk-kpi-long-short-card">
+    <article className="chart-card chart-card-large risk-kpi-long-short-card summary-insight-card">
+      <SummaryInsightButton
+        title="Long & Short por cultura"
+        message={
+          <SummaryInsightCopy
+            paragraphs={[
+              "Neste gráfico, cada barra representa o volume total de uma cultura em sacas, dividido entre o que já está coberto e o que ainda está livre.",
+              "Os segmentos mostram separadamente vendas via derivativos, vendas via físico, pagamentos físicos e a parte classificada como 'Nada feito', que representa a exposição ainda sem cobertura.",
+            ]}
+          />
+        }
+      />
       <div className="chart-card-header">
         <div>
           <h3>Long &amp; Short por cultura</h3>
@@ -1683,7 +1777,18 @@ function HedgeSummaryGaugeCards({
 
   return (
     <>
-      <article className="chart-card risk-kpi-gauge-card">
+      <article className="chart-card risk-kpi-gauge-card summary-insight-card">
+        <SummaryInsightButton
+          title="Hedge Realizado"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                `O valor de ${formatNumber0(totalMetricValue)} sc mostra o volume total atualmente protegido ou comercializado, enquanto ${totalMetricLabel || "o subtítulo"} traduz esse mesmo número para a métrica complementar do card.`,
+                `O número maior no mostrador representa o percentual total de hedge realizado sobre a produção líquida. O ponteiro compara esse percentual com a faixa da política para indicar se a posição está abaixo, dentro ou acima do alvo.`,
+              ]}
+            />
+          }
+        />
         <div className="risk-kpi-chart-card-head">
           <h2 className="risk-kpi-chart-card-title risk-kpi-card-title">Hedge Realizado</h2>
           <div className="risk-kpi-chart-card-volume">{formatNumber0(totalMetricValue)} sc</div>
@@ -1735,7 +1840,18 @@ function HedgeSummaryGaugeCards({
         </div>
       </article>
 
-      <article className="chart-card risk-kpi-mini-gauge-card risk-kpi-distribution-card">
+      <article className="chart-card risk-kpi-mini-gauge-card risk-kpi-distribution-card summary-insight-card">
+        <SummaryInsightButton
+          title="Distribuição do hedge"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                `Este card divide o hedge total entre duas frentes: físico e derivativos. O percentual no centro resume o mix total exibido neste momento.`,
+                `Os números de cada lado mostram quanto do hedge vem de cada frente, em percentual e também na unidade complementar exibida logo abaixo de cada rótulo.`,
+              ]}
+            />
+          }
+        />
         <div className="risk-kpi-chart-card-head">
           <h2 className="risk-kpi-chart-card-title risk-kpi-card-title">Distribuição</h2>
         </div>
@@ -1798,9 +1914,11 @@ function HedgeStatusSummaryCard({
   tone = "ok",
   summaryLine = "—",
   rows = [],
+  insightMessage = null,
 }) {
   return (
-    <article className={`chart-card risk-kpi-hedge-summary-card is-${tone}`}>
+    <article className={`chart-card risk-kpi-hedge-summary-card is-${tone} summary-insight-card`}>
+      {insightMessage ? <SummaryInsightButton title={title} message={insightMessage} /> : null}
       <div className="chart-card-header">
         <div>
           <h3 className="risk-kpi-card-title">{title}</h3>
@@ -3479,7 +3597,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
         {summaryChartState.totalsByCategory.map((item) => (
           <article
             key={item.label}
-            className="card stat-card component-summary-card"
+            className="card stat-card component-summary-card summary-insight-card"
             role="button"
             tabIndex={0}
             onClick={() => openSummaryCardModal(item.label)}
@@ -3491,6 +3609,19 @@ function ComponentSalesDashboard({ dashboardFilter }) {
             }}
             style={{ cursor: "pointer" }}
           >
+            <SummaryInsightButton
+              title={item.label}
+              message={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    `O valor principal de ${formatCurrency0(item.value)} representa o faturamento total acumulado desta categoria no período visível.`,
+                    item.strike
+                      ? `O strike médio de ${formatCurrency2(item.strike.value)}${item.strike.unit ? ` ${item.strike.unit}` : ""} resume o preço médio ponderado das operações que formam esse total.`
+                      : "Esse número é a soma financeira das operações associadas a esta categoria dentro do intervalo filtrado.",
+                  ]}
+                />
+              }
+            />
             <span className="component-summary-label">
               <span
                 className="component-summary-dot"
@@ -3509,7 +3640,18 @@ function ComponentSalesDashboard({ dashboardFilter }) {
         ))}
       </section>
 
-    <div className="chart-card component-chartjs-card cashflow-chart-card">
+    <div className="chart-card component-chartjs-card cashflow-chart-card summary-insight-card">
+        <SummaryInsightButton
+          title="Venda de Componentes"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                `Este gráfico distribui o valor financeiro das vendas de componentes por período, usando os totais dos cards acima como referência resumida.`,
+                `Cada barra mostra o valor de uma categoria no intervalo selecionado, e os rótulos no topo destacam os totais por período em U$.`,
+              ]}
+            />
+          }
+        />
         <div className="chart-card-header">
           <div>
             <h3>Venda de Componentes</h3>
@@ -4262,8 +4404,19 @@ function CashflowCurrencyChart({
   return (
       <div
         ref={sectionRef}
-        className={`chart-card component-chartjs-card cashflow-chart-card${compact ? " cashflow-chart-card--compact" : ""}${isExpanded ? " cashflow-chart-card--expanded" : ""}`}
+        className={`chart-card component-chartjs-card cashflow-chart-card summary-insight-card${compact ? " cashflow-chart-card--compact" : ""}${isExpanded ? " cashflow-chart-card--expanded" : ""}`}
       >
+      <SummaryInsightButton
+        title={currencyConfig.title}
+        message={
+          <SummaryInsightCopy
+            paragraphs={[
+              `Este painel resume o fluxo em ${currencyConfig.label}. Os cards acima mostram os totais por categoria no período visível, e o saldo atual é ${formatMoneyByCurrency(saldoSummary, currencyConfig.label)}.`,
+              `As barras representam entradas e saídas por período, enquanto a linha de saldo mostra o efeito líquido acumulado dentro do recorte selecionado.`,
+            ]}
+          />
+        }
+      />
       <div className="chart-card-header cashflow-chart-header">
         <div>
           <h3>{currencyConfig.title}</h3>
@@ -4286,7 +4439,7 @@ function CashflowCurrencyChart({
         {summaryCards.map((item) => (
           <article
             key={`${currencyConfig.key}-${item.label}`}
-            className="card stat-card component-summary-card"
+            className="card stat-card component-summary-card summary-insight-card"
             role="button"
             tabIndex={0}
             onClick={() => openSummaryCardTable(item.label)}
@@ -4298,6 +4451,17 @@ function CashflowCurrencyChart({
             }}
             style={{ cursor: "pointer" }}
           >
+            <SummaryInsightButton
+              title={`${currencyConfig.title} — ${item.label}`}
+              message={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    `O valor de ${formatMoneyByCurrency(item.value, currencyConfig.label)} representa o total de ${item.label.toLowerCase()} no período visível deste fluxo.`,
+                    "Ao abrir o detalhe, você vê quais operações individuais compõem esse número.",
+                  ]}
+                />
+              }
+            />
             <span className="component-summary-label">
               <span className="component-summary-dot" style={{ background: item.color }} />
               {item.label}
@@ -4305,7 +4469,18 @@ function CashflowCurrencyChart({
             <strong>{formatMoneyByCurrency(item.value, currencyConfig.label)}</strong>
           </article>
         ))}
-        <article className="card stat-card component-summary-card">
+        <article className="card stat-card component-summary-card summary-insight-card">
+          <SummaryInsightButton
+            title={`${currencyConfig.title} — Saldo`}
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O saldo de ${formatMoneyByCurrency(saldoSummary, currencyConfig.label)} representa o resultado líquido entre entradas e saídas no período visível.`,
+                  "Quando positivo, indica sobra de caixa nessa moeda; quando negativo, indica pressão financeira no recorte selecionado.",
+                ]}
+              />
+            }
+          />
           <span className="component-summary-label">
             <span className="component-summary-dot" style={{ background: "#64748b" }} />
             Saldo
@@ -5412,6 +5587,15 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       onFocusToggle={() => navigateFromSummary(navigate, "/dashboard/politica-hedge", "Política de Hedge")}
       onOpenResourceRow={openCommercialRiskResourceRow}
       showFloatingCard={false}
+      insightTitle="Hedge produção líquida"
+      insightMessage={
+        <SummaryInsightCopy
+          paragraphs={[
+            "Este gráfico mostra, ao longo do tempo, quantas sacas da produção líquida já estão cobertas por vendas físicas e derivativos.",
+            "A linha principal representa o hedge acumulado, enquanto a faixa de política indica o intervalo desejado para cada momento. Assim, os números mostram a evolução da cobertura em volume e em aderência à política.",
+          ]}
+        />
+      }
     />
   );
 
@@ -5421,6 +5605,14 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       tone={hedgeSummaryCardTone}
       summaryLine={hedgeSummaryTooltipLines[0]}
       rows={hedgeSummaryCardRows}
+      insightMessage={
+        <SummaryInsightCopy
+          paragraphs={[
+            `A primeira linha resume o ponto atual do hedge: percentual realizado, status frente à política e volume equivalente em sacas${totalArea > 0 ? " e em scs/ha" : ""}.`,
+            "As linhas seguintes quebram esse total em vendas físicas, derivativos, política mínima e política máxima, para mostrar exatamente o que cada número do resumo representa.",
+          ]}
+        />
+      }
     />
   );
 
@@ -5442,7 +5634,18 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
         {!summaryLoading ? (
           <>
-            <article className="card stat-card">
+            <article className="card stat-card summary-insight-card">
+              <SummaryInsightButton
+                title="Produção líquida"
+                message={
+                  <SummaryInsightCopy
+                    paragraphs={[
+                      `O número principal de ${formatNumber0(displayedNetProductionVolume)} sc representa a produção líquida disponível para comercialização e hedge no recorte atual.`,
+                      `Abaixo, ${formatNumber0(displayedPhysicalPaymentVolume)} sc mostra os pagamentos físicos já comprometidos, e ${formatNumber0(displayedProductionTotal)} sc representa a produção total antes desse desconto${displayedTotalArea > 0 ? `, equivalente a ${formatNumber0(displayedProductionTotal / displayedTotalArea)} sc/ha em ${formatNumber0(displayedTotalArea)} ha` : ""}.`,
+                    ]}
+                  />
+                }
+              />
               <h1 className="stat-card-primary-title risk-kpi-card-title">Produção líquida</h1>
               <strong>{formatNumber0(displayedNetProductionVolume)} sc</strong>
               <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
@@ -5518,18 +5721,45 @@ function CommercialRiskDashboard({ dashboardFilter }) {
               centerValue={`${derivativeStatusCounts.total} ops`}
               slices={derivativeExchangeSlices}
               onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "all")}
+              insightTitle="Distribuição de derivativos"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    `O número central de ${derivativeStatusCounts.total} ops representa a quantidade total de operações em derivativos dentro do filtro atual.`,
+                    "Cada fatia mostra quantas operações pertencem a cada grupo da distribuição. Quanto maior a fatia, maior a participação daquele grupo no total exibido.",
+                  ]}
+                />
+              }
             />
             <DonutChart
               centerLabel="Em aberto"
               centerValue={`${derivativeStatusCounts.open} ops`}
               slices={derivativeExchangeOpenSlices}
               onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "open")}
+              insightTitle="Derivativos em aberto"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    `O número central de ${derivativeStatusCounts.open} ops mostra apenas as operações ainda em aberto, ou seja, posições que continuam ativas.`,
+                    "As fatias indicam como essas posições ativas estão distribuídas entre os grupos do card, ajudando a enxergar onde o risco ainda está concentrado.",
+                  ]}
+                />
+              }
             />
             <DonutChart
               centerLabel="Encerrado"
               centerValue={`${derivativeStatusCounts.closed} ops`}
               slices={derivativeExchangeClosedSlices}
               onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "closed")}
+              insightTitle="Derivativos encerrados"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    `O número central de ${derivativeStatusCounts.closed} ops representa as operações já encerradas dentro do recorte atual.`,
+                    "As fatias mostram como os encerramentos se distribuem entre os grupos do card, permitindo comparar o histórico concluído com as posições ainda abertas.",
+                  ]}
+                />
+              }
             />
           </section>
         </>
@@ -5538,7 +5768,18 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       )}
 
       <section className="risk-kpi-forms-grid">
-        <article className="chart-card risk-kpi-forms-card">
+        <article className="chart-card risk-kpi-forms-card summary-insight-card">
+          <SummaryInsightButton
+            title="Formulários preenchidos"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  "Cada linha mostra um formulário ou módulo do sistema, o número ao lado indica quantos registros existem naquele bloco e o status mostra se ele já foi alimentado ou continua pendente.",
+                  "Na prática, esses números representam a profundidade de dados disponível para cada tema do resumo, ajudando a identificar rapidamente onde ainda faltam cadastros.",
+                ]}
+              />
+            }
+          />
           <div className="chart-card-header">
             <div>
               <h3>Formulários preenchidos</h3>
@@ -6053,7 +6294,18 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
 
   return (
     <section className="simulation-shell">
-      <div className="simulation-topbar card">
+      <div className="simulation-topbar card summary-insight-card">
+        <SummaryInsightButton
+          title="Parâmetros da simulação"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                `Os campos acima definem as premissas da matriz. Hoje a soja base está em ${formatNumber2(sojaBase)}, o câmbio base em ${formatNumber2(cambioBase)}, o breakeven em ${formatNumber2(breakeven)} R$/sc e a margem alvo em ${formatPercent1(targetPercent)}.`,
+                `Os campos de preço-alvo mostram o nível mínimo de preço físico necessário para atingir essa margem nas condições atuais.`,
+              ]}
+            />
+          }
+        />
         <label>
           Contrato soja CBOT:
           <select value={selectedSojaTicker} onChange={(event) => setSelectedSojaTicker(event.target.value)}>
@@ -6102,7 +6354,18 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
         </label>
       </div>
 
-      <div className="simulation-summary card">
+      <div className="simulation-summary card summary-insight-card">
+        <SummaryInsightButton
+          title="Resumo da simulação"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                `A célula selecionada gera um preço físico estimado de ${Number.isFinite(fisicoBRL) ? formatNumber2(fisicoBRL) : "0,00"} R$/sc e ${Number.isFinite(fisicoUSD) ? formatNumber2(fisicoUSD) : "0,00"} U$/sc.`,
+                `Com soja simulada em ${Number.isFinite(sojaSim) ? formatNumber2(sojaSim) : "0,00"}, câmbio em ${Number.isFinite(cambioSim) ? formatNumber2(cambioSim) : "0,00"} e basis em ${formatNumber2(basis)}, a margem simulada fica em ${Number.isFinite(simulatedMargin) ? formatPercent1(simulatedMargin) : "0,0%"}.`,
+              ]}
+            />
+          }
+        />
         <h3>Simulação</h3>
         <div className="simulation-summary-grid">
           <label>
@@ -6132,7 +6395,18 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
         </div>
       </div>
 
-      <div className="simulation-grid-shell card custom-scrollbar">
+      <div className="simulation-grid-shell card custom-scrollbar summary-insight-card">
+        <SummaryInsightButton
+          title="Matriz de simulação"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Cada célula interna representa um preço físico projetado em R$/sc para uma combinação de soja CBOT e câmbio futuro.",
+                "As linhas alteram a soja, as colunas alteram o câmbio e a cor indica se o preço resultante está abaixo do breakeven, em zona intermediária ou acima do alvo calculado.",
+              ]}
+            />
+          }
+        />
         <table className="simulation-grid-table">
           <tbody>
             {matrix.map((row, rowIndex) => (
@@ -6324,6 +6598,8 @@ function HedgePolicyChart({
   simulatedLabel = null,
   onOpenResourceRow = null,
   showFloatingCard = true,
+  insightTitle = "",
+  insightMessage = null,
 }) {
   const chartRef = useRef(null);
   const chartWrapRef = useRef(null);
@@ -6763,6 +7039,13 @@ function HedgePolicyChart({
         <h2>{title}</h2>
         <div className="hedge-chart-actions">
           {extraActions}
+          {insightMessage ? (
+            <SummaryInsightButton
+              title={insightTitle || title}
+              message={insightMessage}
+              className="summary-insight-button-inline"
+            />
+          ) : null}
           <button type="button" className="hedge-chart-icon-btn" onClick={onFocusToggle} title={focusButtonTitle}>
             {focusButtonIcon}
           </button>
@@ -7624,6 +7907,14 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       title: "Resumo Hedge",
       tone,
       summaryLine: totalLine,
+      insightMessage: (
+        <SummaryInsightCopy
+          paragraphs={[
+            `A primeira linha resume o hedge atual em percentual e valor total${isCost ? " sobre o custo" : " sobre a produção"}. Neste momento, a leitura principal é: ${totalLine}.`,
+            "As linhas abaixo mostram a decomposição entre vendas físicas, derivativos e os limites mínimo e máximo da política aplicável ao ponto selecionado.",
+          ]}
+        />
+      ),
       rows: [
         { label: "Vendas Fisico", value: formatHedgeSummaryLine("Vendas Fisico", physicalValue, unit, baseValue, totalArea).replace("Vendas Fisico: ", "") },
         { label: "Derivativos", value: formatHedgeSummaryLine("Derivativos", derivativeValue, unit, baseValue, totalArea).replace("Derivativos: ", "") },
@@ -7684,6 +7975,15 @@ function HedgePolicyDashboard({ dashboardFilter }) {
           <option value="monthly">Mensal</option>
         </select>
       }
+      insightTitle="Hedge sobre o custo"
+      insightMessage={
+        <SummaryInsightCopy
+          paragraphs={[
+            `Este gráfico compara o hedge realizado sobre o custo total da operação. A base usada para o cálculo é de R$ ${formatCurrency2(costBase)}.`,
+            `Em cada ponto do tempo, a linha mostra quanto desse custo já está protegido via vendas físicas e derivativos, e a faixa indica a política mínima e máxima desejada.`,
+          ]}
+        />
+      }
     />
   );
 
@@ -7710,6 +8010,15 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       simulatedIncrement={parsedSimulationVolume}
       simulatedLabel="adicionado em volume"
       showFloatingCard={focusedChart !== "production"}
+      insightTitle="Hedge produção líquida"
+      insightMessage={
+        <SummaryInsightCopy
+          paragraphs={[
+            `Este gráfico acompanha a cobertura da produção líquida, cuja base atual é ${formatNumber0(productionBase)} sc${totalArea > 0 ? `, equivalente a ${formatNumber2(productionBase / totalArea)} scs/ha` : ""}.`,
+            "A linha mostra quanto da produção já foi coberta por físico e derivativos em cada período, comparando o realizado com a faixa da política.",
+          ]}
+        />
+      }
     />
   );
 
@@ -8413,7 +8722,18 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
         </label>
       </div>
 
-      <div className="currency-hedge-chart card">
+      <div className="currency-hedge-chart card summary-insight-card">
+        <SummaryInsightButton
+          title="Exposição cambial"
+          message={
+            <SummaryInsightCopy
+              paragraphs={[
+                `A exposição cambial total mostrada no primeiro bloco é de US$ ${formatCurrency2(model.exposicao)}. O hedge realizado considera venda de derivativos, compromissos em dólar e vendas físicas convertidas, restando um saldo em aberto de US$ ${formatCurrency2(model.saldo)}.`,
+                `Quando existe overhedge, o excesso aparece destacado separadamente. Cada barra mostra o valor financeiro em milhões de dólares e pode ser clicada para abrir o detalhamento do cálculo.`,
+              ]}
+            />
+          }
+        />
         <div className="currency-hedge-plot">
           <div className="currency-hedge-axis-zero" style={{ left: `${axis.zeroPercent}%` }} />
           {chartRows.map((row) => {
@@ -9526,19 +9846,63 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   return (
     <section className="price-comp-shell">
       <section className="stats-grid">
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Preço final sem derivativos"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O valor de ${selectedCurrencyLabel} ${formatCurrency2(soldAveragePrice)} representa o preço médio final da operação física sem somar resultado de derivativos.`,
+                  "Ele é a referência base para comparar o impacto adicional de bolsa e câmbio sobre o preço final capturado.",
+                ]}
+              />
+            }
+          />
           <span>Preco final sem derivativos</span>
           <strong>{selectedCurrencyLabel} {formatCurrency2(soldAveragePrice)}</strong>
         </article>
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Preço físico final + derivativos"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O valor de ${selectedCurrencyLabel} ${formatCurrency2(soldAveragePrice + g1BolsaValue + g1CambioValue)} soma o preço físico final com o efeito dos derivativos considerados.`,
+                  `Nesse cálculo, bolsa contribui com ${selectedCurrencyLabel} ${formatCurrency2(g1BolsaValue)} e câmbio com ${selectedCurrencyLabel} ${formatCurrency2(g1CambioValue)} no divisor selecionado.`,
+                ]}
+              />
+            }
+          />
           <span>Preco fisico final + Derivativos</span>
           <strong>{selectedCurrencyLabel} {formatCurrency2(soldAveragePrice + g1BolsaValue + g1CambioValue)}</strong>
         </article>
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Basis médio"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O basis médio atual é ${basisAverage.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+                  "Esse número representa o desvio médio entre a referência internacional e o preço físico efetivamente observado nas operações filtradas.",
+                ]}
+              />
+            }
+          />
           <span>Basis medio</span>
           <strong>{basisAverage.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
         </article>
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Câmbio médio"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O câmbio médio considerado nas operações está em ${dollarAverage.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+                  "Ele é usado para converter preços e resultados quando a composição final precisa ser comparada na mesma moeda.",
+                ]}
+              />
+            }
+          />
           <span>Cambio medio</span>
           <strong>{dollarAverage.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
         </article>
@@ -9591,7 +9955,18 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
       </section>
 
       <div className="price-comp-main-grid">
-        <section className="price-comp-pair-card card">
+        <section className="price-comp-pair-card card summary-insight-card">
+          <SummaryInsightButton
+            title="Preço por saca"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `Este gráfico decompõe o preço por saca. A barra física mostra ${selectedCurrencyLabel} ${formatCurrency2(soldAveragePrice)}, e o total incorpora os efeitos de bolsa e câmbio para chegar ao preço final por unidade.`,
+                  "Cada segmento mostra quanto cada classe contribui positiva ou negativamente para o resultado final por saca.",
+                ]}
+              />
+            }
+          />
           <div className="price-comp-pair-row">
             <VerticalChartComponent
               bars={verticalRowsG1}
@@ -9601,7 +9976,18 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
           </div>
         </section>
 
-        <section className="price-comp-pair-card card">
+        <section className="price-comp-pair-card card summary-insight-card">
+          <SummaryInsightButton
+            title="Receita total"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `Este gráfico mostra a composição da receita total. O físico soma ${selectedCurrencyLabel} ${formatCurrency2(physicalTotalRevenueValue)} e o total consolidado chega a ${selectedCurrencyLabel} ${formatCurrency2(totalRevenueValue)}.`,
+                  "Aqui os segmentos representam o impacto financeiro agregado das classes sobre a receita total, não apenas sobre o preço unitário.",
+                ]}
+              />
+            }
+          />
           <div className="price-comp-pair-row">
             <VerticalChartComponent
               bars={verticalRowsG5}
@@ -9614,7 +10000,18 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
       </div>
 
       <section className="price-comp-bottom-grid">
-        <article className="price-comp-summary-card card">
+        <article className="price-comp-summary-card card summary-insight-card">
+          <SummaryInsightButton
+            title="Resumo físico"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O bloco físico resume ${formatNumber0(salesSummary.totalVolume)} sc vendidos, com faturamento de R$ ${formatCurrency2(salesSummary.brlRevenue)} e U$ ${formatCurrency2(salesSummary.usdRevenue)}.`,
+                  `Os níveis médios mostram o preço ponderado das operações em reais e dólares, enquanto o MTM médio indica a referência atual para a parcela não travada.`,
+                ]}
+              />
+            }
+          />
           <div className="price-comp-summary-header">
             <div>1. Fisico</div>
             <span>{formatNumber0(salesSummary.totalVolume)} sc</span>
@@ -9652,7 +10049,18 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
           </table>
         </article>
 
-        <article className="price-comp-summary-card card">
+        <article className="price-comp-summary-card card summary-insight-card">
+          <SummaryInsightButton
+            title="Resumo de derivativos"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `Este bloco resume ${normalizedDerivatives.length} operações em derivativos. Para cada classe, os números de aberto e encerrado mostram o resultado financeiro acumulado na moeda selecionada.`,
+                  "O strike médio é ponderado pelo volume e ajuda a entender em que nível as operações foram montadas.",
+                ]}
+              />
+            }
+          />
           <div className="price-comp-summary-header">
             <div>2. Derivativos</div>
             <span>{normalizedDerivatives.length} ops</span>
@@ -9788,30 +10196,85 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
   return (
     <section className="risk-kpi-shell">
       <section className="stats-grid risk-kpi-grid">
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Estratégias"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O número principal de ${formatNumber0(filteredStrategies.length)} representa o total de estratégias dentro do filtro atual.`,
+                  `A linha secundária mostra quantas continuam ativas agora: ${formatNumber0(activeStrategies)}.`,
+                ]}
+              />
+            }
+          />
           <span>Estratégias</span>
           <strong>{formatNumber0(filteredStrategies.length)}</strong>
           <span className="stat-card-secondary-label">Ativas</span>
           <strong className="stat-card-secondary-value">{formatNumber0(activeStrategies)}</strong>
         </article>
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Gatilhos"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O total de gatilhos cadastrados no filtro atual é ${formatNumber0(filteredTriggers.length)}.`,
+                  `Desses, ${formatNumber0(openTriggers)} seguem em monitoramento e ainda podem ser acionados.`,
+                ]}
+              />
+            }
+          />
           <span>Gatilhos</span>
           <strong>{formatNumber0(filteredTriggers.length)}</strong>
           <span className="stat-card-secondary-label">Em monitoramento</span>
           <strong className="stat-card-secondary-value">{formatNumber0(openTriggers)}</strong>
         </article>
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Gatilhos ativos"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O valor de ${formatNumber0(activeTriggers)} mostra quantos gatilhos permanecem ativos no ambiente monitorado.`,
+                  "Esse número exclui itens inativos ou já encerrados, concentrando a leitura no que ainda está operacional.",
+                ]}
+              />
+            }
+          />
           <span>Gatilhos ativos</span>
           <strong>{formatNumber0(activeTriggers)}</strong>
         </article>
-        <article className="card stat-card">
+        <article className="card stat-card summary-insight-card">
+          <SummaryInsightButton
+            title="Ativos monitorados"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `O valor de ${formatNumber0(monitoredCrops)} indica quantos ativos ou culturas diferentes possuem gatilhos sendo acompanhados.`,
+                  "Ele ajuda a medir a abrangência operacional do monitoramento no recorte atual.",
+                ]}
+              />
+            }
+          />
           <span>Ativos monitorados</span>
           <strong>{formatNumber0(monitoredCrops)}</strong>
         </article>
       </section>
 
       <section className="content-grid">
-        <div className="chart-card chart-card-large">
+        <div className="chart-card chart-card-large summary-insight-card">
+          <SummaryInsightButton
+            title="Estratégias mais próximas do vencimento"
+            message={
+              <SummaryInsightCopy
+                paragraphs={[
+                  `Esta lista mostra as ${formatNumber0(nextExpiringStrategies.length)} estratégias com vencimento mais próximo dentro do filtro atual.`,
+                  "A data à direita indica a urgência de revisão de cada estratégia e ajuda a priorizar as ações do time.",
+                ]}
+              />
+            }
+          />
           <div className="chart-card-header">
             <div>
               <h3>Estratégias mais próximas do vencimento</h3>
@@ -9835,8 +10298,32 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
           </div>
         </div>
 
-        <DonutChart centerLabel="Gatilhos" centerValue={`${filteredTriggers.length}`} slices={triggerStatusSlices} />
-        <ScenarioBars data={triggerCultureBars.length ? triggerCultureBars : [{ label: "Sem dados", value: 1, formatted: "0 gatilhos", color: "#cbd5e1" }]} />
+        <DonutChart
+          centerLabel="Gatilhos"
+          centerValue={`${filteredTriggers.length}`}
+          slices={triggerStatusSlices}
+          insightTitle="Status dos gatilhos"
+          insightMessage={
+            <SummaryInsightCopy
+              paragraphs={[
+                `O número central mostra ${formatNumber0(filteredTriggers.length)} gatilhos no total.`,
+                "Cada fatia divide esse total por status, separando o que está monitorando, já disparou ou ficou inativo.",
+              ]}
+            />
+          }
+        />
+        <ScenarioBars
+          data={triggerCultureBars.length ? triggerCultureBars : [{ label: "Sem dados", value: 1, formatted: "0 gatilhos", color: "#cbd5e1" }]}
+          insightTitle="Gatilhos por ativo"
+          insightMessage={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Cada barra mostra quantos gatilhos existem por ativo ou cultura.",
+                "O número ao lado de cada barra representa a quantidade de gatilhos daquele ativo, permitindo enxergar rapidamente onde há maior concentração de monitoramento.",
+              ]}
+            />
+          }
+        />
       </section>
     </section>
   );
