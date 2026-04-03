@@ -157,6 +157,22 @@ const reorderColumns = (columns, orderedKeys = [], trailingKeys = []) => {
   return [...leadingColumns, ...middleColumns, ...tailColumns];
 };
 
+const prioritizePrimaryDateColumns = (columns) => {
+  const availableKeys = new Set(columns.map((column) => column.key));
+  const primaryDateKey = ["data_negociacao", "data_contratacao"].find((key) => availableKeys.has(key));
+  const secondaryDateKeys = ["data_vencimento", "data_liquidacao", "data_pagamento"].filter((key) => availableKeys.has(key));
+  const orderedKeys = [
+    ...(primaryDateKey ? [primaryDateKey] : []),
+    ...secondaryDateKeys,
+  ].filter((key, index, items) => items.indexOf(key) === index);
+
+  if (!orderedKeys.length) {
+    return columns;
+  }
+
+  return reorderColumns(columns, orderedKeys);
+};
+
 const useLookupRows = (columns, rows) => {
   const [lookupCache, setLookupCache] = useState({});
 
@@ -376,7 +392,7 @@ export function usePreparedResourceTable(definition, rows) {
   const effectiveTableColumns = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
       if (definition.resource === "physical-sales") {
-        const physicalSalesColumns = (definition.columns || [])
+        const physicalSalesColumns = tableColumns
           .filter((column) => column.key !== "id")
           .filter((column) => column.key !== "moeda_unidade")
           .map((column) =>
@@ -387,14 +403,16 @@ export function usePreparedResourceTable(definition, rows) {
                 }
               : column,
           );
-        return reorderColumns(
-          physicalSalesColumns,
-          ["cultura_produto", "volume_fisico", "preco", "safra"],
-          ["grupo", "subgrupo"],
+        return prioritizePrimaryDateColumns(
+          reorderColumns(
+            physicalSalesColumns,
+            ["cultura_produto", "volume_fisico", "preco", "safra"],
+            ["grupo", "subgrupo"],
+          ),
         );
       }
       if (definition.resource === "physical-payments") {
-        const physicalPaymentColumns = (definition.columns || [])
+        const physicalPaymentColumns = tableColumns
           .filter((column) => column.key !== "id")
           .filter((column) => column.key !== "unidade")
           .map((column) =>
@@ -405,14 +423,16 @@ export function usePreparedResourceTable(definition, rows) {
                 }
               : column,
           );
-        return reorderColumns(
-          physicalPaymentColumns,
-          ["fazer_frente_com", "volume", "classificacao", "data_pagamento"],
-          ["grupo", "subgrupo"],
+        return prioritizePrimaryDateColumns(
+          reorderColumns(
+            physicalPaymentColumns,
+            ["fazer_frente_com", "volume", "classificacao", "data_pagamento"],
+            ["grupo", "subgrupo"],
+          ),
         );
       }
       if (definition.resource === "cash-payments") {
-        const cashPaymentColumns = (definition.columns || [])
+        const cashPaymentColumns = tableColumns
           .filter((column) => column.key !== "id")
           .filter((column) => !["fazer_frente_com", "safra", "moeda"].includes(column.key))
           .map((column) =>
@@ -423,16 +443,18 @@ export function usePreparedResourceTable(definition, rows) {
                 }
               : column,
           );
-        return reorderColumns(
-          cashPaymentColumns,
-          ["descricao", "volume", "data_pagamento", "contraparte"],
-          ["grupo", "subgrupo"],
+        return prioritizePrimaryDateColumns(
+          reorderColumns(
+            cashPaymentColumns,
+            ["descricao", "volume", "data_pagamento", "contraparte"],
+            ["grupo", "subgrupo"],
+          ),
         );
       }
-      return tableColumns;
+      return prioritizePrimaryDateColumns(tableColumns);
     }
 
-    return [
+    return prioritizePrimaryDateColumns([
       { key: "nome_da_operacao", label: "Operacao" },
       { key: "bolsa_ref", label: "Bolsa" },
       { key: "contrato_derivativo", label: "Contrato bolsa" },
@@ -517,11 +539,12 @@ export function usePreparedResourceTable(definition, rows) {
       { key: "cod_operacao_mae", label: "Cod operacao mae" },
       { key: "status_operacao", label: "Status" },
       { key: "data_contratacao", label: "Data contratacao", type: "date" },
+      { key: "data_liquidacao", label: "Data liquidacao", type: "date" },
       { key: "tipo_derivativo", label: "Tipo derivativo" },
       { key: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
       { key: "id", label: "ID" },
-    ];
+    ]);
   }, [definition.customForm, definition.resource, editingDerivativeStrike, editingDerivativeStrikeInput, tableColumns]);
 
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);

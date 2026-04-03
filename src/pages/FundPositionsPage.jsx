@@ -96,7 +96,7 @@ const lastNetValueLabelPlugin = {
 
 const longShortCenterTextPlugin = {
   id: "longShortCenterTextPlugin",
-  beforeTooltipDraw(chart) {
+  afterDatasetsDraw(chart) {
     const { ctx, chartArea, scales } = chart;
     const yScale = scales?.y2 || scales?.y;
     if (!ctx || !chartArea || !yScale) {
