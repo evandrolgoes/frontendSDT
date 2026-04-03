@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../services/api";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
-import { resourceService } from "../services/resourceService";
-
 const EMPTY_UPDATE = {
   field: "",
   matchCurrent: false,
@@ -15,14 +13,6 @@ const EMPTY_UPDATE = {
 const EMPTY_FILTER = {
   field: "",
   value: "",
-};
-
-const getOptionLabel = (field, option) => {
-  if (!option) {
-    return "";
-  }
-  const configured = field?.labelKey ? option[field.labelKey] : "";
-  return configured || option?.nome || option?.name || option?.title || option?.label || `#${option?.id}`;
 };
 
 const parseFieldValue = (field, rawValue) => {
@@ -37,9 +27,6 @@ const parseFieldValue = (field, rawValue) => {
       return false;
     }
   }
-  if (field?.type === "relation") {
-    return Number(rawValue);
-  }
   if (field?.type === "number") {
     const normalized = String(rawValue).replace(/\./g, "").replace(",", ".");
     const parsed = Number(normalized);
@@ -48,103 +35,28 @@ const parseFieldValue = (field, rawValue) => {
   return rawValue;
 };
 
-const getSelectableOptions = (field, lookupOptions) => {
-  if (typeof field?.getOptions === "function") {
-    return field
-      .getOptions({
-        lookupOptions,
-        values: {},
-        getOptionLabel: (optionField, option) => getOptionLabel(optionField, option),
-      })
-      .filter((option) => String(option?.value ?? "").trim() && String(option?.label ?? "").trim());
-  }
-
-  if (Array.isArray(field?.options) && field.options.length) {
-    return field.options.map((option) => ({
-      value: option.value,
-      label: option.label,
-    }));
-  }
-
-  if (field?.resource) {
-    let options = lookupOptions[field.resource] || [];
-
-    const mapped = field.listField
-      ? options.flatMap((option) => {
-          const valuesList = Array.isArray(option[field.listField]) ? option[field.listField] : [];
-          return valuesList.map((item) => ({
-            value: item,
-            label: item,
-          }));
-        })
-      : options.map((option) => ({
-          value: option[field.valueKey || "id"] ?? option.id,
-          label: getOptionLabel(field, option),
-        }));
-
-    const filtered = mapped.filter((option) => String(option.value ?? "").trim() && String(option.label ?? "").trim());
-
-    if (field.dedupeByValue) {
-      return filtered.filter((option, index, self) => self.findIndex((item) => item.value === option.value) === index);
-    }
-
-    return filtered;
-  }
-
-  if (!field?.resource) {
-    return [];
-  }
-  return [];
-};
-
-function ValueInput({ field, value, onChange, lookupOptions, disabled = false, placeholder = "Selecione" }) {
-  if (!field) {
-    return <input type="text" className="mass-update-input" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
-  }
-
-  if (field.type === "select" || field.type === "relation" || field.type === "boolean") {
-    const options = getSelectableOptions(field, lookupOptions);
-    return (
-      <select className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={String(option.value)} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    );
-  }
-
-  if (field.type === "date") {
-    return <input type="date" className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
-  }
-
-  if (field.type === "number") {
-    return (
-      <input
-        type="text"
-        inputMode="decimal"
-        className="mass-update-input"
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-      />
-    );
-  }
-
-  return <input type="text" className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
+function ValueInput({ field, value, onChange, disabled = false, placeholder = "Selecione" }) {
+  return (
+    <input
+      type="text"
+      inputMode={field?.type === "number" ? "decimal" : undefined}
+      className="mass-update-input"
+      value={value ?? ""}
+      onChange={(event) => onChange(event.target.value)}
+      disabled={disabled}
+      placeholder={placeholder}
+    />
+  );
 }
 
-function FilterValueInput({ value, onChange, disabled = false }) {
-  return <input type="text" className="mass-update-input" value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled} />;
+function FilterValueInput({ field, value, onChange, disabled = false }) {
+  return <ValueInput field={field} value={value} onChange={onChange} disabled={disabled} placeholder="Selecione" />;
 }
 
 export function MassUpdatePage() {
   const [resources, setResources] = useState([]);
   const [resource, setResource] = useState("");
   const [metadata, setMetadata] = useState(null);
-  const [lookupOptions, setLookupOptions] = useState({});
   const [filters, setFilters] = useState([{ ...EMPTY_FILTER }]);
   const [updates, setUpdates] = useState([{ ...EMPTY_UPDATE }]);
   const [search, setSearch] = useState("");
@@ -272,46 +184,6 @@ export function MassUpdatePage() {
       updateFields: (metadata?.updateFields || []).map(mergeUpdateField),
     };
   }, [metadata, resource]);
-
-  useEffect(() => {
-    const resourcesToLoad = [...fieldCatalog.filters, ...fieldCatalog.updateFields]
-      .flatMap((field) => {
-        if (Array.isArray(field.resources) && field.resources.length) {
-          return field.resources;
-        }
-        return field.resource ? [field.resource] : [];
-      })
-      .filter(Boolean)
-      .filter((value, index, self) => self.indexOf(value) === index);
-
-    if (!resourcesToLoad.length) {
-      setLookupOptions({});
-      return;
-    }
-
-    let active = true;
-
-    const loadLookupOptions = async () => {
-      try {
-        const results = await Promise.all(
-          resourcesToLoad.map(async (resourceName) => [resourceName, await resourceService.listAll(resourceName)]),
-        );
-        if (!active) {
-          return;
-        }
-        setLookupOptions(Object.fromEntries(results));
-      } catch {
-        if (active) {
-          setLookupOptions({});
-        }
-      }
-    };
-
-    loadLookupOptions();
-    return () => {
-      active = false;
-    };
-  }, [fieldCatalog]);
 
   const updateFieldOptions = fieldCatalog.updateFields || [];
   const filterFieldOptions = fieldCatalog.filters || [];
@@ -468,6 +340,7 @@ export function MassUpdatePage() {
                     <label className="form-field">
                       <span>Valor</span>
                       <FilterValueInput
+                        field={selectedField}
                         value={filter.value}
                         onChange={(value) =>
                           setFilters((current) =>
@@ -584,7 +457,6 @@ export function MassUpdatePage() {
                             ),
                           )
                         }
-                        lookupOptions={lookupOptions}
                         disabled={!update.matchCurrent || !selectedField}
                         placeholder="Qualquer valor"
                       />
@@ -628,7 +500,6 @@ export function MassUpdatePage() {
                             ),
                           )
                         }
-                        lookupOptions={lookupOptions}
                         disabled={!selectedField || update.clearTarget}
                       />
                     </label>
