@@ -11,6 +11,7 @@ const loadCopyBasePageModule = () => import("../pages/CopyBasePage");
 const loadMassImportPageModule = () => import("../pages/MassImportPage");
 const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
 const loadMercadoPageModule = () => import("../pages/MercadoPage");
+const loadFundPositionsPageModule = () => import("../pages/FundPositionsPage");
 const loadBlogStudioPageModule = () => import("../pages/BlogStudioPage");
 const loadInsightsPageModule = () => import("../pages/InsightsPage");
 const loadInsightsQuestionLabPageModule = () => import("../pages/InsightsQuestionLabPage");
@@ -38,6 +39,7 @@ const CopyBasePage = lazyNamedExport(loadCopyBasePageModule, "CopyBasePage");
 const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage");
 const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage");
 const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
+const FundPositionsPage = lazyNamedExport(loadFundPositionsPageModule, "FundPositionsPage");
 const BlogStudioPage = lazyNamedExport(loadBlogStudioPageModule, "BlogStudioPage");
 const InsightsPage = lazyNamedExport(loadInsightsPageModule, "InsightsPage");
 const InsightsQuestionLabPage = lazyNamedExport(loadInsightsQuestionLabPageModule, "InsightsQuestionLabPage");
@@ -191,9 +193,9 @@ const baseNavigationSections = [
     items: [
       { path: "/mercado/blog", label: "Blog", module: "market_blog_news" },
       { path: "/mercado/cotacoes", label: "Cotacoes", module: "market_quotes" },
-      { path: "/mercado/posicao-de-fundos", label: "Posicao de Fundos", module: "market_fund_positions" },
       { path: "/mercado/exportacoes", label: "Exportacoes", module: "market_exports" },
       { path: "/mercado/basis", label: "Basis", module: "market_basis" },
+      { path: "/mercado/posicao-fundos", label: "Posicao de Fundos", module: "market_fund_positions" },
       { path: "/mercado/taxa-de-juros", label: "Taxa de Juros", module: "market_interest_rates" },
       { path: "/mercado/outros", label: "Outros", module: "market_others" },
     ],
@@ -251,12 +253,9 @@ export const appRoutes = [
   dashboardRoute("/dashboard/mtm", "mtm", "dashboard_mtm"),
   {
     path: "/mercado",
-    element: <MercadoPage kind="fundPositions" />,
-    module: "market_fund_positions",
-    title: "Posicao de Fundos",
-    preload: loadMercadoPageModule,
+    element: <Navigate to="/mercado/blog" replace />,
+    title: "Mercado",
   },
-  { path: "/mercado/posicao-de-fundos", element: <MercadoPage kind="fundPositions" />, module: "market_fund_positions", preload: loadMercadoPageModule },
   { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes" },
   { path: "/mercado/blog", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
   { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
@@ -266,6 +265,7 @@ export const appRoutes = [
   { path: "/insights/perguntas-prontas", element: <InsightsQuestionLabPage />, module: "insights_commercialization", preload: loadInsightsQuestionLabPageModule },
   { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", preload: loadMercadoPageModule },
   { path: "/mercado/basis", element: <MercadoPage kind="basis" />, module: "market_basis", preload: loadMercadoPageModule },
+  { path: "/mercado/posicao-fundos", element: <FundPositionsPage />, module: "market_fund_positions", preload: loadFundPositionsPageModule, warmup: () => resourceService.getFundPositionSeries("soja").catch(() => null) },
   { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates", preload: loadMercadoPageModule },
   { path: "/mercado/outros", element: <MercadoPage kind="others" />, module: "market_others", preload: loadMercadoPageModule },
   { ...resourceRoute("/tenants", "tenants", "tenants"), module: "sys_tenants", superuserOnly: true },

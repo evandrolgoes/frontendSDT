@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DataTable } from "./DataTable";
 import { resourceService } from "../services/resourceService";
+import { formatBrazilianNumber, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
 const TRADINGVIEW_REFRESH_MS = 60000;
 
@@ -57,38 +58,6 @@ const resolveRelationLikeLabel = (value, preferredKey = "") => {
 
   return value;
 };
-
-const parseLocalizedNumber = (value) => {
-  if (value === null || value === undefined || value === "") {
-    return 0;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : 0;
-  }
-  const raw = String(value).trim().replace(/\s+/g, "");
-  if (!raw) {
-    return 0;
-  }
-  const hasComma = raw.includes(",");
-  const hasDot = raw.includes(".");
-  let normalized = raw;
-  if (hasComma && hasDot) {
-    normalized = raw.replace(/\./g, "").replace(/,/g, ".");
-  } else if (hasComma) {
-    normalized = raw.replace(/,/g, ".");
-  } else if (hasDot) {
-    const parts = raw.split(".");
-    normalized = parts.length === 2 ? raw : raw.replace(/\./g, "");
-  }
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const formatBrazilianNumber = (value, digits = 4) =>
-  parseLocalizedNumber(value).toLocaleString("pt-BR", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
 
 const normalizeOperationText = (value) => String(value || "").trim().toLowerCase();
 

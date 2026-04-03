@@ -3,10 +3,18 @@ import { useCallback, useEffect, useState } from "react";
 import { resourceService } from "../services/resourceService";
 
 const RESOURCE_VIEW_CACHE_TTL_MS = 60000;
+const RESOURCE_VIEW_CACHE_MAX_SIZE = 50;
 const resourceViewStateCache = new Map();
 
 export const clearResourceViewCache = () => {
   resourceViewStateCache.clear();
+};
+
+const setCacheEntry = (key, value) => {
+  if (resourceViewStateCache.size >= RESOURCE_VIEW_CACHE_MAX_SIZE) {
+    resourceViewStateCache.delete(resourceViewStateCache.keys().next().value);
+  }
+  resourceViewStateCache.set(key, value);
 };
 
 const toMessage = (value) => {
@@ -53,7 +61,7 @@ export function useResourceCrud(resource, initialFilters = {}, options = {}) {
   const readCachedView = useCallback(() => resourceViewStateCache.get(resource) || null, [resource]);
   const cacheView = useCallback(
     (snapshot) => {
-      resourceViewStateCache.set(resource, {
+      setCacheEntry(resource, {
         ...snapshot,
         updatedAt: Date.now(),
       });

@@ -1,5 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+const useDebounce = (value, delay) => {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+};
+
 import { formatBrazilianDate, formatBrazilianDateTime, isBrazilianDate, isIsoDate } from "../utils/date";
 
 const DEFAULT_FILTER = { values: [], min: "", max: "", query: "" };
@@ -470,9 +479,10 @@ export function DataTable({
     [preparedColumns],
   );
 
+  const debouncedSearchValue = useDebounce(searchValue, 300);
   const searchTerms = useMemo(
-    () => String(searchValue || "").toLowerCase().trim().split(/\s+/).filter(Boolean),
-    [searchValue],
+    () => String(debouncedSearchValue || "").toLowerCase().trim().split(/\s+/).filter(Boolean),
+    [debouncedSearchValue],
   );
 
   const activeColumnFilters = useMemo(

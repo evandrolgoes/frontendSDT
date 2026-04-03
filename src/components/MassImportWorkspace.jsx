@@ -4,48 +4,15 @@ import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
 import { isBrazilianDate, parseBrazilianDate } from "../utils/date";
+import { inferExchangeFromBolsaLabel, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
 const DEFAULT_VISIBLE_ROWS = 10;
 const ROW_COUNT_OPTIONS = [10, 50, 100, 150, 200];
-
-const normalizeLookupValue = (value) =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replaceAll("_", "")
-    .replaceAll("-", "")
-    .replaceAll("/", "");
 
 const getQuoteSectionName = (item) =>
   String(item?.section_name || item?.secao || item?.seção || "")
     .replace(/\s+/g, " ")
     .trim();
-
-const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
-  const normalized = normalizeLookupValue(bolsaLabel);
-
-  if (!normalized) {
-    return null;
-  }
-
-  const exactMatch = exchanges.find((item) => normalizeLookupValue(item.nome) === normalized);
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  if (normalized.includes("soybean") || normalized.includes("soja")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "soja") || null;
-  }
-  if (normalized.includes("corn") || normalized.includes("milho")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "milho") || null;
-  }
-  if (normalized.includes("dollar") || normalized.includes("dolar") || normalized.includes("usd")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "dolar") || null;
-  }
-
-  return null;
-};
 
 const isSelectLikeField = (field) => ["select", "relation", "contract", "boolean"].includes(field?.type);
 const generateRandomOperationCode = () => `DRV-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -88,21 +55,6 @@ const resizeRowMeta = (currentMeta, total) => {
     nextMeta.push({ touched: false, manualCode: false, autoCode: false });
   }
   return nextMeta;
-};
-
-const parseLocalizedNumber = (value) => {
-  if (value === "" || value === undefined || value === null) return undefined;
-  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  const raw = String(value).trim().replace(/\s+/g, "");
-  if (!raw) return undefined;
-  const hasComma = raw.includes(",");
-  const hasDot = raw.includes(".");
-  let normalized = raw;
-  if (hasComma && hasDot) normalized = raw.replace(/\./g, "").replace(/,/g, ".");
-  else if (hasComma) normalized = raw.replace(/,/g, ".");
-  else if (hasDot) normalized = raw.split(".").length === 2 ? raw : raw.replace(/\./g, "");
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : undefined;
 };
 
 const normalizeDateValue = (value) => {

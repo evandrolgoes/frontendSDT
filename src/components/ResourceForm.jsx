@@ -3,36 +3,9 @@ import { useEffect, useMemo, useState } from "react";
 import { DatePickerField } from "./DatePickerField";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
+import { formatBrazilianNumber, inferExchangeFromBolsaLabel, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
+import { BRAZILIAN_STATES } from "../utils/constants";
 
-const BRAZILIAN_STATES = [
-  { id: "AC", sigla: "AC", nome: "Acre" },
-  { id: "AL", sigla: "AL", nome: "Alagoas" },
-  { id: "AP", sigla: "AP", nome: "Amapa" },
-  { id: "AM", sigla: "AM", nome: "Amazonas" },
-  { id: "BA", sigla: "BA", nome: "Bahia" },
-  { id: "CE", sigla: "CE", nome: "Ceara" },
-  { id: "DF", sigla: "DF", nome: "Distrito Federal" },
-  { id: "ES", sigla: "ES", nome: "Espirito Santo" },
-  { id: "GO", sigla: "GO", nome: "Goias" },
-  { id: "MA", sigla: "MA", nome: "Maranhao" },
-  { id: "MT", sigla: "MT", nome: "Mato Grosso" },
-  { id: "MS", sigla: "MS", nome: "Mato Grosso do Sul" },
-  { id: "MG", sigla: "MG", nome: "Minas Gerais" },
-  { id: "PA", sigla: "PA", nome: "Para" },
-  { id: "PB", sigla: "PB", nome: "Paraiba" },
-  { id: "PR", sigla: "PR", nome: "Parana" },
-  { id: "PE", sigla: "PE", nome: "Pernambuco" },
-  { id: "PI", sigla: "PI", nome: "Piaui" },
-  { id: "RJ", sigla: "RJ", nome: "Rio de Janeiro" },
-  { id: "RN", sigla: "RN", nome: "Rio Grande do Norte" },
-  { id: "RS", sigla: "RS", nome: "Rio Grande do Sul" },
-  { id: "RO", sigla: "RO", nome: "Rondonia" },
-  { id: "RR", sigla: "RR", nome: "Roraima" },
-  { id: "SC", sigla: "SC", nome: "Santa Catarina" },
-  { id: "SP", sigla: "SP", nome: "Sao Paulo" },
-  { id: "SE", sigla: "SE", nome: "Sergipe" },
-  { id: "TO", sigla: "TO", nome: "Tocantins" },
-];
 
 const fetchCitiesFromIbgeBrowser = async (uf) => {
   const data = await resourceService.fetchJsonCached(
@@ -48,56 +21,9 @@ const fetchCitiesFromIbgeBrowser = async (uf) => {
   );
 };
 
-const parseLocalizedNumber = (value) => {
-  if (value === "" || value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
-  }
-
-  const raw = String(value).trim().replace(/\s+/g, "");
-  if (!raw) {
-    return undefined;
-  }
-
-  const hasComma = raw.includes(",");
-  const hasDot = raw.includes(".");
-
-  let normalized = raw;
-  if (hasComma && hasDot) {
-    normalized = raw.replace(/\./g, "").replace(/,/g, ".");
-  } else if (hasComma) {
-    normalized = raw.replace(/,/g, ".");
-  } else if (hasDot) {
-    const parts = raw.split(".");
-    if (parts.length === 2) {
-      normalized = raw;
-    } else {
-      normalized = raw.replace(/\./g, "");
-    }
-  }
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
-const formatBrazilianNumber = (value) => {
-  if (value === "" || value === undefined || value === null) {
-    return "";
-  }
-  const numericValue = parseLocalizedNumber(value);
-  if (!Number.isFinite(numericValue)) {
-    return String(value);
-  }
-  return numericValue.toLocaleString("pt-BR", {
-    minimumFractionDigits: 4,
-    maximumFractionDigits: 4,
-  });
-};
-
 const parseBrazilianNumber = (value) => {
-  return parseLocalizedNumber(value);
+  const result = parseLocalizedNumber(value);
+  return result === 0 && (value === "" || value === undefined || value === null) ? undefined : result;
 };
 
 const isPhoneField = (field) => field?.type === "phone" || field?.name === "phone" || String(field?.label || "").trim().toLowerCase() === "telefone";
@@ -116,39 +42,6 @@ const formatBrazilianPhone = (value) => {
   return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
-const normalizeLookupValue = (value) =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replaceAll("_", "")
-    .replaceAll("-", "")
-    .replaceAll("/", "");
-
-const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
-  const normalized = normalizeLookupValue(bolsaLabel);
-
-  if (!normalized) {
-    return null;
-  }
-
-  const exactMatch = exchanges.find((item) => normalizeLookupValue(item.nome) === normalized);
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  if (normalized.includes("soybean") || normalized.includes("soja")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "soja") || null;
-  }
-  if (normalized.includes("corn") || normalized.includes("milho")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "milho") || null;
-  }
-  if (normalized.includes("dollar") || normalized.includes("dolar") || normalized.includes("usd")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "dolar") || null;
-  }
-
-  return null;
-};
 
 const normalizeFieldValue = (field, value) => {
   if (field.type === "relation" && field.optional && value === "") {

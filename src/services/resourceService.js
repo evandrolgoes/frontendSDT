@@ -238,6 +238,16 @@ export const resourceService = {
       }));
     });
   },
+  getFundPositionSeries: (series = "soja", options = {}) => {
+    const normalizedSeries = String(series || "soja").trim().toLowerCase();
+    const cacheKey = buildCacheKey("market", "fund-position-series", { series: normalizedSeries });
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("mercado/posicao-fundos/", { params: { series: normalizedSeries } }).then((response) => response.data),
+    );
+  },
   getCommercialRiskSummary: (params = {}, options = {}) => {
     const normalizedParams = normalizeRequestParams(params) || {};
     const cacheKey = buildCacheKey("dashboard", "commercial-risk-summary", normalizedParams);

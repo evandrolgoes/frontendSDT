@@ -1,11 +1,6 @@
 import { PageHeader } from "../components/PageHeader";
-import { FundPositionChart } from "../components/FundPositionChart";
 
 const mercadoPageContent = {
-  fundPositions: {
-    title: "Posicao de Fundos",
-    description: "",
-  },
   quotes: {
     title: "Cotacoes",
     description: "Espaco reservado para a leitura de precos, curvas e referencias de mercado.",
@@ -29,11 +24,6 @@ const mercadoPageContent = {
 };
 
 const mercadoHighlights = {
-  fundPositions: [
-    "Consolidacao de exposicao por fundo",
-    "Comparativos entre janelas e gestores",
-    "Espaco para filtros e indicadores dedicados",
-  ],
   quotes: [
     "Cotacoes spot e referencias de bolsa",
     "Acompanhamento por cultura, praca e moeda",
@@ -61,38 +51,9 @@ const mercadoHighlights = {
   ],
 };
 
-export function MercadoPage({ kind = "fundPositions" }) {
-  const content = mercadoPageContent[kind] || mercadoPageContent.fundPositions;
-  const highlights = mercadoHighlights[kind] || mercadoHighlights.fundPositions;
-
-  if (kind === "fundPositions") {
-    return (
-      <div className="resource-page dashboard-page">
-        <PageHeader
-          title={content.title}
-          description=""
-          tag="Mercado"
-        />
-
-        <div className="fund-position-grid">
-          <FundPositionChart
-            title="Posicao de Fundos - Milho CBOT"
-            marketName="CORN - CHICAGO BOARD OF TRADE"
-            csvUrl={"https://publicreporting.cftc.gov/resource/jun7-fc8e.csv?$select=report_date_as_yyyy_mm_dd,market_and_exchange_names,noncomm_positions_long_all,noncomm_positions_short_all,noncomm_postions_spread_all&$where=cftc_contract_market_code='002602'%20AND%20report_date_as_yyyy_mm_dd%20%3E=%20'2020-01-01'&$order=report_date_as_yyyy_mm_dd%20asc&$limit=2000&$offset=0"}
-            showDirectionLabels
-            showNetLabel
-          />
-          <FundPositionChart
-            title="Posicao de Fundos - Soja CBOT"
-            marketName="SOYBEANS - CHICAGO BOARD OF TRADE"
-            csvUrl={"https://publicreporting.cftc.gov/resource/jun7-fc8e.csv?$select=report_date_as_yyyy_mm_dd,market_and_exchange_names,noncomm_positions_long_all,noncomm_positions_short_all,comm_positions_short_all,noncomm_postions_spread_all&$where=market_and_exchange_names='SOYBEANS - CHICAGO BOARD OF TRADE'%20AND%20report_date_as_yyyy_mm_dd%20%3E=%20'2020-01-01'&$order=report_date_as_yyyy_mm_dd%20asc&$limit=2000&$offset=0"}
-            showDirectionLabels
-            showNetLabel
-          />
-        </div>
-      </div>
-    );
-  }
+export function MercadoPage({ kind = "quotes" }) {
+  const content = mercadoPageContent[kind] || mercadoPageContent.quotes;
+  const highlights = mercadoHighlights[kind] || mercadoHighlights.quotes;
 
   if (kind === "interestRates") {
     return (

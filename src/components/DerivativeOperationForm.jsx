@@ -4,6 +4,7 @@ import { DatePickerField } from "./DatePickerField";
 import { InfoPopup } from "./InfoPopup";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
+import { formatBrazilianNumber, inferExchangeFromBolsaLabel, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
 const TRADINGVIEW_REFRESH_MS = 60000;
 
@@ -28,44 +29,10 @@ const yesNoOptions = [
   { value: "Nao", label: "Nao" },
 ];
 
-const normalizeLookupValue = (value) =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replaceAll("_", "")
-    .replaceAll("-", "")
-    .replaceAll("/", "");
-
 const getQuoteSectionName = (item) =>
   String(item?.section_name || item?.secao || item?.seção || "")
     .replace(/\s+/g, " ")
     .trim();
-
-const inferExchangeFromBolsaLabel = (bolsaLabel, exchanges = []) => {
-  const normalized = normalizeLookupValue(bolsaLabel);
-
-  if (!normalized) {
-    return null;
-  }
-
-  const exactMatch = exchanges.find((item) => normalizeLookupValue(item.nome) === normalized);
-  if (exactMatch) {
-    return exactMatch;
-  }
-
-  if (normalized.includes("soybean") || normalized.includes("soja")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "soja") || null;
-  }
-  if (normalized.includes("corn") || normalized.includes("milho")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "milho") || null;
-  }
-  if (normalized.includes("dollar") || normalized.includes("dolar") || normalized.includes("usd")) {
-    return exchanges.find((item) => normalizeLookupValue(item.ativo || item.cultura) === "dolar") || null;
-  }
-
-  return null;
-};
 
 const formatExchangeOptionLabel = (exchangeName) =>
   String(exchangeName || "")
@@ -73,50 +40,6 @@ const formatExchangeOptionLabel = (exchangeName) =>
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
-
-const parseLocalizedNumber = (value) => {
-  if (value === "" || value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : undefined;
-  }
-
-  const raw = String(value).trim().replace(/\s+/g, "");
-  if (!raw) {
-    return undefined;
-  }
-
-  const hasComma = raw.includes(",");
-  const hasDot = raw.includes(".");
-
-  let normalized = raw;
-  if (hasComma && hasDot) {
-    normalized = raw.replace(/\./g, "").replace(/,/g, ".");
-  } else if (hasComma) {
-    normalized = raw.replace(/,/g, ".");
-  } else if (hasDot) {
-    const parts = raw.split(".");
-    normalized = parts.length === 2 ? raw : raw.replace(/\./g, "");
-  }
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : undefined;
-};
-
-const formatBrazilianNumber = (value, decimals = 4) => {
-  if (value === "" || value === undefined || value === null) {
-    return "";
-  }
-  const numericValue = parseLocalizedNumber(value);
-  if (!Number.isFinite(numericValue)) {
-    return String(value);
-  }
-  return numericValue.toLocaleString("pt-BR", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-};
 
 const formatInitialNumber = (value, decimals = 4) => formatBrazilianNumber(value, decimals);
 

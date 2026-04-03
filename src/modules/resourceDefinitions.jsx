@@ -1,3 +1,5 @@
+import { normalizeLookupValue } from "../utils/formatters";
+
 const yesNoOptions = [
   { value: "true", label: "Sim" },
   { value: "false", label: "Nao" },
@@ -51,15 +53,6 @@ const moedaCmdtyeOptions = [
   { value: "Moeda", label: "Moeda" },
   { value: "Cmdtye", label: "Cmdtye" },
 ];
-
-const normalizeLookupValue = (value) =>
-  String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replaceAll("_", "")
-    .replaceAll("-", "")
-    .replaceAll("/", "");
 
 const formatExchangeOptionLabel = (exchangeName) =>
   String(exchangeName || "")
