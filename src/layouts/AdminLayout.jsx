@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { getNavigationSections } from "../routes/routes";
 
-const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [], localidade: [] };
+const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [] };
 
 const normalizeValues = (value) => {
   if (Array.isArray(value)) {
@@ -22,7 +22,6 @@ const normalizeFilterDraft = (value) => ({
   subgrupo: normalizeValues(value?.subgrupo),
   cultura: normalizeValues(value?.cultura),
   safra: normalizeValues(value?.safra),
-  localidade: normalizeValues(value?.localidade),
 });
 
 function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
@@ -98,7 +97,6 @@ export function AdminLayout({ children }) {
       summarize(filter.subgrupo, options.subgroups, "subgrupo", "Subgrupo"),
       !isCashflowDashboard ? summarize(filter.cultura, options.crops, "ativo", "Ativo") : null,
       !isCashflowDashboard ? summarize(filter.safra, options.seasons, "safra", "Safra") : null,
-      !isCashflowDashboard ? summarize(filter.localidade, options.localities, "label", "Localidade") : null,
     ].filter(Boolean);
 
     return parts.length ? parts : ["Aplique um Filtro"];
@@ -357,9 +355,6 @@ export function AdminLayout({ children }) {
               ) : null}
               {!isCashflowDashboard ? (
                 <PopupChipGroup title="Safras" items={options.cropBoardSeasons || []} selectedValues={draftFilter.safra} labelKey="safra" onToggle={(value) => toggleDraftFilterValue("safra", value)} onClear={() => updateDraftFilter("safra", [])} />
-              ) : null}
-              {!isCashflowDashboard ? (
-                <PopupChipGroup title="Localidade de Referência" items={options.localities} selectedValues={draftFilter.localidade} labelKey="label" onToggle={(value) => toggleDraftFilterValue("localidade", value)} onClear={() => updateDraftFilter("localidade", [])} />
               ) : null}
             </div>
           </div>

@@ -43,7 +43,6 @@ export function InsightsPage() {
           subgrupo: filter?.subgrupo || [],
           cultura: filter?.cultura || [],
           safra: filter?.safra || [],
-          localidade: filter?.localidade || [],
         },
         { force: true },
       )
@@ -63,7 +62,7 @@ export function InsightsPage() {
     return () => {
       active = false;
     };
-  }, [filter?.cultura, filter?.grupo, filter?.localidade, filter?.safra, filter?.subgrupo]);
+  }, [filter?.cultura, filter?.grupo, filter?.safra, filter?.subgrupo]);
 
   const writtenCards = useMemo(() => (Array.isArray(payload?.written_cards) ? payload.written_cards : []), [payload?.written_cards]);
 

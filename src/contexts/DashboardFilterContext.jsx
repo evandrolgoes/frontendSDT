@@ -4,7 +4,7 @@ import { useAuth } from "./AuthContext";
 import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
 
-const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [], localidade: [] };
+const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [] };
 
 const DashboardFilterContext = createContext(null);
 
@@ -17,13 +17,6 @@ const normalizeValues = (value) => {
   }
   return [String(value)];
 };
-
-const normalizeText = (value) =>
-  String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
 
 const sortByLabel = (items = [], labelGetter) =>
   [...items].sort((left, right) =>
@@ -38,7 +31,6 @@ const normalizeDashboardFilter = (value) => ({
   subgrupo: normalizeValues(value?.subgrupo),
   cultura: normalizeValues(value?.cultura),
   safra: normalizeValues(value?.safra),
-  localidade: normalizeValues(value?.localidade),
 });
 
 const extractIds = (row, keys) => {
@@ -57,57 +49,6 @@ const extractIds = (row, keys) => {
   return [];
 };
 
-const normalizeLocality = (value) => {
-  if (value == null) return "";
-  if (typeof value === "object") {
-    const uf = String(value.uf || value.sigla || "").trim();
-    const city = String(value.cidade || value.nome || "").trim();
-    if (uf || city) {
-      return [uf, city]
-        .filter(Boolean)
-        .map((part) => part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase())
-        .sort()
-        .join("|");
-    }
-  }
-
-  const text = String(value).trim();
-  if (!text) return "";
-  const parts = text
-    .split("/")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => part.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase());
-  return (parts.length ? parts : [text.toLowerCase()]).sort().join("|");
-};
-
-const formatLocalityLabel = (value) => {
-  if (value == null) return "";
-  if (typeof value === "object") {
-    const uf = String(value.uf || value.sigla || "").trim();
-    const city = String(value.cidade || value.nome || "").trim();
-    return [uf, city].filter(Boolean).join("/") || city || uf;
-  }
-  return String(value).trim();
-};
-
-const extractLocalities = (row, keys) => {
-  const values = [];
-  for (const key of keys) {
-    const value = row?.[key];
-    if (Array.isArray(value)) {
-      value.forEach((item) => {
-        const normalized = normalizeLocality(item);
-        if (normalized) values.push(normalized);
-      });
-      continue;
-    }
-    const normalized = normalizeLocality(value);
-    if (normalized) values.push(normalized);
-  }
-  return [...new Set(values)];
-};
-
 const matchesSelection = (selectedValues, candidateIds) =>
   !selectedValues.length || selectedValues.some((item) => candidateIds.includes(String(item)));
 
@@ -119,7 +60,6 @@ export const rowMatchesDashboardFilter = (
     subgroupKeys = ["subgrupo", "subgrupos"],
     cultureKeys = ["cultura", "culturas"],
     seasonKeys = ["safra", "safras"],
-    localityKeys = ["localidade", "localidades"],
   } = {},
 ) => {
   const normalized = {
@@ -127,22 +67,13 @@ export const rowMatchesDashboardFilter = (
     subgrupo: normalizeValues(filter?.subgrupo),
     cultura: normalizeValues(filter?.cultura),
     safra: normalizeValues(filter?.safra),
-    localidade: normalizeValues(filter?.localidade).map(normalizeLocality).filter(Boolean),
   };
-
-  const localityCandidates = extractLocalities(row, localityKeys);
-  const localityMatches =
-    !normalized.localidade.length ||
-    !localityKeys.length ||
-    !localityCandidates.length ||
-    normalized.localidade.some((item) => localityCandidates.includes(item));
 
   return (
     matchesSelection(normalized.grupo, extractIds(row, groupKeys)) &&
     matchesSelection(normalized.subgrupo, extractIds(row, subgroupKeys)) &&
     matchesSelection(normalized.cultura, extractIds(row, cultureKeys)) &&
-    matchesSelection(normalized.safra, extractIds(row, seasonKeys)) &&
-    localityMatches
+    matchesSelection(normalized.safra, extractIds(row, seasonKeys))
   );
 };
 
@@ -156,7 +87,6 @@ export function DashboardFilterProvider({ children }) {
     seasons: [],
     cropBoardCrops: [],
     cropBoardSeasons: [],
-    localities: [],
     exchanges: [],
   });
   const [panelOpen, setPanelOpen] = useState(false);
@@ -185,61 +115,6 @@ export function DashboardFilterProvider({ children }) {
       if (!isMounted) return;
       const cropBoardCultureIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["cultura"])))];
       const cropBoardSeasonIds = [...new Set((cropBoards || []).flatMap((item) => extractIds(item, ["safra"])))];
-      const selectedGroupIds = new Set(normalizeValues(filter?.grupo));
-      const selectedSubgroupIds = new Set(normalizeValues(filter?.subgrupo));
-      const selectedCultureIds = new Set(normalizeValues(filter?.cultura));
-      const selectedSeasonIds = new Set(normalizeValues(filter?.safra));
-      const cropMapById = new Map((crops || []).map((item) => [String(item.id), item]));
-      const normalizedSelectedCropNames = new Set(
-        [...selectedCultureIds]
-          .map((id) => cropMapById.get(id))
-          .map((item) => normalizeText(item?.ativo || item?.cultura))
-          .filter(Boolean),
-      );
-      const matchesSelectedCulture = (item) => {
-        if (!selectedCultureIds.size) return true;
-        const itemCultureIds = extractIds(item, ["cultura", "culturas"]);
-        if (itemCultureIds.some((id) => selectedCultureIds.has(String(id)))) {
-          return true;
-        }
-        const itemCultureName = normalizeText(item?.cultura_texto || item?.cultura || item?.ativo);
-        return Boolean(itemCultureName) && normalizedSelectedCropNames.has(itemCultureName);
-      };
-      const matchesSelectedSeason = (item) => {
-        if (!selectedSeasonIds.size) return true;
-        return extractIds(item, ["safra", "safras"]).some((id) => selectedSeasonIds.has(String(id)));
-      };
-      const matchesSelectedGroup = (item) => {
-        if (!selectedGroupIds.size) return true;
-        return extractIds(item, ["grupo", "grupos"]).some((id) => selectedGroupIds.has(String(id)));
-      };
-      const matchesSelectedSubgroup = (item) => {
-        if (!selectedSubgroupIds.size) return true;
-        return extractIds(item, ["subgrupo", "subgrupos"]).some((id) => selectedSubgroupIds.has(String(id)));
-      };
-      const buildLocalityOption = (value) => {
-        const label = formatLocalityLabel(value);
-        const normalized = normalizeLocality(value);
-        return label && normalized ? { id: normalized, label } : null;
-      };
-      const localities = (cropBoards || [])
-        .filter(
-          (item) =>
-            matchesSelectedGroup(item) &&
-            matchesSelectedSubgroup(item) &&
-            matchesSelectedCulture(item) &&
-            matchesSelectedSeason(item),
-        )
-        .flatMap((item) => (Array.isArray(item.localidade) ? item.localidade : []))
-        .map(buildLocalityOption)
-        .filter(Boolean)
-        .reduce((acc, item) => {
-          if (!acc.some((current) => current.id === item.id)) {
-            acc.push(item);
-          }
-          return acc;
-        }, []);
-
       setOptions({
         groups: sortByLabel(groups || [], (item) => item?.grupo),
         subgroups: sortByLabel(subgroups || [], (item) => item?.subgrupo),
@@ -253,7 +128,6 @@ export function DashboardFilterProvider({ children }) {
           (seasons || []).filter((item) => cropBoardSeasonIds.includes(String(item.id))),
           (item) => item?.safra,
         ),
-        localities: sortByLabel(localities, (item) => item?.label),
         exchanges: sortByLabel(exchanges || [], (item) => item?.nome),
       });
     });
@@ -268,23 +142,19 @@ export function DashboardFilterProvider({ children }) {
       const allowedSubgroupIds = new Set((options.subgroups || []).map((item) => String(item.id)));
       const allowedCultureIds = new Set((options.cropBoardCrops || options.crops || []).map((item) => String(item.id)));
       const allowedSeasonIds = new Set((options.cropBoardSeasons || options.seasons || []).map((item) => String(item.id)));
-      const allowedLocalityIds = new Set((options.localities || []).map((item) => String(item.id)));
-
       const nextFilter = {
         ...current,
         grupo: normalizeValues(current?.grupo).filter((item) => allowedGroupIds.has(String(item))),
         subgrupo: normalizeValues(current?.subgrupo).filter((item) => allowedSubgroupIds.has(String(item))),
         cultura: normalizeValues(current?.cultura).filter((item) => allowedCultureIds.has(String(item))),
         safra: normalizeValues(current?.safra).filter((item) => allowedSeasonIds.has(String(item))),
-        localidade: normalizeValues(current?.localidade).filter((item) => allowedLocalityIds.has(String(item))),
       };
 
       const hasChanged =
         !isSameArray(normalizeValues(current?.grupo), nextFilter.grupo) ||
         !isSameArray(normalizeValues(current?.subgrupo), nextFilter.subgrupo) ||
         !isSameArray(normalizeValues(current?.cultura), nextFilter.cultura) ||
-        !isSameArray(normalizeValues(current?.safra), nextFilter.safra) ||
-        !isSameArray(normalizeValues(current?.localidade), nextFilter.localidade);
+        !isSameArray(normalizeValues(current?.safra), nextFilter.safra);
 
       return hasChanged ? nextFilter : current;
     });

@@ -1360,14 +1360,6 @@ function DashboardQuickFilters() {
         onToggle={(value) => toggleFilterValue("safra", value)}
         onClear={() => updateFilter("safra", [])}
       />
-      <FilterChipGroup
-        title="Localidade de Referência"
-        items={options.localities || []}
-        selectedValues={filter.localidade}
-        labelKey="label"
-        onToggle={(value) => toggleFilterValue("localidade", value)}
-        onClear={() => updateFilter("localidade", [])}
-      />
     </section>
   );
 }
@@ -1980,22 +1972,6 @@ const normalizeText = (value) =>
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
-
-const normalizeDashboardLocality = (value) => {
-  if (value == null) return "";
-  const parts =
-    typeof value === "object"
-      ? [value.uf || value.sigla || "", value.cidade || value.nome || ""]
-      : String(value)
-          .split("/")
-          .map((part) => part.trim());
-
-  return parts
-    .filter(Boolean)
-    .map((part) => normalizeText(part))
-    .sort()
-    .join("|");
-};
 
 const COMPONENT_DATASETS = [
   { key: "Venda Físico em U$", baseKey: "Venda Físico em U$", color: "#1B8A3B", stack: "stack_fisico_bolsa" },
@@ -4867,7 +4843,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         subgrupo: dashboardFilter?.subgrupo || [],
         cultura: dashboardFilter?.cultura || [],
         safra: dashboardFilter?.safra || [],
-        localidade: dashboardFilter?.localidade || [],
       })
       .then((response) => {
         if (!isMounted) return;
@@ -8234,7 +8209,6 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
     () =>
       physicalQuotes.filter((item) => {
         const selectedSeasons = Array.isArray(dashboardFilter?.safra) ? dashboardFilter.safra.map(String) : [];
-        const selectedLocalities = Array.isArray(dashboardFilter?.localidade) ? dashboardFilter.localidade : [];
         const quoteSeasonId =
           item?.safra && typeof item.safra === "object" && item.safra.id != null
             ? String(item.safra.id)
@@ -8243,26 +8217,17 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
               : "";
         const seasonMatches = !selectedSeasons.length || (quoteSeasonId && selectedSeasons.includes(quoteSeasonId));
 
-        const normalizedQuoteLocality = normalizeDashboardLocality(item?.localidade);
-        const localityMatches =
-          !selectedLocalities.length ||
-          selectedLocalities.some((value) => {
-            const normalizedSelected = normalizeDashboardLocality(value);
-            return normalizedSelected === normalizedQuoteLocality;
-          });
-
         const cultureMatches =
           !selectedCropLabels.length ||
           selectedCropLabels.some((label) => normalizeText(item.cultura_texto).includes(label));
 
-        return seasonMatches && localityMatches && cultureMatches;
+        return seasonMatches && cultureMatches;
       }),
     [dashboardFilter, physicalQuotes, selectedCropLabels],
   );
 
   const baseModel = useMemo(() => {
     const hasSeasonFilter = Array.isArray(dashboardFilter?.safra) && dashboardFilter.safra.length > 0;
-    const hasLocalityFilter = Array.isArray(dashboardFilter?.localidade) && dashboardFilter.localidade.length > 0;
     const volumePgtoFisico = filteredPhysicalPayments.reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0);
     const productionTotal = filteredCropBoards.reduce((sum, item) => sum + Math.abs(Number(item.producao_total || 0)), 0);
     const producaoLiquida = Math.max(productionTotal - volumePgtoFisico, 0);
@@ -8296,7 +8261,7 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
     const getQuoteValue = (items) => {
       if (!items.length) return 0;
 
-      if (!hasSeasonFilter && !hasLocalityFilter) {
+      if (!hasSeasonFilter) {
         const values = items.map((item) => Number(item.cotacao || 0)).filter((value) => Number.isFinite(value));
         if (!values.length) return 0;
         return values.reduce((sum, value) => sum + value, 0) / values.length;
@@ -8364,7 +8329,7 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
       saldo,
       overhedge,
     };
-  }, [dashboardFilter?.localidade, dashboardFilter?.safra, filteredCashPayments, filteredCropBoards, filteredDerivatives, filteredPhysicalPayments, filteredPhysicalQuotes, filteredPhysicalSales]);
+  }, [dashboardFilter?.safra, filteredCashPayments, filteredCropBoards, filteredDerivatives, filteredPhysicalPayments, filteredPhysicalQuotes, filteredPhysicalSales]);
 
   useEffect(() => {
     if (!dataReady) {
@@ -10647,7 +10612,6 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
       ...filter,
       cultura: [],
       safra: [],
-      localidade: [],
     }),
     [filter],
   );
