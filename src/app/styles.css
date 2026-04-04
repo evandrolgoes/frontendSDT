@@ -3039,26 +3039,48 @@ textarea {
   pointer-events: none;
 }
 
+.risk-kpi-chart-card-head--centered {
+  top: 16px;
+  justify-items: center;
+  text-align: center;
+  padding-inline: 12px 40px;
+}
+
 .risk-kpi-chart-card-title {
   margin: 0;
   color: #475569;
-  font-size: 1.08rem;
+  font-size: 1rem;
   font-weight: 900;
   line-height: 1.1;
   background: transparent;
 }
 
+.risk-kpi-chart-card-head--centered .risk-kpi-chart-card-title,
+.risk-kpi-chart-card-head--centered .risk-kpi-card-title {
+  width: 100%;
+  text-align: center;
+  color: #334155;
+}
+
+.risk-kpi-chart-card-head--centered .risk-kpi-chart-card-volume,
+.risk-kpi-chart-card-head--centered .risk-kpi-chart-card-subtitle {
+  width: 100%;
+  justify-self: start;
+  text-align: left;
+}
+
 .risk-kpi-chart-card-volume {
   color: #0f172a;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   font-weight: 800;
   line-height: 1.1;
 }
 
 .risk-kpi-chart-card-subtitle {
-  color: #0f172a;
-  font-size: 0.92rem;
-  line-height: 1.1;
+  color: #334155;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.15;
 }
 
 .risk-kpi-sales-gauge-shell {
@@ -3072,10 +3094,10 @@ textarea {
 
 .risk-kpi-sales-gauge-svg {
   width: 100%;
-  max-width: 240px;
+  max-width: 226px;
   height: auto;
   overflow: hidden;
-  margin-top: 8px;
+  margin-top: 14px;
 }
 
 .risk-kpi-sales-gauge-tick {
@@ -3117,7 +3139,7 @@ textarea {
   gap: 4px;
   align-content: start;
   transition: background-color 180ms ease, border-color 180ms ease;
-  padding-top: 10px;
+  padding-top: 52px;
   padding-bottom: 10px;
 }
 
@@ -3138,14 +3160,14 @@ textarea {
 
 .risk-kpi-hedge-summary-lines {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   margin-top: 0;
 }
 
 .risk-kpi-hedge-summary-total {
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   font-weight: 800;
-  line-height: 1.15;
+  line-height: 1.2;
 }
 
 .risk-kpi-hedge-summary-total.ok {
@@ -3161,39 +3183,31 @@ textarea {
 }
 
 .risk-kpi-hedge-summary-total-secondary {
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 700;
   line-height: 1.2;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .risk-kpi-hedge-summary-line {
   color: #334155;
-  font-size: 0.64rem;
+  font-size: 0.75rem;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1.25;
   gap: 8px;
 }
 
 .risk-kpi-hedge-summary-line:first-of-type {
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .risk-kpi-hedge-summary-line .hedge-strong {
-  font-size: 0.68rem;
-}
-
-.risk-kpi-hedge-summary-card .chart-card-header {
-  margin-bottom: 0;
-}
-
-.risk-kpi-hedge-summary-card .chart-card-header h3 {
-  margin-bottom: 0;
+  font-size: 0.75rem;
 }
 
 .risk-kpi-distribution-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(112px, 24vw, 152px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) clamp(124px, 26vw, 166px) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-height: 0;
@@ -3207,17 +3221,17 @@ textarea {
   display: grid;
   place-items: center;
   align-self: center;
-  width: clamp(112px, 24vw, 152px);
+  width: clamp(124px, 26vw, 166px);
   min-width: 0;
   aspect-ratio: 1;
-  transform: translateY(12px);
+  transform: translateY(10px);
   overflow: visible;
 }
 
 .risk-kpi-distribution-svg {
   width: 100%;
   min-width: 0;
-  max-width: 152px;
+  max-width: 166px;
   height: auto;
   min-height: 0;
   max-height: none;
@@ -3226,13 +3240,13 @@ textarea {
 
 .risk-kpi-distribution-mix-label {
   fill: #64748b;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
 }
 
 .risk-kpi-distribution-mix-value {
   fill: #0f172a;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 900;
 }
 
@@ -3259,21 +3273,21 @@ textarea {
 
 .risk-kpi-distribution-meta strong {
   color: #0f172a;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 900;
   overflow-wrap: anywhere;
 }
 
 .risk-kpi-distribution-meta span {
-  color: #0f172a;
-  font-size: 0.74rem;
+  color: #334155;
+  font-size: 0.76rem;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
 .risk-kpi-distribution-meta small {
   color: #ea580c;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   line-height: 1.2;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -6798,19 +6812,19 @@ tfoot td {
   }
 
   .risk-kpi-distribution-shell {
-    grid-template-columns: minmax(0, 1fr) 128px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 138px minmax(0, 1fr);
     gap: 10px;
   }
 
   .risk-kpi-distribution-donut-wrap {
-    width: 128px;
+    width: 138px;
     min-width: 0;
   }
 
   .risk-kpi-distribution-svg {
     width: 100%;
     min-width: 0;
-    max-width: 128px;
+    max-width: 138px;
     height: auto;
     min-height: 0;
     max-height: none;
@@ -6836,7 +6850,7 @@ tfoot td {
   .risk-kpi-distribution-donut-wrap {
     grid-area: donut;
     justify-self: center;
-    width: min(148px, 46vw);
+    width: min(156px, 48vw);
     transform: none;
   }
 

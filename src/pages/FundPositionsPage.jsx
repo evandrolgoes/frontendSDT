@@ -97,6 +97,9 @@ const lastNetValueLabelPlugin = {
 const longShortCenterTextPlugin = {
   id: "longShortCenterTextPlugin",
   afterDatasetsDraw(chart) {
+    if (chart?.options?.plugins?.longShortCenterTextPlugin?.enabled === false) {
+      return;
+    }
     const { ctx, chartArea, scales } = chart;
     const yScale = scales?.y2 || scales?.y;
     if (!ctx || !chartArea || !yScale) {
@@ -333,6 +336,9 @@ function FundPositionChartCanvas({ rows, seriesLabel, expanded = false }) {
         animation: false,
         interaction: { mode: "index", intersect: false },
         plugins: {
+          datalabels: {
+            display: false,
+          },
           legend: {
             display: expanded,
             position: "top",

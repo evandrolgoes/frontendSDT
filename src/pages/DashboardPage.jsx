@@ -1787,7 +1787,7 @@ function HedgeSummaryGaugeCards({
             />
           }
         />
-        <div className="risk-kpi-chart-card-head">
+        <div className="risk-kpi-chart-card-head risk-kpi-chart-card-head--centered">
           <h2 className="risk-kpi-chart-card-title risk-kpi-card-title">Hedge Realizado</h2>
           <div className="risk-kpi-chart-card-volume">{formatNumber0(totalMetricValue)} sc</div>
           <div className="risk-kpi-chart-card-subtitle">{totalMetricLabel || " "}</div>
@@ -1850,7 +1850,7 @@ function HedgeSummaryGaugeCards({
             />
           }
         />
-        <div className="risk-kpi-chart-card-head">
+        <div className="risk-kpi-chart-card-head risk-kpi-chart-card-head--centered">
           <h2 className="risk-kpi-chart-card-title risk-kpi-card-title">Distribuição</h2>
         </div>
         <div className="risk-kpi-distribution-shell">
@@ -1927,10 +1927,8 @@ function HedgeStatusSummaryCard({
   return (
     <article className={`chart-card risk-kpi-hedge-summary-card is-${tone} summary-insight-card`}>
       {insightMessage ? <SummaryInsightButton title={title} message={insightMessage} /> : null}
-      <div className="chart-card-header">
-        <div>
-          <h3 className="risk-kpi-card-title">{title}</h3>
-        </div>
+      <div className="risk-kpi-chart-card-head risk-kpi-chart-card-head--centered risk-kpi-chart-card-head--summary">
+        <h2 className="risk-kpi-chart-card-title risk-kpi-card-title">{title}</h2>
       </div>
       <div className="risk-kpi-hedge-summary-lines">
         {resolvedSummaryLines.map((line, index) => (
@@ -6890,6 +6888,7 @@ function HedgePolicyChart({
           legend: { display: false },
           tooltip: { enabled: false },
           datalabels: { display: false },
+          longShortCenterTextPlugin: { enabled: false },
           fundPositionZeroLineAndLabels: { enabled: false },
           fundPositionLastValueLabel: { enabled: false },
         },
