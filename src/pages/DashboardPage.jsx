@@ -7144,7 +7144,7 @@ function HedgePolicyChart({
                   onSearchChange={setDetailPhysicalSearch}
                   onClear={() => setDetailPhysicalSearch("")}
                   onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.physicalSales.resource, row) : undefined}
-                  tableHeight="34vh"
+                  tableHeight="100%"
                   showClearButton={false}
                 />
               </section>
@@ -7160,7 +7160,7 @@ function HedgePolicyChart({
                   onSearchChange={setDetailDerivativeSearch}
                   onClear={() => setDetailDerivativeSearch("")}
                   onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.derivativeOperations.resource, row) : undefined}
-                  tableHeight="34vh"
+                  tableHeight="100%"
                   showClearButton={false}
                 />
               </section>
@@ -9434,8 +9434,13 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   );
 
   const filteredDerivatives = useMemo(
-    () => derivatives.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
-    [dashboardFilter, derivatives, matchesDashboardFilter],
+    () =>
+      derivatives.filter((item) =>
+        rowMatchesDashboardFilter(item, dashboardFilter, {
+          cultureKeys: DERIVATIVE_CULTURE_KEYS,
+        }),
+      ),
+    [dashboardFilter, derivatives],
   );
 
   const filteredCropBoards = useMemo(
@@ -9447,6 +9452,42 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     () => physicalQuotes.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, matchesDashboardFilter, physicalQuotes],
   );
+
+  const selectedCultureIds = useMemo(
+    () => new Set((dashboardFilter?.cultura || []).map(String)),
+    [dashboardFilter?.cultura],
+  );
+
+  const selectedCultureLabels = useMemo(() => {
+    const labels = new Set();
+    filteredCropBoards.forEach((item) => {
+      const cultureValue = item?.cultura;
+      if (cultureValue == null || cultureValue === "") {
+        return;
+      }
+
+      if (typeof cultureValue === "object") {
+        const label = normalizeText(
+          cultureValue.ativo || cultureValue.cultura || cultureValue.nome || cultureValue.label || cultureValue.descricao,
+        );
+        if (label) {
+          labels.add(label);
+        }
+        return;
+      }
+
+      const rawValue = String(cultureValue);
+      if (selectedCultureIds.has(rawValue)) {
+        return;
+      }
+
+      const label = normalizeText(rawValue);
+      if (label) {
+        labels.add(label);
+      }
+    });
+    return labels;
+  }, [filteredCropBoards, selectedCultureIds]);
 
   const usdRate = useMemo(() => {
     const candidates = filteredSales
@@ -9544,6 +9585,40 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
 
   const normalizedDerivatives = useMemo(() => {
     return filteredDerivatives
+      .filter((item) => {
+        const classification = normalizeText(item.moeda_ou_cmdtye) === "moeda" ? "Cambio" : "Bolsa";
+        if (classification !== "Cambio" || !selectedCultureIds.size) {
+          return true;
+        }
+
+        const destinationCulture = item?.destino_cultura;
+        if (destinationCulture && typeof destinationCulture === "object") {
+          if (destinationCulture.id != null && selectedCultureIds.has(String(destinationCulture.id))) {
+            return true;
+          }
+
+          const label = normalizeText(
+            destinationCulture.ativo ||
+              destinationCulture.cultura ||
+              destinationCulture.nome ||
+              destinationCulture.label ||
+              destinationCulture.descricao,
+          );
+          return Boolean(label) && selectedCultureLabels.has(label);
+        }
+
+        if (destinationCulture != null && destinationCulture !== "") {
+          const rawValue = String(destinationCulture);
+          if (selectedCultureIds.has(rawValue)) {
+            return true;
+          }
+
+          const label = normalizeText(rawValue);
+          return Boolean(label) && selectedCultureLabels.has(label);
+        }
+
+        return false;
+      })
       .map((item) => {
         const originalValue = Number(item.ajustes_totais_brl || 0);
         const fallbackUsd = usdRate > 0 ? originalValue / usdRate : 0;
@@ -9573,7 +9648,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         };
       })
       .filter((item) => adjustmentMode === "ALL" || currencyMode === "AMBOS_R$" || item.currency === currencyMode);
-  }, [adjustmentMode, currencyMode, filteredDerivatives, usdRate]);
+  }, [adjustmentMode, currencyMode, filteredDerivatives, selectedCultureIds, selectedCultureLabels, usdRate]);
 
   const derivativeSummary = useMemo(() => {
     const summary = {

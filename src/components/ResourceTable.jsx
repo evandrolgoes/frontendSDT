@@ -361,6 +361,27 @@ export function usePreparedResourceTable(definition, rows) {
     return groupedRows;
   }, [definition.customForm, rows]);
 
+  const derivativeRowIdsByContract = useMemo(() => {
+    if (definition.customForm !== "derivative-operation") {
+      return new Map();
+    }
+
+    const groupedRows = new Map();
+    rows.forEach((row) => {
+      const contractKey = String(row.contrato_derivativo || "").trim();
+      if (!contractKey) {
+        return;
+      }
+
+      if (!groupedRows.has(contractKey)) {
+        groupedRows.set(contractKey, []);
+      }
+      groupedRows.get(contractKey).push(row.id);
+    });
+
+    return groupedRows;
+  }, [definition.customForm, rows]);
+
   const normalizedRows = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
       return rows;
@@ -396,17 +417,26 @@ export function usePreparedResourceTable(definition, rows) {
           .filter((column) => column.key !== "id")
           .filter((column) => column.key !== "moeda_unidade")
           .map((column) =>
-            column.key === "preco"
+            column.key === "cultura_produto"
               ? {
+                  key: "cultura",
+                  label: column.label,
+                  type: "relation",
+                  resource: "crops",
+                  labelKey: "ativo",
+                  render: (value, row) => value || row.cultura_produto || "—",
+                }
+              : column.key === "preco"
+                ? {
                   ...column,
                   render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda_unidade ? ` ${row.moeda_unidade}` : ""}`,
                 }
-              : column,
+                : column,
           );
         return prioritizePrimaryDateColumns(
           reorderColumns(
             physicalSalesColumns,
-            ["cultura_produto", "volume_fisico", "preco", "safra"],
+            ["cultura", "volume_fisico", "preco", "safra"],
             ["grupo", "subgrupo"],
           ),
         );
@@ -486,34 +516,53 @@ export function usePreparedResourceTable(definition, rows) {
               }
               onClick={(event) => event.stopPropagation()}
               onFocus={() => {
-                setEditingDerivativeStrikeInput((currentState) => ({
-                  ...currentState,
-                  [row.id]: formatBrazilianNumber(value, 4),
-                }));
+                const contractRowIds = derivativeRowIdsByContract.get(String(row.contrato_derivativo || "").trim()) || [row.id];
+                const formattedValue = formatBrazilianNumber(value, 4);
+                setEditingDerivativeStrikeInput((currentState) => {
+                  const nextState = { ...currentState };
+                  contractRowIds.forEach((rowId) => {
+                    nextState[rowId] = formattedValue;
+                  });
+                  return nextState;
+                });
               }}
               onChange={(event) => {
                 const raw = event.target.value;
-                setEditingDerivativeStrikeInput((currentState) => ({
-                  ...currentState,
-                  [row.id]: raw,
-                }));
-                setEditingDerivativeStrike((currentState) => ({
-                  ...currentState,
-                  [row.id]: parseLocalizedNumber(raw),
-                }));
+                const parsedValue = parseLocalizedNumber(raw);
+                const contractRowIds = derivativeRowIdsByContract.get(String(row.contrato_derivativo || "").trim()) || [row.id];
+                setEditingDerivativeStrikeInput((currentState) => {
+                  const nextState = { ...currentState };
+                  contractRowIds.forEach((rowId) => {
+                    nextState[rowId] = raw;
+                  });
+                  return nextState;
+                });
+                setEditingDerivativeStrike((currentState) => {
+                  const nextState = { ...currentState };
+                  contractRowIds.forEach((rowId) => {
+                    nextState[rowId] = parsedValue;
+                  });
+                  return nextState;
+                });
               }}
               onBlur={() => {
                 const strikeValue =
                   editingDerivativeStrike[row.id] ??
                   parseLocalizedNumber(editingDerivativeStrikeInput[row.id]) ??
                   parseLocalizedNumber(value);
-                setEditingDerivativeStrike((currentState) => ({
-                  ...currentState,
-                  [row.id]: strikeValue,
-                }));
+                const contractRowIds = derivativeRowIdsByContract.get(String(row.contrato_derivativo || "").trim()) || [row.id];
+                setEditingDerivativeStrike((currentState) => {
+                  const nextState = { ...currentState };
+                  contractRowIds.forEach((rowId) => {
+                    nextState[rowId] = strikeValue;
+                  });
+                  return nextState;
+                });
                 setEditingDerivativeStrikeInput((currentState) => {
                   const nextState = { ...currentState };
-                  delete nextState[row.id];
+                  contractRowIds.forEach((rowId) => {
+                    delete nextState[rowId];
+                  });
                   return nextState;
                 });
               }}
@@ -545,7 +594,14 @@ export function usePreparedResourceTable(definition, rows) {
       { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
       { key: "id", label: "ID" },
     ]);
-  }, [definition.customForm, definition.resource, editingDerivativeStrike, editingDerivativeStrikeInput, tableColumns]);
+  }, [
+    definition.customForm,
+    definition.resource,
+    derivativeRowIdsByContract,
+    editingDerivativeStrike,
+    editingDerivativeStrikeInput,
+    tableColumns,
+  ]);
 
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
   const getRowClassName =

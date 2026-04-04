@@ -3786,7 +3786,10 @@ textarea {
   width: min(95vw, calc(100vw - 24px));
   height: min(95vh, calc(100dvh - 24px));
   max-height: min(95vh, calc(100dvh - 24px));
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
   padding: 16px;
   border: 1px solid rgba(226, 232, 240, 0.94);
   border-radius: 18px;
@@ -3812,17 +3815,29 @@ textarea {
   display: grid;
   gap: 4px;
   padding-right: 38px;
-  margin-bottom: 10px;
+  flex: 0 0 auto;
+}
+
+.hedge-detail-section {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
 }
 
 .hedge-detail-section + .hedge-detail-section {
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .hedge-detail-section h4 {
   margin: 0 0 8px;
   font-size: 0.95rem;
   font-weight: 800;
+}
+
+.hedge-detail-section .bubble-table-shell {
+  height: 100% !important;
+  max-height: none !important;
+  min-height: 0;
 }
 
 .hedge-detail-table {
