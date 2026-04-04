@@ -1766,6 +1766,12 @@ function HedgeSummaryGaugeCards({
   const derivativeArc = (derivativeValue / 100) * donutCircumference;
   const donutGapOffset = physicalArc > 0 && derivativeArc > 0 ? 6 : 0;
   const [derivativeRow, physicalRow] = distributionSlices;
+  const getDistributionUnitKey = (line) => {
+    const normalized = String(line || "").trim();
+    if (!normalized) return "";
+    const parts = normalized.split("|");
+    return (parts[parts.length - 1] || normalized).trim().toLowerCase();
+  };
 
   return (
     <>
@@ -1850,10 +1856,14 @@ function HedgeSummaryGaugeCards({
         <div className="risk-kpi-distribution-shell">
           <div className="risk-kpi-distribution-meta risk-kpi-distribution-meta--left">
             <strong>{physicalRow?.label || "Físico"}</strong>
-            <span>{Number(physicalRow?.value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</span>
             <span>{physicalRow?.metricLabel || "—"}</span>
             {physicalDetailLines.map((line, index) => (
-              <small key={`physical-detail-${index}`}>{line}</small>
+              <small
+                key={`physical-detail-${index}`}
+                className={index > 0 && getDistributionUnitKey(line) !== getDistributionUnitKey(physicalDetailLines[index - 1]) ? "risk-kpi-distribution-detail-break" : ""}
+              >
+                {line}
+              </small>
             ))}
           </div>
           <div className="risk-kpi-distribution-donut-wrap">
@@ -1889,10 +1899,14 @@ function HedgeSummaryGaugeCards({
           </div>
           <div className="risk-kpi-distribution-meta risk-kpi-distribution-meta--right">
             <strong>{derivativeRow?.label || "Derivativos"}</strong>
-            <span>{Number(derivativeRow?.value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</span>
             <span>{derivativeRow?.metricLabel || "—"}</span>
             {derivativeDetailLines.map((line, index) => (
-              <small key={`derivative-detail-${index}`}>{line}</small>
+              <small
+                key={`derivative-detail-${index}`}
+                className={index > 0 && getDistributionUnitKey(line) !== getDistributionUnitKey(derivativeDetailLines[index - 1]) ? "risk-kpi-distribution-detail-break" : ""}
+              >
+                {line}
+              </small>
             ))}
           </div>
         </div>
@@ -1905,9 +1919,11 @@ function HedgeStatusSummaryCard({
   title = "Resumo Hedge",
   tone = "ok",
   summaryLine = "—",
+  summaryLines = null,
   rows = [],
   insightMessage = null,
 }) {
+  const resolvedSummaryLines = Array.isArray(summaryLines) && summaryLines.length ? summaryLines : [summaryLine];
   return (
     <article className={`chart-card risk-kpi-hedge-summary-card is-${tone} summary-insight-card`}>
       {insightMessage ? <SummaryInsightButton title={title} message={insightMessage} /> : null}
@@ -1917,7 +1933,14 @@ function HedgeStatusSummaryCard({
         </div>
       </div>
       <div className="risk-kpi-hedge-summary-lines">
-        <div className={`risk-kpi-hedge-summary-total ${tone}`}>{summaryLine}</div>
+        {resolvedSummaryLines.map((line, index) => (
+          <div
+            key={`${title}-summary-${index}`}
+            className={`risk-kpi-hedge-summary-total ${tone}${index > 0 ? " risk-kpi-hedge-summary-total-secondary" : ""}`}
+          >
+            {line}
+          </div>
+        ))}
         {rows.map((row) => (
           <div key={row.label} className="hedge-floating-line risk-kpi-hedge-summary-line">
             <span className="hedge-strong">{row.label}</span>
@@ -2143,6 +2166,31 @@ const formatHedgeSummaryLine = (label, value, unit, baseValue, areaBase) => {
     parts.push(scPerHa);
   }
   return `${label}: ${parts.join(" — ")}`;
+};
+
+const formatHedgeSummaryHeadline = (statusText, value, unit, areaBase) =>
+  `você está ${statusText} — ${formatHedgeSummaryValue(value, unit)}${
+    formatHedgeSummaryScPerHaValue(value, unit, areaBase) ? ` — ${formatHedgeSummaryScPerHaValue(value, unit, areaBase)}` : ""
+  }`;
+
+const formatHedgeSummaryPolicyHeadline = (value, baseValue, minValue, maxValue) => {
+  if (Number.isFinite(maxValue) && value > maxValue) {
+    return `você está ${formatHedgeSummaryPercentValue(value - maxValue, baseValue)} acima da politica`;
+  }
+  if (Number.isFinite(minValue) && value < minValue) {
+    return `você está ${formatHedgeSummaryPercentValue(minValue - value, baseValue)} abaixo da politica`;
+  }
+  return "você está dentro da politica";
+};
+
+const formatHedgeSummaryPolicyDeviation = (value, minValue, maxValue, unit) => {
+  if (Number.isFinite(maxValue) && value > maxValue) {
+    return `${formatHedgeSummaryValue(value - maxValue, unit)} acima da politica`;
+  }
+  if (Number.isFinite(minValue) && value < minValue) {
+    return `${formatHedgeSummaryValue(minValue - value, unit)} abaixo da politica`;
+  }
+  return null;
 };
 
 const getHedgeBandTone = (totalPercent, policyMinPercent = null, policyMaxPercent = null) => {
@@ -5344,59 +5392,27 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const currentPolicyMaxPercent = currentMonthPolicy?.maxRatio != null ? currentMonthPolicy.maxRatio * 100 : null;
   const activePolicyMinPercent = hedgeSummaryActivePoint?.minPct != null ? hedgeSummaryActivePoint.minPct * 100 : currentPolicyMinPercent;
   const activePolicyMaxPercent = hedgeSummaryActivePoint?.maxPct != null ? hedgeSummaryActivePoint.maxPct * 100 : currentPolicyMaxPercent;
-  const hedgeSummaryStatusText = useMemo(() => {
-    const activeTotalValue = hedgeSummaryActivePoint?.total || 0;
-    if (Number.isFinite(hedgeSummaryActivePoint?.maxValue) && activeTotalValue > hedgeSummaryActivePoint.maxValue) {
-      return `${(((activeTotalValue - hedgeSummaryActivePoint.maxValue) / Math.max(netProductionBase, 1)) * 100).toLocaleString("pt-BR", {
-        maximumFractionDigits: 0,
-      })}% acima da politica`;
-    }
-    if (Number.isFinite(hedgeSummaryActivePoint?.minValue) && activeTotalValue < hedgeSummaryActivePoint.minValue) {
-      return `${(((hedgeSummaryActivePoint.minValue - activeTotalValue) / Math.max(netProductionBase, 1)) * 100).toLocaleString("pt-BR", {
-        maximumFractionDigits: 0,
-      })}% abaixo da politica`;
-    }
-    return "dentro da politica";
-  }, [hedgeSummaryActivePoint, netProductionBase]);
   const hedgeSummaryCardTone = useMemo(() => {
     const totalPercent = netProductionBase > 0 ? (Number(hedgeSummaryActivePoint?.total || 0) / netProductionBase) * 100 : 0;
     return getHedgeBandTone(totalPercent, activePolicyMinPercent, activePolicyMaxPercent);
   }, [activePolicyMaxPercent, activePolicyMinPercent, hedgeSummaryActivePoint, netProductionBase]);
-  const hedgeSummaryTooltipLines = useMemo(() => {
+  const hedgeSummaryHeaderLines = useMemo(() => {
     const activeTotalValue = hedgeSummaryActivePoint?.total || 0;
     return [
-      `${formatHedgeSummaryPercentValue(activeTotalValue, netProductionBase)} - ${hedgeSummaryStatusText} - ${formatHedgeSummaryValue(activeTotalValue, "SC")}${
-        formatHedgeSummaryScPerHaValue(activeTotalValue, "SC", totalArea)
-          ? ` - ${formatHedgeSummaryScPerHaValue(activeTotalValue, "SC", totalArea)}`
-          : ""
-      }`,
-      formatHedgeSummaryLine("Vendas Fisico", activePhysicalCommercializedVolume, "SC", netProductionBase, totalArea),
-      formatHedgeSummaryLine("Derivativos", activeDerivativeCommercializedVolume, "SC", netProductionBase, totalArea),
-      hedgeSummaryActivePoint?.minValue != null
-        ? formatHedgeSummaryLine("Politica Min", hedgeSummaryActivePoint.minValue, "SC", netProductionBase, totalArea)
-        : "Politica Min: —",
-      hedgeSummaryActivePoint?.maxValue != null
-        ? formatHedgeSummaryLine("Politica Max", hedgeSummaryActivePoint.maxValue, "SC", netProductionBase, totalArea)
-        : "Politica Max: —",
-    ];
+      formatHedgeSummaryPolicyHeadline(
+        activeTotalValue,
+        netProductionBase,
+        hedgeSummaryActivePoint?.minValue,
+        hedgeSummaryActivePoint?.maxValue,
+      ),
+      formatHedgeSummaryPolicyDeviation(activeTotalValue, hedgeSummaryActivePoint?.minValue, hedgeSummaryActivePoint?.maxValue, "SC"),
+    ].filter(Boolean);
   }, [
-    activeDerivativeCommercializedVolume,
-    activePhysicalCommercializedVolume,
     hedgeSummaryActivePoint,
-    hedgeSummaryStatusText,
     netProductionBase,
-    totalArea,
   ]);
   const hedgeSummaryCardRows = useMemo(
     () => [
-      {
-        label: "Vendas Fisico",
-        value: formatHedgeSummaryLine("Vendas Fisico", activePhysicalCommercializedVolume, "SC", netProductionBase, totalArea).replace("Vendas Fisico: ", ""),
-      },
-      {
-        label: "Derivativos",
-        value: formatHedgeSummaryLine("Derivativos", activeDerivativeCommercializedVolume, "SC", netProductionBase, totalArea).replace("Derivativos: ", ""),
-      },
       {
         label: "Politica Min",
         value:
@@ -5413,8 +5429,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       },
     ],
     [
-      activeDerivativeCommercializedVolume,
-      activePhysicalCommercializedVolume,
       hedgeSummaryActivePoint,
       netProductionBase,
       totalArea,
@@ -5578,13 +5592,13 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     <HedgeStatusSummaryCard
       title="Resumo Hedge"
       tone={hedgeSummaryCardTone}
-      summaryLine={hedgeSummaryTooltipLines[0]}
+      summaryLines={hedgeSummaryHeaderLines}
       rows={hedgeSummaryCardRows}
       insightMessage={
         <SummaryInsightCopy
           paragraphs={[
-            `A primeira linha resume o ponto atual do hedge: percentual realizado, status frente à política e volume equivalente em sacas${totalArea > 0 ? " e em scs/ha" : ""}.`,
-            "As linhas seguintes quebram esse total em vendas físicas, derivativos, política mínima e política máxima, para mostrar exatamente o que cada número do resumo representa.",
+            "A primeira linha resume o percentual atual do hedge em relação à política.",
+            "Quando o hedge estiver acima ou abaixo da política, a segunda linha mostra apenas o volume excedente ou faltante. As linhas seguintes mostram os limites mínimo e máximo da política aplicável ao ponto atual.",
           ]}
         />
       }
@@ -7861,38 +7875,24 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     const policyMinPercent = activePoint?.minPct != null ? activePoint.minPct * 100 : null;
     const policyMaxPercent = activePoint?.maxPct != null ? activePoint.maxPct * 100 : null;
     const tone = getHedgeBandTone(totalPercent, policyMinPercent, policyMaxPercent);
-    const statusText = (() => {
-      if (Number.isFinite(activePoint?.maxValue) && totalValue > activePoint.maxValue) {
-        return `${(((totalValue - activePoint.maxValue) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
-          maximumFractionDigits: 0,
-        })}% acima da politica`;
-      }
-      if (Number.isFinite(activePoint?.minValue) && totalValue < activePoint.minValue) {
-        return `${(((activePoint.minValue - totalValue) / Math.max(baseValue, 1)) * 100).toLocaleString("pt-BR", {
-          maximumFractionDigits: 0,
-        })}% abaixo da politica`;
-      }
-      return "dentro da politica";
-    })();
-    const totalLine = `${formatHedgeSummaryPercentValue(totalValue, baseValue)} - ${statusText} - ${formatHedgeSummaryValue(totalValue, unit)}${
-      formatHedgeSummaryScPerHaValue(totalValue, unit, totalArea) ? ` - ${formatHedgeSummaryScPerHaValue(totalValue, unit, totalArea)}` : ""
-    }`;
+    const summaryLines = [
+      formatHedgeSummaryPolicyHeadline(totalValue, baseValue, activePoint?.minValue, activePoint?.maxValue),
+      formatHedgeSummaryPolicyDeviation(totalValue, activePoint?.minValue, activePoint?.maxValue, unit),
+    ].filter(Boolean);
 
     return {
       title: "Resumo Hedge",
       tone,
-      summaryLine: totalLine,
+      summaryLines,
       insightMessage: (
         <SummaryInsightCopy
           paragraphs={[
-            `A primeira linha resume o hedge atual em percentual e valor total${isCost ? " sobre o custo" : " sobre a produção"}. Neste momento, a leitura principal é: ${totalLine}.`,
-            "As linhas abaixo mostram a decomposição entre vendas físicas, derivativos e os limites mínimo e máximo da política aplicável ao ponto selecionado.",
+            `A primeira linha resume o percentual atual do hedge${isCost ? " sobre o custo" : " sobre a produção"} em relação à política.`,
+            "Quando o hedge estiver acima ou abaixo da política, a segunda linha mostra apenas o valor excedente ou faltante. As linhas abaixo mostram os limites mínimo e máximo da política aplicável ao ponto selecionado.",
           ]}
         />
       ),
       rows: [
-        { label: "Vendas Fisico", value: formatHedgeSummaryLine("Vendas Fisico", physicalValue, unit, baseValue, totalArea).replace("Vendas Fisico: ", "") },
-        { label: "Derivativos", value: formatHedgeSummaryLine("Derivativos", derivativeValue, unit, baseValue, totalArea).replace("Derivativos: ", "") },
         {
           label: "Politica Min",
           value:

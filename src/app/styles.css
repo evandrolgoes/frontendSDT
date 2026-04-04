@@ -3160,12 +3160,23 @@ textarea {
   color: #991b1b;
 }
 
+.risk-kpi-hedge-summary-total-secondary {
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 10px;
+}
+
 .risk-kpi-hedge-summary-line {
   color: #334155;
   font-size: 0.64rem;
   font-weight: 600;
   line-height: 1.1;
   gap: 8px;
+}
+
+.risk-kpi-hedge-summary-line:first-of-type {
+  margin-top: 8px;
 }
 
 .risk-kpi-hedge-summary-line .hedge-strong {
@@ -3266,6 +3277,10 @@ textarea {
   line-height: 1.2;
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+
+.risk-kpi-distribution-meta small.risk-kpi-distribution-detail-break {
+  margin-top: 10px;
 }
 
 .risk-kpi-summary-item {
