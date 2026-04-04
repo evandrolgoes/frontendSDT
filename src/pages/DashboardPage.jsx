@@ -2389,6 +2389,52 @@ const isBrlCurrency = (value) => {
   return moeda.includes("r$") || moeda.includes("brl") || moeda.includes("real");
 };
 
+const getPriceCompositionDerivativeKind = (item) => (item?.moeda_ou_cmdtye === "Moeda" ? "Cambio" : "Bolsa");
+
+const getPriceCompositionDerivativeStatus = (item) =>
+  normalizeText(item?.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto";
+
+const resolvePriceCompositionDerivativeVolume = (item) => {
+  if (normalizeText(item?.moeda_ou_cmdtye) === "moeda") {
+    return parseLocalizedNumber(item?.volume_financeiro_valor_moeda_original ?? item?.volume_financeiro_valor);
+  }
+
+  return parseLocalizedNumber(item?.volume ?? item?.volume_fisico_valor ?? item?.volume_fisico);
+};
+
+const calculatePriceCompositionDerivativeMtm = (item, strikeMtm, openUsdBrlQuote = 0) => {
+  const status = normalizeText(item?.status_operacao);
+  if (status !== "em aberto") {
+    return {
+      usd: parseLocalizedNumber(item?.ajustes_totais_usd),
+      brl: parseLocalizedNumber(item?.ajustes_totais_brl),
+    };
+  }
+
+  const operationName = normalizeText(item?.nome_da_operacao || `${item?.posicao || ""} ${item?.tipo_derivativo || ""}`.trim());
+  const volume = resolvePriceCompositionDerivativeVolume(item);
+  const strikeUnit = normalizeText(item?.moeda_unidade ?? item?.strike_moeda_unidade);
+  const strikeFactor = strikeUnit.startsWith("c") ? 0.01 : 1;
+  const strikeMontagem = parseLocalizedNumber(item?.strike_montagem) * strikeFactor;
+  const strikeMercado = parseLocalizedNumber(strikeMtm) * strikeFactor;
+  let usd = 0;
+
+  if (operationName.includes("venda ndf")) usd = (strikeMontagem - strikeMercado) * volume;
+  else if (operationName.includes("compra ndf")) usd = (strikeMercado - strikeMontagem) * volume;
+  else if (operationName.includes("compra call")) usd = strikeMercado > strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
+  else if (operationName.includes("compra put")) usd = strikeMercado < strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
+  else if (operationName.includes("venda call")) usd = strikeMercado > strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
+  else if (operationName.includes("venda put")) usd = strikeMercado < strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
+
+  const isUsdOperation = String(item?.volume_financeiro_moeda || "").trim() === "U$";
+  const fx = isUsdOperation ? (openUsdBrlQuote || parseLocalizedNumber(item?.dolar_ptax_vencimento)) : 1;
+
+  return {
+    usd,
+    brl: isUsdOperation ? usd * fx : usd,
+  };
+};
+
 const formatMoneyByCurrency = (value, currencyLabel) =>
   `${currencyLabel} ${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
@@ -9150,6 +9196,7 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFor
     [bars],
   );
   const categories = normalizedBars.map((bar) => bar.label);
+  const clickTargetData = useMemo(() => categories.map((_, index) => index), [categories]);
   const seriesDefs = normalizedBars.flatMap((bar) => bar.segments.map((segment) => segment.label));
   const uniqueSeries = [...new Set(seriesDefs)];
   const option = useMemo(
@@ -9197,62 +9244,92 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFor
         },
         splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.16)" } },
       },
-      series: uniqueSeries.map((seriesLabel) => ({
-        name: seriesLabel,
-        type: "bar",
-        stack: "price-comp",
-        barWidth: topLabelBarWidth,
-        emphasis: { focus: "series" },
-        itemStyle: {
-          borderRadius: [18, 18, 0, 0],
-        },
-        data: normalizedBars.map((bar) => {
-          const segment = bar.segments.find((item) => item.label === seriesLabel);
-          return segment
-            ? {
-                value: segment.value,
-                itemStyle: {
-                  color: segment.color,
-                  borderRadius: segment.value >= 0 ? [18, 18, 0, 0] : [0, 0, 18, 18],
-                },
-              }
-            : 0;
-        }),
-      })).concat({
-        name: "__total_labels__",
-        type: "bar",
-        silent: true,
-        barWidth: topLabelBarWidth,
-        barGap: "-100%",
-        z: 20,
-        itemStyle: {
-          color: "rgba(0,0,0,0)",
-        },
-        tooltip: { show: false },
-        data: normalizedBars.map((bar) => ({
-          value: bar.totalValue,
-          itemStyle: { color: "rgba(0,0,0,0)" },
-          label: {
-            show: true,
-            position: bar.totalValue >= 0 ? "top" : "bottom",
-            distance: 14,
-            formatter: `${bar.totalValue >= 0 ? "" : "-"}${unitLabel} ${valueFormatter(Math.abs(bar.totalValue))}`,
-            backgroundColor: "#0f172a",
-            color: "#ffffff",
-            borderRadius: 14,
-            padding: isMobileViewport ? [10, 12] : [12, 16],
-            fontSize: isMobileViewport ? 11 : 12,
-            fontWeight: 900,
+      series: [
+        {
+          name: "__click_target__",
+          type: "custom",
+          silent: !onSelectBar,
+          z: 0,
+          tooltip: { show: false },
+          data: clickTargetData,
+          renderItem: (params, api) => {
+            const categoryIndex = api.value(0);
+            const center = api.coord([categoryIndex, 0]);
+            const bandWidth = api.size([1, 0])[0];
+            const { x, y, height } = params.coordSys;
+            return {
+              type: "rect",
+              shape: {
+                x: Math.max(center[0] - bandWidth / 2, x),
+                y,
+                width: Math.min(bandWidth, x + params.coordSys.width - (center[0] - bandWidth / 2)),
+                height,
+              },
+              style: {
+                fill: "rgba(15, 23, 42, 0)",
+              },
+            };
           },
+        },
+        ...uniqueSeries.map((seriesLabel) => ({
+          name: seriesLabel,
+          type: "bar",
+          stack: "price-comp",
+          barWidth: topLabelBarWidth,
+          emphasis: { focus: "series" },
+          itemStyle: {
+            borderRadius: [18, 18, 0, 0],
+          },
+          data: normalizedBars.map((bar) => {
+            const segment = bar.segments.find((item) => item.label === seriesLabel);
+            return segment
+              ? {
+                  value: segment.value,
+                  itemStyle: {
+                    color: segment.color,
+                    borderRadius: segment.value >= 0 ? [18, 18, 0, 0] : [0, 0, 18, 18],
+                  },
+                }
+              : 0;
+          }),
         })),
-      }),
+        {
+          name: "__total_labels__",
+          type: "bar",
+          silent: true,
+          barWidth: topLabelBarWidth,
+          barGap: "-100%",
+          z: 20,
+          itemStyle: {
+            color: "rgba(0,0,0,0)",
+          },
+          tooltip: { show: false },
+          data: normalizedBars.map((bar) => ({
+            value: bar.totalValue,
+            itemStyle: { color: "rgba(0,0,0,0)" },
+            label: {
+              show: true,
+              position: bar.totalValue >= 0 ? "top" : "bottom",
+              distance: 14,
+              formatter: `${bar.totalValue >= 0 ? "" : "-"}${unitLabel} ${valueFormatter(Math.abs(bar.totalValue))}`,
+              backgroundColor: "#0f172a",
+              color: "#ffffff",
+              borderRadius: 14,
+              padding: isMobileViewport ? [10, 12] : [12, 16],
+              fontSize: isMobileViewport ? 11 : 12,
+              fontWeight: 900,
+            },
+          })),
+        },
+      ],
     }),
-    [categories, isMobileViewport, normalizedBars, topLabelBarWidth, uniqueSeries, unitLabel, valueFormatter],
+    [categories, clickTargetData, isMobileViewport, normalizedBars, onSelectBar, topLabelBarWidth, uniqueSeries, unitLabel, valueFormatter],
   );
   const chartEvents = useMemo(
     () => ({
       click: (params) => {
         if (params.componentType !== "series") return;
+        if (params.seriesName === "__total_labels__") return;
         onSelectBar?.(normalizedBars[params.dataIndex]);
       },
     }),
@@ -9411,7 +9488,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
 
         const derivativeKind = item.moeda_ou_cmdtye;
         return rowMatchesDashboardFilter(item, dashboardFilter, {
-          cultureKeys: derivativeKind === "Moeda" ? ["destino_cultura"] : ["ativo", "cultura", "culturas"],
+          cultureKeys: derivativeKind === "Moeda" ? ["destino_cultura"] : ["ativo"],
         });
       }),
     [dashboardFilter, derivatives],
@@ -9444,6 +9521,19 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     const directValue = Number(directMatch?.price || 0);
     return Number.isFinite(directValue) && directValue > 0 ? directValue : 0;
   }, [tradingviewQuotes]);
+
+  const derivativeQuotesByTicker = useMemo(
+    () =>
+      (tradingviewQuotes || []).reduce((acc, item) => {
+        const ticker = String(item?.ticker || "").trim();
+        if (!ticker) {
+          return acc;
+        }
+        acc[ticker] = parseLocalizedNumber(item?.price);
+        return acc;
+      }, {}),
+    [tradingviewQuotes],
+  );
 
   const quoteAvgBrl = useMemo(() => {
     const values = filteredQuotes
@@ -9564,22 +9654,43 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   );
 
   const normalizedDerivatives = useMemo(() => {
+    const today = startOfDashboardDay(new Date());
+
     return filteredDerivatives
       .map((item) => {
-        const originalValue = Number(item.ajustes_totais_brl || 0);
-        const fallbackUsd = usdRate > 0 ? originalValue / usdRate : 0;
-        const originalUsd =
+        const originalValueBrl = Number(item.ajustes_totais_brl || 0);
+        const fallbackUsd = usdRate > 0 ? originalValueBrl / usdRate : 0;
+        const originalValueUsd =
           Number(item.ajustes_totais_moeda_original || item.ajustes_totais_usd || item.volume_financeiro_valor_moeda_original || 0) ||
           fallbackUsd;
         const derivativeCurrency = isUsdCurrency(item.volume_financeiro_moeda || item.moeda_unidade || item.moeda_contrato) ? "U$" : "R$";
-        const amount =
-          currencyMode === "U$"
-            ? originalUsd
-            : currencyMode === "R$"
-              ? originalValue
-              : originalValue;
-        const classification = normalizeText(item.moeda_ou_cmdtye) === "moeda" ? "Cambio" : "Bolsa";
-        const status = normalizeText(item.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto";
+        const liquidationDate = startOfDashboardDay(item.data_liquidacao);
+        const usesSpotQuote = liquidationDate && today ? liquidationDate.getTime() >= today.getTime() : false;
+        const brlToUsdRate = usesSpotQuote ? usdBrlQuote : Number(item.dolar_ptax_vencimento || 0);
+        const strikeMtm = derivativeQuotesByTicker[item.contrato_derivativo] ?? 0;
+        const mtm = calculatePriceCompositionDerivativeMtm(item, strikeMtm, usdBrlQuote);
+
+        let amount = 0;
+        if (currencyMode === "AMBOS_R$") {
+          amount = adjustmentMode === "ALL" ? mtm.brl : originalValueBrl;
+        } else if (currencyMode === "R$") {
+          if (adjustmentMode === "ALL") {
+            amount = originalValueBrl;
+          } else {
+            amount = derivativeCurrency === "R$" ? originalValueBrl : 0;
+          }
+        } else if (currencyMode === "U$") {
+          if (adjustmentMode === "MATCH") {
+            amount = derivativeCurrency === "U$" ? originalValueUsd : 0;
+          } else if (derivativeCurrency === "U$") {
+            amount = originalValueUsd;
+          } else {
+            amount = brlToUsdRate > 0 ? originalValueBrl / brlToUsdRate : 0;
+          }
+        }
+
+        const classification = getPriceCompositionDerivativeKind(item);
+        const status = getPriceCompositionDerivativeStatus(item);
         return {
           id: item.id,
           classificacao: classification,
@@ -9593,8 +9704,11 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
           operation: item.nome_da_operacao || item.tipo_derivativo || "Derivativo",
         };
       })
-      .filter((item) => adjustmentMode === "ALL" || currencyMode === "AMBOS_R$" || item.currency === currencyMode);
-  }, [adjustmentMode, currencyMode, filteredDerivatives, usdRate]);
+      .filter((item) => {
+        if (currencyMode === "AMBOS_R$") return true;
+        return adjustmentMode === "ALL" || item.currency === currencyMode;
+      });
+  }, [adjustmentMode, currencyMode, derivativeQuotesByTicker, filteredDerivatives, usdBrlQuote, usdRate]);
 
   const derivativeSourceIdsForChart = useMemo(
     () => new Set(normalizedDerivatives.map((item) => item.id)),
@@ -9666,9 +9780,9 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
       if (!derivativeSourceIdsForChart.has(item.id)) {
         return false;
       }
-      const itemClassification = normalizeText(item.moeda_ou_cmdtye) === "moeda" ? "Cambio" : "Bolsa";
+      const itemClassification = getPriceCompositionDerivativeKind(item);
       if (classification && itemClassification !== classification) return false;
-      const isClosed = normalizeText(item.status_operacao).includes("encerr");
+      const isClosed = getPriceCompositionDerivativeStatus(item) === "Encerrado";
       if (isClosed) return includeClosed;
       return includeOpen;
     }),

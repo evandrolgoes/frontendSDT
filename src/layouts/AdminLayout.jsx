@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { Chart } from "chart.js";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
+import { DashboardDebugProvider, useDashboardDebug } from "../contexts/DashboardDebugContext";
 import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { getNavigationSections } from "../routes/routes";
 
@@ -22,6 +24,120 @@ const normalizeFilterDraft = (value) => ({
   subgrupo: normalizeValues(value?.subgrupo),
   cultura: normalizeValues(value?.cultura),
   safra: normalizeValues(value?.safra),
+});
+
+const DASHBOARD_DEBUG_SELECTOR = [
+  "[data-dashboard-debug-region]",
+  ".price-comp-pair-card",
+  ".price-comp-summary-card",
+  ".price-comp-toolbar",
+  ".price-comp-pane",
+  ".simulation-topbar",
+  ".simulation-summary",
+  ".simulation-grid-shell",
+  ".currency-hedge-chart",
+  ".cashflow-chart-card",
+  ".chart-card",
+  ".stat-card",
+  ".resource-filter-panel",
+  ".panel",
+].join(", ");
+
+const sanitizeDebugText = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/[↗↘]/g, "")
+    .trim();
+
+const collectUniqueTexts = (nodes, limit = 40) => {
+  const values = [];
+  nodes.forEach((node) => {
+    const text = sanitizeDebugText(node?.textContent || "");
+    if (!text || values.includes(text)) {
+      return;
+    }
+    values.push(text);
+  });
+  return values.slice(0, limit);
+};
+
+const extractRegionTitle = (region) => {
+  const explicitTitle = sanitizeDebugText(region?.dataset?.dashboardDebugLabel || "");
+  if (explicitTitle) {
+    return explicitTitle;
+  }
+  const titleNode = region?.querySelector(
+    ".page-header-title, .price-comp-pane-title span, .price-comp-summary-header div, .simulation-topbar-title, .chart-card-title, .card h3, .card h2, .card h1, strong, legend",
+  );
+  return sanitizeDebugText(titleNode?.textContent || "") || "Debug dashboard";
+};
+
+const extractTables = (region) =>
+  Array.from(region.querySelectorAll("table"))
+    .map((table) => {
+      const headers = Array.from(table.querySelectorAll("thead th")).map((cell) => sanitizeDebugText(cell.textContent));
+      const rows = Array.from(table.querySelectorAll("tbody tr"))
+        .map((row) => Array.from(row.querySelectorAll("th, td")).map((cell) => sanitizeDebugText(cell.textContent)).filter(Boolean))
+        .filter((cells) => cells.length);
+      if (!headers.length && !rows.length) {
+        return null;
+      }
+      return { headers, rows };
+    })
+    .filter(Boolean);
+
+const extractControls = (region) =>
+  Array.from(region.querySelectorAll("label"))
+    .map((label) => {
+      const title = sanitizeDebugText(label.querySelector("span")?.textContent || label.textContent || "");
+      const field = label.querySelector("select, input");
+      if (!title || !field) {
+        return null;
+      }
+      const value = field.tagName === "SELECT" ? field.options[field.selectedIndex]?.text || field.value : field.value || String(field.checked);
+      return {
+        label: title,
+        value: sanitizeDebugText(value),
+      };
+    })
+    .filter(Boolean);
+
+const extractChartJsData = (region) =>
+  Array.from(region.querySelectorAll("canvas"))
+    .map((canvas) => {
+      const instance = Chart.getChart(canvas);
+      if (!instance) {
+        return null;
+      }
+      return {
+        type: instance.config?.type || null,
+        labels: instance.data?.labels || [],
+        datasets: (instance.data?.datasets || []).map((dataset) => ({
+          label: dataset.label || "",
+          data: Array.isArray(dataset.data) ? dataset.data : [],
+        })),
+      };
+    })
+    .filter(Boolean);
+
+const extractSvgTexts = (region) => {
+  const svgTexts = collectUniqueTexts(region.querySelectorAll("svg text"), 60);
+  const priceCompTotals = Array.from(region.querySelectorAll(".price-comp-column-total, .price-comp-column-label, .price-comp-h-total, .price-comp-h-label")).map((node) =>
+    sanitizeDebugText(node.textContent),
+  );
+  return [...new Set([...svgTexts, ...priceCompTotals].filter(Boolean))].slice(0, 80);
+};
+
+const buildGenericDebugPayload = (region, pathname) => ({
+  source: "dom",
+  route: pathname,
+  title: extractRegionTitle(region),
+  controls: extractControls(region),
+  keyNumbers: collectUniqueTexts(region.querySelectorAll("strong, .price-comp-column-total, .price-comp-h-total, .price-comp-tooltip-total"), 24),
+  tableData: extractTables(region),
+  chartJs: extractChartJsData(region),
+  svgTexts: extractSvgTexts(region),
+  textPreview: collectUniqueTexts(region.querySelectorAll("span, p, small, div"), 30),
 });
 
 function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
@@ -64,12 +180,15 @@ function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onCl
   );
 }
 
-export function AdminLayout({ children }) {
+function AdminLayoutShell({ children }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const { filter, hasActiveFilter, options, panelOpen, setPanelOpen, saveFilter, isSaving } = useDashboardFilter();
+  const { enabled: dashboardDebugEnabled, setEnabled: setDashboardDebugEnabled, activeEntry, showDebugEntry, clearDebugEntry, isSuperuser } = useDashboardDebug();
   const isCashflowDashboard = location.pathname === "/dashboard/fluxo-caixa";
+  const isDashboardRoute = location.pathname.startsWith("/dashboard/");
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
+  const mainAreaRef = useRef(null);
   const [isMobileSidebar, setIsMobileSidebar] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false,
   );
@@ -206,6 +325,10 @@ export function AdminLayout({ children }) {
     });
   }, [navigationSections]);
 
+  useEffect(() => {
+    clearDebugEntry();
+  }, [clearDebugEntry, location.pathname]);
+
   const isNavItemActive = (path) => {
     const [pathname, search = ""] = String(path || "").split("?");
     if (pathname === "/mercado/blog") {
@@ -224,6 +347,22 @@ export function AdminLayout({ children }) {
       return pathname === "/mercado/blog" ? !currentSearch : true;
     }
     return currentSearch === search;
+  };
+
+  const handleDashboardDebugClick = (event) => {
+    if (!dashboardDebugEnabled || !isSuperuser) {
+      return;
+    }
+    const region = event.target instanceof Element ? event.target.closest(DASHBOARD_DEBUG_SELECTOR) : null;
+    if (!region || !mainAreaRef.current?.contains(region)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    showDebugEntry({
+      title: extractRegionTitle(region),
+      payload: buildGenericDebugPayload(region, location.pathname),
+    });
   };
 
   return (
@@ -360,31 +499,87 @@ export function AdminLayout({ children }) {
           </div>
         </div>
       ) : null}
-      <main className="main-area">
-        <button
-          type="button"
-          className={`dashboard-floating-filter-trigger${hasActiveFilter ? "" : " is-empty"}`}
-          onClick={handlePanelToggle}
-          aria-label="Abrir filtros dos dashboards"
-          title={filterSummary.join(" | ")}
-        >
-          <span className="dashboard-floating-filter-copy">
-            <span className="dashboard-floating-filter-text">{floatingFilterMessage[0]}</span>
-            <span className="dashboard-floating-filter-text secondary">{floatingFilterMessage[1]}</span>
-          </span>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M3 6h18l-7 8v4l-4 2v-6L3 6z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
+      <main className="main-area" ref={mainAreaRef} onClickCapture={handleDashboardDebugClick}>
+        <div className="dashboard-floating-actions">
+          <button
+            type="button"
+            className={`dashboard-floating-filter-trigger${hasActiveFilter ? "" : " is-empty"}`}
+            onClick={handlePanelToggle}
+            aria-label="Abrir filtros dos dashboards"
+            title={filterSummary.join(" | ")}
+          >
+            <span className="dashboard-floating-filter-copy">
+              <span className="dashboard-floating-filter-text">{floatingFilterMessage[0]}</span>
+              <span className="dashboard-floating-filter-text secondary">{floatingFilterMessage[1]}</span>
+            </span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M3 6h18l-7 8v4l-4 2v-6L3 6z"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+          {isSuperuser && isDashboardRoute ? (
+            <button
+              type="button"
+              className={`dashboard-floating-debug-trigger${dashboardDebugEnabled ? " active" : ""}`}
+              onClick={() => {
+                setDashboardDebugEnabled((current) => {
+                  const next = !current;
+                  if (!next) {
+                    clearDebugEntry();
+                  }
+                  return next;
+                });
+              }}
+              aria-label={dashboardDebugEnabled ? "Desativar debug dos dashboards" : "Ativar debug dos dashboards"}
+              title={dashboardDebugEnabled ? "Desativar debug dos dashboards" : "Ativar debug dos dashboards"}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M9 3h6m-8 4h10m-9 0v2a4 4 0 0 0 8 0V7m-9 7h10l2 4H5l2-4Zm4 0v-2m0 8v-2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          ) : null}
+        </div>
         {children}
+        {dashboardDebugEnabled && activeEntry ? (
+          <div className="component-popup-backdrop" onClick={() => clearDebugEntry()}>
+            <div className="component-popup dashboard-debug-modal" onClick={(event) => event.stopPropagation()} aria-live="polite">
+              <button type="button" className="component-popup-close" onClick={() => clearDebugEntry()}>
+                ×
+              </button>
+              <div className="component-popup-header dashboard-debug-modal-header">
+                <div>
+                  <strong>{activeEntry.title || "Debug dashboard"}</strong>
+                  <p className="muted">JSON bruto do elemento selecionado.</p>
+                </div>
+              </div>
+              <pre>{JSON.stringify(activeEntry.payload, null, 2)}</pre>
+            </div>
+          </div>
+        ) : null}
       </main>
     </div>
+  );
+}
+
+export function AdminLayout({ children }) {
+  const { user } = useAuth();
+
+  return (
+    <DashboardDebugProvider isSuperuser={Boolean(user?.is_superuser)}>
+      <AdminLayoutShell>{children}</AdminLayoutShell>
+    </DashboardDebugProvider>
   );
 }
