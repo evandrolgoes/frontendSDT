@@ -9350,12 +9350,12 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   const [derivatives, setDerivatives] = useState([]);
   const [cropBoards, setCropBoards] = useState([]);
   const [physicalQuotes, setPhysicalQuotes] = useState([]);
+  const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
   const [currencyMode, setCurrencyMode] = useState("AMBOS_R$");
   const [adjustmentMode, setAdjustmentMode] = useState("ALL");
   const [soldVolumeInput, setSoldVolumeInput] = useState("");
   const [hasManualVolume, setHasManualVolume] = useState(false);
-  const [detailModal, setDetailModal] = useState(null);
-  const [detailSearchValue, setDetailSearchValue] = useState("");
+  const [resourceTableModal, setResourceTableModal] = useState(null);
   const [includeClosedDerivatives, setIncludeClosedDerivatives] = useState(true);
   const [includeOpenDerivatives, setIncludeOpenDerivatives] = useState(true);
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
@@ -9365,13 +9365,9 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     setDerivatives,
   });
   const openPriceCompositionOperation = useCallback((row) => {
-    setDetailModal(null);
+    setResourceTableModal(null);
     openOperationForm(row);
   }, [openOperationForm]);
-
-  useEffect(() => {
-    setDetailSearchValue("");
-  }, [detailModal?.title]);
 
   useEffect(() => {
     let isMounted = true;
@@ -9380,12 +9376,14 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
       resourceService.listAll("derivative-operations"),
       resourceService.listAll("crop-boards"),
       resourceService.listAll("physical-quotes"),
-    ]).then(([physicalSalesResponse, derivativesResponse, cropBoardsResponse, quotesResponse]) => {
+      resourceService.listTradingviewQuotes().catch(() => []),
+    ]).then(([physicalSalesResponse, derivativesResponse, cropBoardsResponse, quotesResponse, tradingviewResponse]) => {
       if (!isMounted) return;
       setPhysicalSales(physicalSalesResponse || []);
       setDerivatives(derivativesResponse || []);
       setCropBoards(cropBoardsResponse || []);
       setPhysicalQuotes(quotesResponse || []);
+      setTradingviewQuotes(Array.isArray(tradingviewResponse) ? tradingviewResponse : []);
     });
     return () => {
       isMounted = false;
@@ -9399,11 +9397,23 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
 
   const filteredDerivatives = useMemo(
     () =>
-      derivatives.filter((item) =>
-        rowMatchesDashboardFilter(item, dashboardFilter, {
-          cultureKeys: DERIVATIVE_CULTURE_KEYS,
-        }),
-      ),
+      derivatives.filter((item) => {
+        const baseMatch = rowMatchesDashboardFilter(
+          item,
+          { ...dashboardFilter, cultura: [] },
+          {
+            cultureKeys: [],
+          },
+        );
+        if (!baseMatch) {
+          return false;
+        }
+
+        const derivativeKind = item.moeda_ou_cmdtye;
+        return rowMatchesDashboardFilter(item, dashboardFilter, {
+          cultureKeys: derivativeKind === "Moeda" ? ["destino_cultura"] : ["ativo", "cultura", "culturas"],
+        });
+      }),
     [dashboardFilter, derivatives],
   );
 
@@ -9417,42 +9427,6 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     [dashboardFilter, matchesDashboardFilter, physicalQuotes],
   );
 
-  const selectedCultureIds = useMemo(
-    () => new Set((dashboardFilter?.cultura || []).map(String)),
-    [dashboardFilter?.cultura],
-  );
-
-  const selectedCultureLabels = useMemo(() => {
-    const labels = new Set();
-    filteredCropBoards.forEach((item) => {
-      const cultureValue = item?.cultura;
-      if (cultureValue == null || cultureValue === "") {
-        return;
-      }
-
-      if (typeof cultureValue === "object") {
-        const label = normalizeText(
-          cultureValue.ativo || cultureValue.cultura || cultureValue.nome || cultureValue.label || cultureValue.descricao,
-        );
-        if (label) {
-          labels.add(label);
-        }
-        return;
-      }
-
-      const rawValue = String(cultureValue);
-      if (selectedCultureIds.has(rawValue)) {
-        return;
-      }
-
-      const label = normalizeText(rawValue);
-      if (label) {
-        labels.add(label);
-      }
-    });
-    return labels;
-  }, [filteredCropBoards, selectedCultureIds]);
-
   const usdRate = useMemo(() => {
     const candidates = filteredSales
       .map((item) => Number(item.dolar_de_venda || 0))
@@ -9462,6 +9436,14 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     }
     return 5.5;
   }, [filteredSales]);
+
+  const usdBrlQuote = useMemo(() => {
+    const directMatch = (tradingviewQuotes || []).find(
+      (item) => String(item?.ticker || "").trim().toUpperCase() === "USDBRL",
+    );
+    const directValue = Number(directMatch?.price || 0);
+    return Number.isFinite(directValue) && directValue > 0 ? directValue : 0;
+  }, [tradingviewQuotes]);
 
   const quoteAvgBrl = useMemo(() => {
     const values = filteredQuotes
@@ -9528,6 +9510,40 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     return summary;
   }, [filteredSales, usdRate]);
 
+  const getPhysicalContractDisplayValue = useCallback((item) => {
+    const contractRevenue =
+      Math.abs(Number(item.faturamento_total_contrato || 0)) ||
+      Math.abs(Number(item.preco || 0) * Number(item.volume_fisico || 0));
+    const isUsdContract = isUsdCurrency(item.moeda_contrato);
+
+    if (currencyMode === "R$") {
+      return isUsdContract ? 0 : contractRevenue;
+    }
+
+    if (currencyMode === "U$") {
+      return isUsdContract ? contractRevenue : 0;
+    }
+
+    if (!isUsdContract) {
+      return contractRevenue;
+    }
+
+    const today = startOfDashboardDay(new Date());
+    const paymentDate = startOfDashboardDay(item.data_pagamento);
+    const usesSpotQuote = paymentDate && today ? paymentDate.getTime() >= today.getTime() : false;
+    const fxRate = usesSpotQuote ? usdBrlQuote : Number(item.dolar_de_venda || 0);
+    return fxRate > 0 ? contractRevenue * fxRate : 0;
+  }, [currencyMode, usdBrlQuote]);
+
+  const physicalChartRevenueValue = useMemo(() => {
+    return filteredSales.reduce((sum, item) => sum + getPhysicalContractDisplayValue(item), 0);
+  }, [filteredSales, getPhysicalContractDisplayValue]);
+
+  const filteredSalesForChart = useMemo(
+    () => filteredSales.filter((item) => getPhysicalContractDisplayValue(item) > 0),
+    [filteredSales, getPhysicalContractDisplayValue],
+  );
+
   const defaultSoldVolume = useMemo(() => {
     if (currencyMode === "R$") return salesSummary.brlVolume;
     if (currencyMode === "U$") return salesSummary.usdVolume;
@@ -9549,40 +9565,6 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
 
   const normalizedDerivatives = useMemo(() => {
     return filteredDerivatives
-      .filter((item) => {
-        const classification = normalizeText(item.moeda_ou_cmdtye) === "moeda" ? "Cambio" : "Bolsa";
-        if (classification !== "Cambio" || !selectedCultureIds.size) {
-          return true;
-        }
-
-        const destinationCulture = item?.destino_cultura;
-        if (destinationCulture && typeof destinationCulture === "object") {
-          if (destinationCulture.id != null && selectedCultureIds.has(String(destinationCulture.id))) {
-            return true;
-          }
-
-          const label = normalizeText(
-            destinationCulture.ativo ||
-              destinationCulture.cultura ||
-              destinationCulture.nome ||
-              destinationCulture.label ||
-              destinationCulture.descricao,
-          );
-          return Boolean(label) && selectedCultureLabels.has(label);
-        }
-
-        if (destinationCulture != null && destinationCulture !== "") {
-          const rawValue = String(destinationCulture);
-          if (selectedCultureIds.has(rawValue)) {
-            return true;
-          }
-
-          const label = normalizeText(rawValue);
-          return Boolean(label) && selectedCultureLabels.has(label);
-        }
-
-        return false;
-      })
       .map((item) => {
         const originalValue = Number(item.ajustes_totais_brl || 0);
         const fallbackUsd = usdRate > 0 ? originalValue / usdRate : 0;
@@ -9612,7 +9594,12 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         };
       })
       .filter((item) => adjustmentMode === "ALL" || currencyMode === "AMBOS_R$" || item.currency === currencyMode);
-  }, [adjustmentMode, currencyMode, filteredDerivatives, selectedCultureIds, selectedCultureLabels, usdRate]);
+  }, [adjustmentMode, currencyMode, filteredDerivatives, usdRate]);
+
+  const derivativeSourceIdsForChart = useMemo(
+    () => new Set(normalizedDerivatives.map((item) => item.id)),
+    [normalizedDerivatives],
+  );
 
   const derivativeSummary = useMemo(() => {
     const summary = {
@@ -9674,145 +9661,79 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
       }));
   };
 
-  const getDerivativeRowsForDetail = (classification, includeOpen, includeClosed) =>
-    derivativeOperationRows.filter((item) => {
-      const classMatches = !classification || item.classificacao === classification;
-      const statusMatches =
-        (includeOpen && item.status !== "Encerrado") ||
-        (includeClosed && item.status === "Encerrado");
-      return classMatches && statusMatches;
-    });
-
-  const salesOperationRows = useMemo(
-    () =>
-      filteredSales.map((item) => ({
-        id: `physical-${item.id}`,
-        recordId: item.id,
-        resourceKey: "physical-sales",
-        subgrupo:
-          item.subgrupo?.subgrupo ||
-          item.subgrupos?.map?.((entry) => entry?.subgrupo || entry).filter(Boolean).join(", ") ||
-          "—",
-        tipo: "Fisico",
-        classificacao: "—",
-        data: formatBrazilianDate(item.data_pagamento || item.data_entrega || item.data_negociacao, "—"),
-        valor: currencyMode === "U$" ? Math.abs(Number(item.volume_fisico || 0)) * Number(item.preco || 0) : isUsdCurrency(item.moeda_contrato) ? Math.abs(Number(item.volume_fisico || 0)) * Number(item.preco || 0) * Number(item.dolar_de_venda || usdRate || 0) : Math.abs(Number(item.volume_fisico || 0)) * Number(item.preco || 0),
-        volume: Math.abs(Number(item.volume_fisico || 0)),
-        unidade: item.unidade_contrato || "sc",
-        precoStrike: Number(item.preco || 0),
-        instituicao: item.contraparte?.contraparte || item.contraparte?.obs || item.contraparte?.nome || "—",
-        status: "—",
-      })),
-    [currencyMode, filteredSales, usdRate],
-  );
-
-  const derivativeOperationRows = useMemo(
-    () =>
-      normalizedDerivatives.map((item) => ({
-        id: `derivative-${item.id}`,
-        recordId: item.id,
-        resourceKey: "derivative-operations",
-        subgrupo: "—",
-        tipo: "Derivativo",
-        classificacao: item.classificacao,
-        data: "—",
-        valor: Number(item.amount || 0),
-        volume: Number(item.volume || 0),
-        unidade: "sc",
-        precoStrike: Number(item.strike || 0),
-        instituicao: item.institution,
-        status: item.status,
-        sourceKey: item.sourceKey || "Sem bolsa",
-      })),
-    [normalizedDerivatives],
-  );
-
-  const buildDetailModal = (title, rows) => {
-    const totalValue = rows.reduce((sum, item) => sum + Number(item.valor || 0), 0);
-    const totalVolume = rows.reduce((sum, item) => sum + Number(item.volume || 0), 0);
-    const weightedStrike =
-      totalVolume > 0 ? rows.reduce((sum, item) => sum + Number(item.precoStrike || 0) * Number(item.volume || 0), 0) / totalVolume : 0;
-    setDetailModal({
-      title,
-      rows,
-      totals: { totalValue, totalVolume, weightedStrike },
-    });
-  };
-
-  const detailTableDefinition = useMemo(
-    () => ({
-      resource: "price-composition-detail",
-      title: "Operacoes",
-      searchPlaceholder: "Buscar operacao...",
-      columns: [
-        { key: "subgrupo", label: "Subgrupo" },
-        { key: "tipo", label: "Tipo" },
-        { key: "classificacao", label: "Classificacao" },
-        { key: "data", label: "Data vencimento", type: "date" },
-        { key: "valor", label: `Valor (${selectedCurrencyLabel})`, type: "number" },
-        {
-          key: "volume",
-          label: "Volume",
-          render: (value, row) => `${formatNumber0(value)}${row?.unidade ? ` ${row.unidade}` : ""}`,
-        },
-        { key: "precoStrike", label: "Preco/Strike", type: "number" },
-        { key: "instituicao", label: "Instituicao" },
-        { key: "status", label: "Status" },
-      ],
-      fields: [],
+  const getDerivativeSourceRows = useCallback((classification, includeOpen, includeClosed) =>
+    filteredDerivatives.filter((item) => {
+      if (!derivativeSourceIdsForChart.has(item.id)) {
+        return false;
+      }
+      const itemClassification = normalizeText(item.moeda_ou_cmdtye) === "moeda" ? "Cambio" : "Bolsa";
+      if (classification && itemClassification !== classification) return false;
+      const isClosed = normalizeText(item.status_operacao).includes("encerr");
+      if (isClosed) return includeClosed;
+      return includeOpen;
     }),
-    [selectedCurrencyLabel],
-  );
+  [derivativeSourceIdsForChart, filteredDerivatives]);
 
   const openVerticalDetail = (groupKey, row) => {
     if (groupKey === "G1") {
       if (row.label === "Fisico") {
-        buildDetailModal(`Fisico (a termo) (${selectedCurrencyLabel})`, salesOperationRows);
+        setResourceTableModal({
+          title: `Fisico (a termo) (${selectedCurrencyLabel})`,
+          definition: resourceDefinitions.physicalSales,
+          rows: filteredSalesForChart,
+        });
         return;
       }
       if (row.label === "Bolsa") {
-        buildDetailModal(`Derivativos Bolsa (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Bolsa", includeOpenDerivatives, includeClosedDerivatives));
+        setResourceTableModal({
+          title: `Derivativos Bolsa (${selectedCurrencyLabel})`,
+          definition: resourceDefinitions.derivativeOperations,
+          rows: getDerivativeSourceRows("Bolsa", includeOpenDerivatives, includeClosedDerivatives),
+        });
         return;
       }
       if (row.label === "Cambio") {
-        buildDetailModal(`Derivativos Cambio (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Cambio", includeOpenDerivatives, includeClosedDerivatives));
+        setResourceTableModal({
+          title: `Derivativos Cambio (${selectedCurrencyLabel})`,
+          definition: resourceDefinitions.derivativeOperations,
+          rows: getDerivativeSourceRows("Cambio", includeOpenDerivatives, includeClosedDerivatives),
+        });
         return;
       }
-      buildDetailModal(`TOTAL (${selectedCurrencyLabel})`, [...salesOperationRows, ...getDerivativeRowsForDetail(null, includeOpenDerivatives, includeClosedDerivatives)]);
       return;
     }
 
     if (row.label === "Fisico") {
-      buildDetailModal(`Fisico vendido (${selectedCurrencyLabel})`, salesOperationRows);
+      setResourceTableModal({
+        title: `Fisico vendido (${selectedCurrencyLabel})`,
+        definition: resourceDefinitions.physicalSales,
+        rows: filteredSalesForChart,
+      });
       return;
     }
     if (row.label === "Bolsa") {
-      buildDetailModal(`Derivativos Bolsa (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Bolsa", includeOpenDerivatives, includeClosedDerivatives));
+      setResourceTableModal({
+        title: `Derivativos Bolsa (${selectedCurrencyLabel})`,
+        definition: resourceDefinitions.derivativeOperations,
+        rows: getDerivativeSourceRows("Bolsa", includeOpenDerivatives, includeClosedDerivatives),
+      });
       return;
     }
     if (row.label === "Cambio") {
-      buildDetailModal(`Derivativos Cambio (${selectedCurrencyLabel})`, getDerivativeRowsForDetail("Cambio", includeOpenDerivatives, includeClosedDerivatives));
+      setResourceTableModal({
+        title: `Derivativos Cambio (${selectedCurrencyLabel})`,
+        definition: resourceDefinitions.derivativeOperations,
+        rows: getDerivativeSourceRows("Cambio", includeOpenDerivatives, includeClosedDerivatives),
+      });
       return;
     }
-    buildDetailModal(`TOTAL (${selectedCurrencyLabel})`, [...salesOperationRows, ...getDerivativeRowsForDetail(null, includeOpenDerivatives, includeClosedDerivatives)]);
   };
 
-  const soldAveragePrice =
-    currencyMode === "U$"
-      ? salesSummary.usdVolume > 0
-        ? salesSummary.usdPriceWeighted / salesSummary.usdVolume
-        : 0
-      : salesSummary.totalVolume > 0
-        ? salesSummary.totalRevenueBrl / salesSummary.totalVolume
-        : 0;
+  const soldAveragePrice = selectedDivisor > 0 ? physicalChartRevenueValue / selectedDivisor : 0;
   const basisAverage = salesSummary.totalVolume > 0 ? salesSummary.basisWeighted / salesSummary.totalVolume : 0;
   const dollarAverage = salesSummary.totalVolume > 0 ? salesSummary.dollarWeighted / salesSummary.totalVolume : usdRate;
   const premiumAverage = selectedDivisor > 0 ? derivativeSummary.closed / selectedDivisor : 0;
 
-  const mtmUnitValue = currencyMode === "U$" ? quoteAvgUsd : quoteAvgBrl;
-  const soldRevenueValue = currencyMode === "U$" ? salesSummary.totalRevenueUsd : salesSummary.totalRevenueBrl;
-  const unsoldVolume = Math.max(productionTotal - salesSummary.totalVolume, 0);
-  const mtmRevenueValue = mtmUnitValue * unsoldVolume;
   const g1BolsaOpenValue = includeOpenDerivatives ? Number(derivativeSummary.byClass.Bolsa.open || 0) / selectedDivisor : 0;
   const g1BolsaClosedValue = includeClosedDerivatives ? Number(derivativeSummary.byClass.Bolsa.closed || 0) / selectedDivisor : 0;
   const g1CambioOpenValue = includeOpenDerivatives ? Number(derivativeSummary.byClass.Cambio.open || 0) / selectedDivisor : 0;
@@ -9825,7 +9746,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   const g1CambioValue = g1CambioOpenValue + g1CambioClosedValue;
   const g5BolsaValue = g5BolsaOpenValue + g5BolsaClosedValue;
   const g5CambioValue = g5CambioOpenValue + g5CambioClosedValue;
-  const physicalTotalRevenueValue = soldRevenueValue + mtmRevenueValue;
+  const physicalTotalRevenueValue = physicalChartRevenueValue;
   const totalRevenueValue = physicalTotalRevenueValue + g5BolsaValue + g5CambioValue;
 
   const verticalRowsG1 = [
@@ -10127,30 +10048,18 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         </article>
       </section>
 
-      {detailModal ? (
-        <div className="component-popup-backdrop" onClick={() => setDetailModal(null)}>
-          <div className="component-popup dashboard-resource-table-modal price-comp-modal" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="component-popup-close" onClick={() => setDetailModal(null)}>
-              ×
-            </button>
-            <div className="component-popup-header dashboard-resource-table-header">
-              <div>
-                <strong>{detailModal.title}</strong>
-                <p className="muted">{detailModal.rows.length} operacao(oes) na coluna selecionada.</p>
-              </div>
-            </div>
-            <ResourceTable
-              definition={detailTableDefinition}
-              rows={detailModal.rows}
-              searchValue={detailSearchValue}
-              searchPlaceholder={detailTableDefinition.searchPlaceholder}
-              onSearchChange={setDetailSearchValue}
-              onClear={() => setDetailSearchValue("")}
-              onEdit={openPriceCompositionOperation}
-              tableHeight="100%"
-            />
-          </div>
-        </div>
+      {resourceTableModal ? (
+        <DashboardResourceTableModal
+          title={resourceTableModal.title}
+          definition={resourceTableModal.definition}
+          rows={resourceTableModal.rows}
+          onClose={() => setResourceTableModal(null)}
+          onEdit={(row) => openPriceCompositionOperation({
+            ...row,
+            recordId: row.id,
+            resourceKey: resourceTableModal.definition.resource,
+          })}
+        />
       ) : null}
       {editorNode}
     </section>
