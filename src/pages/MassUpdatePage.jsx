@@ -2,10 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../services/api";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
+import { resourceService } from "../services/resourceService";
 const EMPTY_UPDATE = {
   field: "",
-  matchCurrent: false,
-  fromValue: "",
   toValue: "",
   clearTarget: false,
 };
@@ -35,7 +34,43 @@ const parseFieldValue = (field, rawValue) => {
   return rawValue;
 };
 
-function ValueInput({ field, value, onChange, disabled = false, placeholder = "Selecione" }) {
+const getOptionLabel = (field, option) =>
+  option?.[field.labelKey || "nome"] ||
+  option?.nome ||
+  option?.name ||
+  option?.title ||
+  option?.label ||
+  option?.username ||
+  option?.email ||
+  option?.obs ||
+  option?.descricao_estrategia ||
+  option?.subgrupo ||
+  option?.grupo ||
+  option?.safra ||
+  option?.ativo ||
+  `#${option?.id ?? ""}`;
+
+const getFieldOptions = (field, lookupOptions) => {
+  if (Array.isArray(field?.options)) {
+    return field.options.map((option) => ({
+      value: String(option.value ?? ""),
+      label: option.label ?? String(option.value ?? ""),
+    }));
+  }
+
+  if (!field?.resource) {
+    return [];
+  }
+
+  return (lookupOptions[field.resource] || [])
+    .map((option) => ({
+      value: String(option[field.valueKey || "id"] ?? option.id ?? ""),
+      label: getOptionLabel(field, option),
+    }))
+    .filter((option) => String(option.value || "").trim() && String(option.label || "").trim());
+};
+
+function ValueInput({ field, value, onChange, disabled = false, placeholder = "Digite um valor" }) {
   return (
     <input
       type="text"
@@ -49,14 +84,31 @@ function ValueInput({ field, value, onChange, disabled = false, placeholder = "S
   );
 }
 
-function FilterValueInput({ field, value, onChange, disabled = false }) {
-  return <ValueInput field={field} value={value} onChange={onChange} disabled={disabled} placeholder="Selecione" />;
+function UpdateTargetInput({ field, value, onChange, lookupOptions, disabled = false }) {
+  const options = getFieldOptions(field, lookupOptions);
+  const shouldUseSelect = ["select", "relation", "boolean"].includes(field?.backendType || field?.type) && options.length > 0;
+
+  if (shouldUseSelect) {
+    return (
+      <select value={value ?? ""} onChange={(event) => onChange(event.target.value)} disabled={disabled}>
+        <option value="">Selecione</option>
+        {options.map((option) => (
+          <option key={`${field?.name || "field"}-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  return <ValueInput field={field} value={value} onChange={onChange} disabled={disabled} placeholder="Digite o novo valor" />;
 }
 
 export function MassUpdatePage() {
   const [resources, setResources] = useState([]);
   const [resource, setResource] = useState("");
   const [metadata, setMetadata] = useState(null);
+  const [lookupOptions, setLookupOptions] = useState({});
   const [filters, setFilters] = useState([{ ...EMPTY_FILTER }]);
   const [updates, setUpdates] = useState([{ ...EMPTY_UPDATE }]);
   const [search, setSearch] = useState("");
@@ -119,13 +171,40 @@ export function MassUpdatePage() {
         if (!active) {
           return;
         }
+        const metadataFilters = data?.filters || [];
+        const metadataUpdateFields = data?.updateFields || [];
+        const definition = resourceDefinitions[resource?.replace(/-([a-z])/g, (_, char) => char.toUpperCase())] || null;
+        const definitionFields = [...(definition?.fields || []), ...(definition?.editFields || []), ...(definition?.detailFields || [])];
+        const mappedDefinitionFields = Object.fromEntries(definitionFields.map((field) => [field.name, field]));
+        const mappedColumns = Object.fromEntries((definition?.columns || []).map((field) => [field.key, field]));
+        const lookupResources = [
+          ...new Set(
+            [...metadataFilters, ...metadataUpdateFields]
+              .map((field) => {
+                const definitionField = mappedDefinitionFields[field.name] || mappedColumns[field.name] || {};
+                if (!["select", "relation", "boolean"].includes(field.type)) {
+                  return null;
+                }
+                return definitionField.resource || field.relatedResource || field.resource || null;
+              })
+              .filter(Boolean),
+          ),
+        ];
+        const lookupEntries = await Promise.all(
+          lookupResources.map(async (resourceName) => [resourceName, await resourceService.listAll(resourceName)]),
+        );
+        if (!active) {
+          return;
+        }
         setMetadata(data);
+        setLookupOptions(Object.fromEntries(lookupEntries));
         setFilters([{ ...EMPTY_FILTER }]);
         setUpdates([{ ...EMPTY_UPDATE }]);
         setSearch("");
       } catch (requestError) {
         if (active) {
           setMetadata(null);
+          setLookupOptions({});
           setError(requestError.response?.data?.detail || "Nao foi possivel carregar os campos da base selecionada.");
         }
       } finally {
@@ -153,6 +232,7 @@ export function MassUpdatePage() {
         ...field,
         ...definitionField,
         name: field.name,
+        backendType: field.type,
         label: definitionField.label || field.label,
         type: definitionField.type || field.type,
         resource: definitionField.resource || field.relatedResource || field.resource,
@@ -169,6 +249,7 @@ export function MassUpdatePage() {
         ...field,
         ...definitionField,
         name: field.name,
+        backendType: field.type,
         label: definitionField.label || field.label,
         type: definitionField.type || field.type,
         resource: definitionField.resource || field.relatedResource || field.resource,
@@ -207,8 +288,8 @@ export function MassUpdatePage() {
         const field = updateFieldOptions.find((option) => option.name === item.field);
         return {
           field: item.field,
-          matchCurrent: Boolean(item.matchCurrent),
-          fromValue: item.matchCurrent ? parseFieldValue(field, item.fromValue) : null,
+          matchCurrent: false,
+          fromValue: null,
           toValue: item.clearTarget ? null : parseFieldValue(field, item.toValue),
           clearTarget: Boolean(item.clearTarget),
         };
@@ -261,7 +342,7 @@ export function MassUpdatePage() {
       <div className="page-header">
         <div>
           <h2>Alteracao em Massa</h2>
-          <p>Selecione a base, aplique os filtros disponiveis e defina uma ou mais regras no formato campo, de e para.</p>
+          <p>Selecione a base, aplique os filtros disponiveis e defina uma ou mais regras no formato campo e para.</p>
         </div>
       </div>
 
@@ -293,7 +374,7 @@ export function MassUpdatePage() {
             <div className="mass-update-section-head mass-update-section-head-filters">
               <div>
                 <h3>Filtros</h3>
-                <p>Adicione quantos filtros quiser, escolhendo o campo e o valor. Campos de texto aceitam busca parcial.</p>
+                <p>Adicione quantos filtros quiser, escolhendo o campo e digitando livremente o valor.</p>
               </div>
               <button
                 type="button"
@@ -339,7 +420,7 @@ export function MassUpdatePage() {
 
                     <label className="form-field">
                       <span>Valor</span>
-                      <FilterValueInput
+                      <ValueInput
                         field={selectedField}
                         value={filter.value}
                         onChange={(value) =>
@@ -355,6 +436,7 @@ export function MassUpdatePage() {
                           )
                         }
                         disabled={!selectedField || loadingMetadata}
+                        placeholder="Digite o valor"
                       />
                     </label>
 
@@ -421,48 +503,6 @@ export function MassUpdatePage() {
                     </label>
 
                     <label className="form-field mass-update-inline-check">
-                      <span>Aplicar somente quando o valor atual for igual a</span>
-                      <input
-                        type="checkbox"
-                        checked={update.matchCurrent}
-                        onChange={(event) =>
-                          setUpdates((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index
-                                ? {
-                                    ...item,
-                                    matchCurrent: event.target.checked,
-                                  }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-
-                    <label className="form-field">
-                      <span>De</span>
-                      <ValueInput
-                        field={selectedField}
-                        value={update.fromValue}
-                        onChange={(value) =>
-                          setUpdates((current) =>
-                            current.map((item, itemIndex) =>
-                              itemIndex === index
-                                ? {
-                                    ...item,
-                                    fromValue: value,
-                                  }
-                                : item,
-                            ),
-                          )
-                        }
-                        disabled={!update.matchCurrent || !selectedField}
-                        placeholder="Qualquer valor"
-                      />
-                    </label>
-
-                    <label className="form-field mass-update-inline-check">
                       <span>Limpar o campo no destino</span>
                       <input
                         type="checkbox"
@@ -485,7 +525,7 @@ export function MassUpdatePage() {
 
                     <label className="form-field">
                       <span>Para</span>
-                      <ValueInput
+                      <UpdateTargetInput
                         field={selectedField}
                         value={update.toValue}
                         onChange={(value) =>
@@ -500,6 +540,7 @@ export function MassUpdatePage() {
                             ),
                           )
                         }
+                        lookupOptions={lookupOptions}
                         disabled={!selectedField || update.clearTarget}
                       />
                     </label>

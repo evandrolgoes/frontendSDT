@@ -1377,7 +1377,7 @@ function CommercialRiskLongShortChart({
     { key: "nadaFeito", label: "Nada feito", color: "#ff6a2a", clickable: false },
     { key: "derivatives", label: "Vendas via Derivativos", color: "#b8efb7", clickable: true },
     { key: "physical", label: "Vendas via Físico (a termo)", color: "#48bf3b", clickable: true },
-    { key: "physicalPayments", label: "Pgtos Físico", color: "#355c35", clickable: true },
+    { key: "physicalPayments", label: "Pgtos Físico", color: "#16361f", clickable: true },
   ];
 
   const seriesByName = new Map(orderedSeries.map((item) => [item.label, item]));
@@ -5478,7 +5478,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       });
     });
 
-    activePhysicalPayments.forEach((item) => {
+    filteredPhysicalPayments.forEach((item) => {
       const node = ensureNode(item.fazer_frente_com || item.cultura || item.cultura_texto);
       if (!node) return;
       const detailVolume = Math.abs(Number(item.volume || 0));
@@ -5511,9 +5511,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       });
   }, [
     activeBolsaDerivatives,
-    activePhysicalPayments,
     activePhysicalSales,
     derivativeStandardVolumeGetter,
+    filteredPhysicalPayments,
     filteredCropBoards,
   ]);
 
