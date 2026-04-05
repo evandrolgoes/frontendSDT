@@ -8,8 +8,170 @@ import { useAuth } from "../contexts/AuthContext";
 import { useResourceCrud } from "../hooks/useResourceCrud";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
+import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
 
 const definition = resourceDefinitions.derivativeOperations;
+const DERIVATIVE_ALERT_SESSION_KEY = "sdt_derivatives_deadline_alert_seen";
+
+const toLocalIsoDate = (value = new Date()) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const addDaysToIsoDate = (baseIsoDate, days) => {
+  const [year, month, day] = String(baseIsoDate || "").split("-").map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  date.setDate(date.getDate() + days);
+  return toLocalIsoDate(date);
+};
+
+const resolveText = (value, emptyValue = "—") => {
+  if (value === null || value === undefined || value === "") {
+    return emptyValue;
+  }
+  if (typeof value === "object") {
+    const candidates = [
+      "grupo",
+      "subgrupo",
+      "grupo_name",
+      "subgrupo_name",
+      "nome_da_operacao",
+      "descricao",
+      "classificacao",
+      "label",
+      "name",
+      "nome",
+    ];
+    for (const key of candidates) {
+      if (value?.[key]) {
+        return value[key];
+      }
+    }
+  }
+  return String(value);
+};
+
+const resolveLookupLabel = (value, lookupMap, emptyValue = "—") => {
+  if (value === null || value === undefined || value === "") {
+    return emptyValue;
+  }
+  if (typeof value === "object") {
+    return resolveText(value, emptyValue);
+  }
+  return lookupMap.get(String(value)) || emptyValue;
+};
+
+const sortByDateAsc = (left, right) => String(left.dateValue || "").localeCompare(String(right.dateValue || ""));
+
+const dedupeDerivativeRowsByCode = (items) => {
+  const uniqueItems = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const key = String(item?.cod_operacao_mae || item?.id || "");
+    if (key && !uniqueItems.has(key)) {
+      uniqueItems.set(key, item);
+    }
+  });
+  return Array.from(uniqueItems.values());
+};
+
+function DerivativeDeadlineAlertModal({ alertState, onClose, onOpenItem }) {
+  if (!alertState?.open) {
+    return null;
+  }
+
+  const sections = [
+    {
+      key: "overdueDerivatives",
+      title: "Operações vencidas",
+      description: "Estas operações já venceram e precisam dos valores de liquidação.",
+      rows: alertState.overdueDerivatives,
+      highlight: "is-critical",
+    },
+    {
+      key: "upcomingDerivatives",
+      title: "Derivativos liquidando nos próximos 7 dias",
+      description: "Acompanhe estas liquidações para não perder o prazo.",
+      rows: alertState.upcomingDerivatives,
+      highlight: "",
+    },
+    {
+      key: "upcomingPhysicalPayments",
+      title: "Pgtos Físico nos próximos 7 dias",
+      description: "Pagamentos físicos programados para a próxima semana.",
+      rows: alertState.upcomingPhysicalPayments,
+      highlight: "",
+    },
+    {
+      key: "upcomingCashPayments",
+      title: "Pgtos Caixa nos próximos 7 dias",
+      description: "Pagamentos de caixa programados para a próxima semana.",
+      rows: alertState.upcomingCashPayments,
+      highlight: "",
+    },
+  ].filter((section) => section.rows.length);
+
+  return (
+    <div className="component-popup-backdrop" onClick={onClose}>
+      <div className="component-popup derivative-alert-popup" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Alertas de derivativos e pagamentos">
+        <button type="button" className="component-popup-close" onClick={onClose} aria-label="Fechar alerta">
+          ×
+        </button>
+        <div className="component-popup-header derivative-alert-popup-header">
+          <div>
+            <strong>Alertas de vencimento e liquidação</strong>
+            <p>
+              {alertState.overdueDerivatives.length
+                ? "Existem operações vencidas que precisam informar os valores de liquidação."
+                : "Existem eventos previstos para os próximos 7 dias."}
+            </p>
+          </div>
+        </div>
+        <div className="derivative-alert-popup-body">
+          {sections.map((section) => (
+            <section key={section.key} className={`derivative-alert-section ${section.highlight}`.trim()}>
+              <div className="derivative-alert-section-header">
+                <strong>{section.title}</strong>
+                <span>{section.rows.length} item(ns)</span>
+              </div>
+              <p>{section.description}</p>
+              <table className="component-popup-table">
+                <thead>
+                  <tr>
+                    <th>Tipo</th>
+                    <th>Grupo</th>
+                    <th>Subgrupo</th>
+                    <th>Data</th>
+                    <th>Descrição</th>
+                    <th className="component-popup-action-col" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {section.rows.map((item) => (
+                    <tr key={`${section.key}-${item.id}`}>
+                      <td>{item.kindLabel}</td>
+                      <td>{item.grupoLabel}</td>
+                      <td>{item.subgrupoLabel}</td>
+                      <td>{item.dateLabel}</td>
+                      <td>{item.description}</td>
+                      <td className="component-popup-action-cell">
+                        <button type="button" className="btn btn-secondary" onClick={() => onOpenItem(item)}>
+                          Abrir
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function DerivativeOperationsPage() {
   const location = useLocation();
@@ -19,6 +181,13 @@ export function DerivativeOperationsPage() {
   const [current, setCurrent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [attachments, setAttachments] = useState([]);
+  const [alertState, setAlertState] = useState({
+    open: false,
+    overdueDerivatives: [],
+    upcomingDerivatives: [],
+    upcomingPhysicalPayments: [],
+    upcomingCashPayments: [],
+  });
   const requestedOpenId = useMemo(() => {
     const value = new URLSearchParams(location.search).get("open");
     return value ? String(value) : "";
@@ -104,6 +273,112 @@ export function DerivativeOperationsPage() {
     setIsModalOpen(true);
   }, [current?.id, isModalOpen, loading, requestedOpenId, rows, setError, siblingRowsByCode]);
 
+  useEffect(() => {
+    if (loading || typeof window === "undefined") {
+      return;
+    }
+
+    if (window.sessionStorage.getItem(DERIVATIVE_ALERT_SESSION_KEY) === "1") {
+      return;
+    }
+
+    let isMounted = true;
+
+    const todayIsoDate = toLocalIsoDate();
+    const nextSevenDaysIsoDate = addDaysToIsoDate(todayIsoDate, 7);
+
+    const buildDerivativeAlertItem = (row, groupLookup, subgroupLookup, kindLabel) => ({
+      id: row.id,
+      resourcePath: `/derivativos?open=${row.id}`,
+      kindLabel,
+      grupoLabel: resolveLookupLabel(row.grupo, groupLookup),
+      subgrupoLabel: resolveLookupLabel(row.subgrupo, subgroupLookup),
+      dateValue: parseBrazilianDate(row.data_liquidacao, ""),
+      dateLabel: formatBrazilianDate(row.data_liquidacao, "—"),
+      description: [row.cod_operacao_mae, resolveText(row.nome_da_operacao, "Operação sem nome")].filter(Boolean).join(" · "),
+    });
+
+    const buildPaymentAlertItem = (row, resourcePath, groupLookup, subgroupLookup, kindLabel) => ({
+      id: row.id,
+      resourcePath: `${resourcePath}?open=${row.id}`,
+      kindLabel,
+      grupoLabel: resolveLookupLabel(row.grupo, groupLookup),
+      subgrupoLabel: resolveLookupLabel(row.subgrupo, subgroupLookup),
+      dateValue: parseBrazilianDate(row.data_pagamento, ""),
+      dateLabel: formatBrazilianDate(row.data_pagamento, "—"),
+      description: resolveText(row.descricao, resolveText(row.classificacao, kindLabel)),
+    });
+
+    Promise.allSettled([
+      resourceService.listAll("physical-payments"),
+      resourceService.listAll("cash-payments"),
+      resourceService.listAll("groups"),
+      resourceService.listAll("subgroups"),
+    ]).then((results) => {
+      if (!isMounted) {
+        return;
+      }
+
+      const [physicalPaymentsResult, cashPaymentsResult, groupsResult, subgroupsResult] = results;
+      const physicalPayments = physicalPaymentsResult.status === "fulfilled" ? physicalPaymentsResult.value : [];
+      const cashPayments = cashPaymentsResult.status === "fulfilled" ? cashPaymentsResult.value : [];
+      const groups = groupsResult.status === "fulfilled" ? groupsResult.value : [];
+      const subgroups = subgroupsResult.status === "fulfilled" ? subgroupsResult.value : [];
+      const groupLookup = new Map((groups || []).map((item) => [String(item.id), resolveText(item.grupo, "—")]));
+      const subgroupLookup = new Map((subgroups || []).map((item) => [String(item.id), resolveText(item.subgrupo, "—")]));
+      const overdueDerivatives = dedupeDerivativeRowsByCode(rows)
+        .filter((row) => {
+          const settlementDate = parseBrazilianDate(row.data_liquidacao, "");
+          const status = String(row.status_operacao || "").trim().toLowerCase();
+          return Boolean(settlementDate) && status !== "encerrado" && settlementDate <= todayIsoDate;
+        })
+        .map((row) => buildDerivativeAlertItem(row, groupLookup, subgroupLookup, "Derivativo vencido"))
+        .sort(sortByDateAsc);
+
+      const upcomingDerivatives = dedupeDerivativeRowsByCode(rows)
+        .filter((row) => {
+          const settlementDate = parseBrazilianDate(row.data_liquidacao, "");
+          const status = String(row.status_operacao || "").trim().toLowerCase();
+          return Boolean(settlementDate) && status !== "encerrado" && settlementDate > todayIsoDate && settlementDate <= nextSevenDaysIsoDate;
+        })
+        .map((row) => buildDerivativeAlertItem(row, groupLookup, subgroupLookup, "Derivativo"))
+        .sort(sortByDateAsc);
+
+      const upcomingPhysicalPayments = (Array.isArray(physicalPayments) ? physicalPayments : [])
+        .filter((row) => {
+          const paymentDate = parseBrazilianDate(row.data_pagamento, "");
+          return Boolean(paymentDate) && paymentDate >= todayIsoDate && paymentDate <= nextSevenDaysIsoDate;
+        })
+        .map((row) => buildPaymentAlertItem(row, "/pgtos-fisico", groupLookup, subgroupLookup, "Pgto Físico"))
+        .sort(sortByDateAsc);
+
+      const upcomingCashPayments = (Array.isArray(cashPayments) ? cashPayments : [])
+        .filter((row) => {
+          const paymentDate = parseBrazilianDate(row.data_pagamento, "");
+          return Boolean(paymentDate) && paymentDate >= todayIsoDate && paymentDate <= nextSevenDaysIsoDate;
+        })
+        .map((row) => buildPaymentAlertItem(row, "/pgtos-caixa", groupLookup, subgroupLookup, "Pgto Caixa"))
+        .sort(sortByDateAsc);
+
+      if (!overdueDerivatives.length && !upcomingDerivatives.length && !upcomingPhysicalPayments.length && !upcomingCashPayments.length) {
+        return;
+      }
+
+      window.sessionStorage.setItem(DERIVATIVE_ALERT_SESSION_KEY, "1");
+      setAlertState({
+        open: true,
+        overdueDerivatives,
+        upcomingDerivatives,
+        upcomingPhysicalPayments,
+        upcomingCashPayments,
+      });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [loading, rows]);
+
   const handleDeleteSelected = async (items) => {
     if (!Array.isArray(items) || !items.length) {
       return;
@@ -172,6 +447,15 @@ export function DerivativeOperationsPage() {
         }
         onDeleteSelected={user?.is_superuser ? handleDeleteSelected : undefined}
         selectedId={current?.id}
+      />
+
+      <DerivativeDeadlineAlertModal
+        alertState={alertState}
+        onClose={() => setAlertState((currentState) => ({ ...currentState, open: false }))}
+        onOpenItem={(item) => {
+          setAlertState((currentState) => ({ ...currentState, open: false }));
+          navigate(item.resourcePath);
+        }}
       />
 
       {isModalOpen ? (

@@ -226,6 +226,40 @@ function SummaryInsightCopy({ paragraphs = [] }) {
   );
 }
 
+function CommercialRiskExecutiveCard({
+  title,
+  subtitle = "",
+  emphasis = "—",
+  tone = "neutral",
+  rows = [],
+  insightTitle,
+  insightMessage,
+}) {
+  return (
+    <article className={`chart-card risk-kpi-executive-card risk-kpi-executive-card--${tone} summary-insight-card`}>
+      {insightMessage ? <SummaryInsightButton title={insightTitle || title} message={insightMessage} /> : null}
+      <div className="risk-kpi-executive-card-head">
+        <div>
+          <h3>{title}</h3>
+          {subtitle ? <p className="muted">{subtitle}</p> : null}
+        </div>
+        <strong>{emphasis}</strong>
+      </div>
+      <div className="risk-kpi-executive-table">
+        {rows.map((row) => (
+          <div key={`${title}-${row.label}`} className="risk-kpi-executive-row">
+            <div>
+              <span>{row.label}</span>
+              {row.note ? <small>{row.note}</small> : null}
+            </div>
+            <b>{row.value}</b>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
   const marqueeRepeatCount = 7;
   const marqueeCenterSequenceIndex = Math.floor(marqueeRepeatCount / 2);
@@ -4917,6 +4951,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [hedgePolicies, setHedgePolicies] = useState([]);
   const [physicalPayments, setPhysicalPayments] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
+  const [strategyTriggers, setStrategyTriggers] = useState([]);
+  const [triggerQuotes, setTriggerQuotes] = useState([]);
+  const [triggerExchanges, setTriggerExchanges] = useState([]);
   const [summaryData, setSummaryData] = useState({
     productionSummary: {
       productionTotal: 0,
@@ -4986,14 +5023,29 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         resourceService.listAll("crop-boards").catch(() => []),
         resourceService.listAll("hedge-policies").catch(() => []),
         resourceService.listAll("physical-payments").catch(() => []),
+        resourceService.listAll("strategy-triggers").catch(() => []),
+        resourceService.listTradingviewQuotes({ force: true }).catch(() => []),
+        resourceService.listAll("exchanges").catch(() => []),
       ])
-        .then(([salesResponse, derivativeResponse, cropBoardResponse, policiesResponse, physicalPaymentsResponse]) => {
+        .then(([
+          salesResponse,
+          derivativeResponse,
+          cropBoardResponse,
+          policiesResponse,
+          physicalPaymentsResponse,
+          strategyTriggersResponse,
+          triggerQuotesResponse,
+          triggerExchangesResponse,
+        ]) => {
           if (!isMounted) return;
           setPhysicalSales(salesResponse || []);
           setDerivatives(derivativeResponse || []);
           setCropBoards(cropBoardResponse || []);
           setHedgePolicies(policiesResponse || []);
           setPhysicalPayments(physicalPaymentsResponse || []);
+          setStrategyTriggers(strategyTriggersResponse || []);
+          setTriggerQuotes(triggerQuotesResponse || []);
+          setTriggerExchanges(triggerExchangesResponse || []);
           setAnalyticsReady(true);
         });
     };
@@ -5059,6 +5111,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const marketNewsPosts = Array.isArray(summaryData?.marketNewsPosts) ? summaryData.marketNewsPosts : [];
   const upcomingMaturityRows = Array.isArray(summaryData?.upcomingMaturityRows) ? summaryData.upcomingMaturityRows : [];
   const formCompletionRows = Array.isArray(summaryData?.formCompletionRows) ? summaryData.formCompletionRows : [];
+  const formCompletionSummary = summaryData?.formCompletionSummary || {};
 
   const filteredSales = useMemo(
     () => physicalSales.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
@@ -5594,6 +5647,241 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     filteredPhysicalPayments,
     filteredCropBoards,
   ]);
+  const coverageByCultureRows = useMemo(
+    () =>
+      longShortRows
+        .slice(0, 4)
+        .map((item) => ({
+          label: item.label,
+          value: `${formatNumber0(item.coverage * 100)}%`,
+          note: `${formatNumber0(item.gap)} sc livres`,
+        })),
+    [longShortRows],
+  );
+  const topCoverageGap = longShortRows[0] || null;
+  const policyStatusLabel = useMemo(() => {
+    if (hedgeSummaryCardTone === "positive") return "Dentro";
+    if (hedgeSummaryCardTone === "warning") return "Abaixo";
+    if (hedgeSummaryCardTone === "danger") return "Acima";
+    return "Neutro";
+  }, [hedgeSummaryCardTone]);
+  const policyDeviationValue = useMemo(() => {
+    const total = Number(hedgeSummaryActivePoint?.total || 0);
+    const minValue = Number(hedgeSummaryActivePoint?.minValue ?? 0);
+    const maxValue = Number(hedgeSummaryActivePoint?.maxValue ?? 0);
+    if (hedgeSummaryActivePoint?.minValue != null && total < minValue) {
+      return `${formatNumber0(minValue - total)} sc`;
+    }
+    if (hedgeSummaryActivePoint?.maxValue != null && total > maxValue) {
+      return `${formatNumber0(total - maxValue)} sc`;
+    }
+    return "0 sc";
+  }, [hedgeSummaryActivePoint]);
+  const upcomingByAppRows = useMemo(() => {
+    const grouped = upcomingMaturityRows.reduce((acc, item) => {
+      const key = item?.app || "Sem categoria";
+      const current = acc.get(key) || { label: key, count: 0, nextDate: item?.dateText || "—" };
+      current.count += 1;
+      if (item?.dateText && (!current.nextDate || current.nextDate === "—")) {
+        current.nextDate = item.dateText;
+      }
+      acc.set(key, current);
+      return acc;
+    }, new Map());
+    return Array.from(grouped.values())
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 4)
+      .map((item) => ({
+        label: item.label,
+        value: `${item.count} item${item.count > 1 ? "s" : ""}`,
+        note: `Próx. ${item.nextDate || "—"}`,
+      }));
+  }, [upcomingMaturityRows]);
+  const nextMaturityDate = upcomingMaturityRows[0]?.dateText || "Sem agenda";
+  const derivativeExchangeExecutiveRows = useMemo(
+    () =>
+      derivativeOperationsByExchange
+        .filter((item) => item.open > 0 || item.total > 0)
+        .slice(0, 4)
+        .map((item) => ({
+          label: item.label,
+          value: `${item.open} ab.`,
+          note: `${formatNumber0(item.total > 0 ? (item.open / item.total) * 100 : 0)}% da bolsa`,
+        })),
+    [derivativeOperationsByExchange],
+  );
+  const trackedQuotes = useMemo(
+    () => marketQuotes.filter((item) => Number.isFinite(Number(item?.change_percent))),
+    [marketQuotes],
+  );
+  const topPositiveQuote = useMemo(
+    () =>
+      [...trackedQuotes].sort((left, right) => Number(right.change_percent || 0) - Number(left.change_percent || 0))[0] || null,
+    [trackedQuotes],
+  );
+  const topNegativeQuote = useMemo(
+    () =>
+      [...trackedQuotes].sort((left, right) => Number(left.change_percent || 0) - Number(right.change_percent || 0))[0] || null,
+    [trackedQuotes],
+  );
+  const filledForms = Number(formCompletionSummary?.filledForms || 0);
+  const totalForms = Number(formCompletionSummary?.totalForms || 0);
+  const pendingForms = Number(formCompletionSummary?.pendingForms || 0);
+  const pendingFormRows = useMemo(
+    () =>
+      formCompletionRows
+        .filter((item) => Number(item?.count || 0) <= 0)
+        .slice(0, 4)
+        .map((item) => ({
+          label: item.label,
+          value: "Pendente",
+          note: item.hint || "Sem registros",
+        })),
+    [formCompletionRows],
+  );
+  const filledFormsPercent = totalForms > 0 ? (filledForms / totalForms) * 100 : 0;
+  const triggerExchangePriceUnitMap = useMemo(
+    () =>
+      new Map(
+        (Array.isArray(triggerExchanges) ? triggerExchanges : [])
+          .filter((item) => item?.nome)
+          .map((item) => [String(item.nome).trim(), String(item.moeda_unidade_padrao || "").trim()]),
+      ),
+    [triggerExchanges],
+  );
+  const filteredSummaryTriggers = useMemo(
+    () =>
+      strategyTriggers.filter((item) =>
+        rowMatchesDashboardFilter(item, dashboardFilter, {
+          groupKeys: ["grupo", "grupos"],
+          subgroupKeys: ["subgrupo", "subgrupos"],
+          cultureKeys: ["cultura"],
+        }),
+      ),
+    [dashboardFilter, strategyTriggers],
+  );
+  const evaluatedSummaryTriggers = useMemo(
+    () =>
+      filteredSummaryTriggers
+        .map((trigger) => {
+          const tipo = resolveTriggerTypeValue(trigger) || "Sem tipo";
+          const contractLabel = resolveTriggerContractValue(trigger);
+          const strike = resolveTriggerStrikeValue(trigger);
+          const direction = resolveTriggerDirectionValue(trigger);
+          const priceUnit = resolveTriggerPriceUnitValue(trigger);
+          const quote = normalizeText(tipo) === "derivativo" ? findMatchingDerivativeQuote(trigger, triggerQuotes) : null;
+          const currentPrice = quote ? parseLocalizedNumber(quote?.price) : Number.NaN;
+          const isHit = normalizeText(tipo) === "derivativo" && quote && Number.isFinite(currentPrice) && strike > 0
+            ? (normalizeText(direction).includes("abaixo") ? currentPrice <= strike : currentPrice >= strike)
+            : normalizeText(resolveTriggerStatusValue(trigger)).includes("ating");
+          const groupLabels = collectRelationLabels(trigger, "grupos", "grupo", ["grupo", "nome"]);
+          const subgroupLabels = collectRelationLabels(trigger, "subgrupos", "subgrupo", ["subgrupo", "nome"]);
+          return {
+            ...trigger,
+            contractLabel: contractLabel || "Sem contrato",
+            exchangeLabel: resolveTriggerExchangeValue(trigger) || "Sem bolsa",
+            directionLabel: direction || "Sem direção",
+            strike,
+            priceUnitLabel: priceUnit,
+            currentPrice,
+            isHit,
+            percentDistanceValue: getTriggerPercentDistanceValue(currentPrice, strike),
+            groupSummary: formatCompactRelationList(groupLabels, "Sem grupo"),
+            subgroupSummary: formatCompactRelationList(subgroupLabels, "Sem subgrupo"),
+          };
+        })
+        .filter((item) => Number.isFinite(item.percentDistanceValue) || item.isHit),
+    [filteredSummaryTriggers, triggerQuotes],
+  );
+  const summaryTriggerClosestRows = useMemo(
+    () =>
+      evaluatedSummaryTriggers
+        .slice()
+        .sort((left, right) => {
+          const leftDistance = Number.isFinite(left.percentDistanceValue) ? Math.abs(left.percentDistanceValue) : Number.POSITIVE_INFINITY;
+          const rightDistance = Number.isFinite(right.percentDistanceValue) ? Math.abs(right.percentDistanceValue) : Number.POSITIVE_INFINITY;
+          if (leftDistance !== rightDistance) return leftDistance - rightDistance;
+          return String(left.contractLabel).localeCompare(String(right.contractLabel));
+        })
+        .slice(0, 4)
+        .map((item) => ({
+          id: item.id,
+          exchange: `${item.exchangeLabel} | ${item.contractLabel}`,
+          label: `${item.directionLabel ? `${String(item.directionLabel).trim()} de` : "Sem direção"} ${formatTriggerMarketValue(item.strike)}${
+            (triggerExchangePriceUnitMap.get(item.exchangeLabel) || item.priceUnitLabel) ? ` ${triggerExchangePriceUnitMap.get(item.exchangeLabel) || item.priceUnitLabel}` : ""
+          }`.trim(),
+          scope: `${item.groupSummary} | ${item.subgroupSummary}`,
+          distance: formatTriggerTargetDistance(item),
+          tone: item.isHit ? "is-hit" : Number.isFinite(item.percentDistanceValue) ? "is-open" : "is-missing",
+        })),
+    [evaluatedSummaryTriggers, triggerExchangePriceUnitMap],
+  );
+
+  const productionFlowSlices = useMemo(() => {
+    const net = Math.max(displayedNetProductionVolume, 0);
+    const committed = Math.max(displayedPhysicalPaymentVolume, 0);
+    const total = Math.max(displayedProductionTotal, 0);
+    const free = Math.max(net - totalCommercializedVolume, 0);
+    const items = [
+      { label: "Comercializado", value: Math.max(totalCommercializedVolume, 0), color: "#0f766e" },
+      { label: "Livre", value: free, color: "#2563eb" },
+      { label: "Pgto físico", value: committed, color: "#ea580c" },
+    ].filter((item) => item.value > 0);
+    return items.length ? items : [{ label: "Sem dados", value: Math.max(total, 1), color: "#cbd5e1" }];
+  }, [displayedNetProductionVolume, displayedPhysicalPaymentVolume, displayedProductionTotal, totalCommercializedVolume]);
+
+  const commercializedMixBars = useMemo(
+    () => [
+      { label: "Físico", value: Math.max(activePhysicalCommercializedVolume, 0.01), formatted: `${formatNumber0(activePhysicalCommercializedVolume)} sc`, color: "#0f766e" },
+      { label: "Derivativos", value: Math.max(activeDerivativeCommercializedVolume, 0.01), formatted: `${formatNumber0(activeDerivativeCommercializedVolume)} sc`, color: "#f59e0b" },
+      { label: "Pgto físico", value: Math.max(displayedPhysicalPaymentVolume, 0.01), formatted: `${formatNumber0(displayedPhysicalPaymentVolume)} sc`, color: "#2563eb" },
+    ],
+    [activeDerivativeCommercializedVolume, activePhysicalCommercializedVolume, displayedPhysicalPaymentVolume],
+  );
+
+  const cultureGapBars = useMemo(
+    () =>
+      longShortRows
+        .slice(0, 6)
+        .map((item, index) => ({
+          label: item.label,
+          value: Math.max(item.gap || 0, 0.01),
+          formatted: `${formatNumber0(item.gap || 0)} sc livres`,
+          color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+        })),
+    [longShortRows],
+  );
+
+  const maturityBars = useMemo(
+    () =>
+      upcomingByAppRows.map((item, index) => ({
+        label: item.label,
+        value: Math.max(Number.parseInt(item.value, 10) || 0, 0.01),
+        formatted: item.note || item.value,
+        color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+      })),
+    [upcomingByAppRows],
+  );
+
+  const marketMoverBars = useMemo(() => {
+    const movers = [...trackedQuotes]
+      .sort((left, right) => Math.abs(Number(right.change_percent || 0)) - Math.abs(Number(left.change_percent || 0)))
+      .slice(0, 6);
+    return movers.map((item) => ({
+      label: item.ticker || item.symbol || "Ativo",
+      value: Math.max(Math.abs(Number(item.change_percent || 0)), 0.01),
+      formatted: `${formatSignedQuoteNumber(item.change_percent)}%`,
+      color: Number(item.change_percent || 0) >= 0 ? "#0f766e" : "#dc2626",
+    }));
+  }, [trackedQuotes]);
+
+  const baseCompletionSlices = useMemo(() => {
+    const items = [
+      { label: "Preenchidos", value: Math.max(filledForms, 0), color: "#0f766e" },
+      { label: "Pendentes", value: Math.max(pendingForms, 0), color: "#f59e0b" },
+    ].filter((item) => item.value > 0);
+    return items.length ? items : [{ label: "Sem módulos", value: 1, color: "#cbd5e1" }];
+  }, [filledForms, pendingForms]);
 
   const openQuotesPage = () => {
     navigateFromSummary(navigate, "/mercado/cotacoes", "Cotações");
@@ -5814,6 +6102,250 @@ function CommercialRiskDashboard({ dashboardFilter }) {
                 />
               }
             />
+          </section>
+
+          <section className="risk-kpi-executive-grid">
+            <CommercialRiskExecutiveCard
+              title="Cobertura por cultura"
+              subtitle="Onde a exposição ainda está mais aberta"
+              emphasis={topCoverageGap ? topCoverageGap.label : "Sem dados"}
+              tone={topCoverageGap?.gap > 0 ? "warning" : "positive"}
+              rows={
+                coverageByCultureRows.length
+                  ? coverageByCultureRows
+                  : [{ label: "Sem culturas", value: "—", note: "Aguardando dados no filtro atual." }]
+              }
+              insightTitle="Cobertura por cultura"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Este bloco resume rapidamente quais culturas estão mais cobertas e quais ainda guardam mais volume livre.",
+                    "A porcentagem compara o que já foi coberto contra a produção daquela cultura, e a linha complementar mostra o saldo ainda sem ação.",
+                  ]}
+                />
+              }
+            />
+            <CommercialRiskExecutiveCard
+              title="Política do mês"
+              subtitle={`Referência ${formatHedgeTitleDate(hedgeSummaryReferenceDate)}`}
+              emphasis={
+                activePolicyMinPercent != null && activePolicyMaxPercent != null
+                  ? `${formatNumber0(activePolicyMinPercent)}% a ${formatNumber0(activePolicyMaxPercent)}%`
+                  : "Sem faixa"
+              }
+              tone={hedgeSummaryCardTone}
+              rows={[
+                { label: "Coberto agora", value: `${formatNumber0(totalSalesPercent)}%`, note: `${formatNumber0(totalCommercializedVolume)} sc` },
+                { label: "Status", value: policyStatusLabel, note: "Leitura frente à política" },
+                { label: "Desvio", value: policyDeviationValue, note: "Volume fora da faixa" },
+              ]}
+              insightTitle="Política do mês"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Aqui a ideia é bater o olho e entender se o hedge atual está dentro, abaixo ou acima da faixa desejada.",
+                    "A faixa mostra a política aplicável ao momento e o desvio aponta apenas o excesso ou a falta de volume frente a ela.",
+                  ]}
+                />
+              }
+            />
+            <CommercialRiskExecutiveCard
+              title="Próximos vencimentos"
+              subtitle={`Próxima data: ${nextMaturityDate}`}
+              emphasis={`${upcomingMaturityRows.length} agenda${upcomingMaturityRows.length === 1 ? "" : "s"}`}
+              tone={upcomingMaturityRows.length ? "warning" : "neutral"}
+              rows={
+                upcomingByAppRows.length
+                  ? upcomingByAppRows
+                  : [{ label: "Sem compromissos", value: "—", note: "Nenhum vencimento futuro encontrado." }]
+              }
+              insightTitle="Próximos vencimentos"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Este quadro consolida os vencimentos mais próximos por tipo de operação para evitar que algo importante passe despercebido.",
+                    "Ele não detalha contrato a contrato; serve só para mostrar rapidamente onde está a concentração da agenda.",
+                  ]}
+                />
+              }
+            />
+            <CommercialRiskExecutiveCard
+              title="Bolsas ativas"
+              subtitle="Onde as posições em aberto estão concentradas"
+              emphasis={`${derivativeStatusCounts.open} ops`}
+              tone={derivativeStatusCounts.open > 0 ? "neutral" : "positive"}
+              rows={
+                derivativeExchangeExecutiveRows.length
+                  ? derivativeExchangeExecutiveRows
+                  : [{ label: "Sem derivativos", value: "—", note: "Nenhuma operação aberta no recorte." }]
+              }
+              insightTitle="Bolsas ativas"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "A leitura aqui é simples: em quais bolsas ainda está o maior número de operações abertas.",
+                    "Isso ajuda a perceber rapidamente onde a carteira está mais concentrada operacionalmente.",
+                  ]}
+                />
+              }
+            />
+            <CommercialRiskExecutiveCard
+              title="Mercado hoje"
+              subtitle={`${trackedQuotes.length} ativos com variação monitorada`}
+              emphasis={topPositiveQuote?.ticker || topNegativeQuote?.ticker || "Sem cotações"}
+              tone="neutral"
+              rows={[
+                {
+                  label: "Maior alta",
+                  value: topPositiveQuote ? `${topPositiveQuote.ticker} ${formatSignedQuoteNumber(topPositiveQuote.change_percent)}%` : "—",
+                  note: topPositiveQuote ? `${formatQuoteNumber(topPositiveQuote.price)} ${topPositiveQuote.currency || ""}`.trim() : "Sem dado",
+                },
+                {
+                  label: "Maior queda",
+                  value: topNegativeQuote ? `${topNegativeQuote.ticker} ${formatSignedQuoteNumber(topNegativeQuote.change_percent)}%` : "—",
+                  note: topNegativeQuote ? `${formatQuoteNumber(topNegativeQuote.price)} ${topNegativeQuote.currency || ""}`.trim() : "Sem dado",
+                },
+                {
+                  label: "Fontes",
+                  value: `${new Set(marketQuotes.map((item) => item?.section_name).filter(Boolean)).size} seções`,
+                  note: "Resumo de humor do mercado",
+                },
+              ]}
+              insightTitle="Mercado hoje"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Este card não tenta mostrar todas as cotações. Ele destaca apenas o movimento mais forte de alta, o de baixa e a abrangência do monitoramento.",
+                    "A ideia é trazer um termômetro rápido do mercado para contextualizar o restante do resumo.",
+                  ]}
+                />
+              }
+            />
+            <CommercialRiskExecutiveCard
+              title="Base preenchida"
+              subtitle={`${filledForms} de ${totalForms} módulos com registros`}
+              emphasis={`${formatNumber0(filledFormsPercent)}%`}
+              tone={pendingForms > 0 ? "warning" : "positive"}
+              rows={
+                pendingFormRows.length
+                  ? pendingFormRows
+                  : [{ label: "Sem pendências", value: "Base ok", note: "Todos os módulos do resumo já têm registros." }]
+              }
+              insightTitle="Base preenchida"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Este é um indicador rápido de qualidade da base usada pelo resumo.",
+                    "Quando aparecem pendências aqui, normalmente vale revisar esses módulos antes de aprofundar qualquer análise.",
+                  ]}
+                />
+              }
+            />
+          </section>
+
+          <section className="risk-kpi-derivative-donuts">
+            <DonutChart
+              centerLabel="Produção"
+              centerValue={`${formatNumber0(displayedNetProductionVolume)} sc`}
+              slices={productionFlowSlices}
+              insightTitle="Fluxo da produção"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Esse gráfico divide a produção líquida entre o que já foi comercializado, o que segue livre e o que já está comprometido em pagamentos físicos.",
+                    "A leitura é generalista e ajuda a entender o estágio operacional da produção dentro do filtro atual.",
+                  ]}
+                />
+              }
+            />
+            <ScenarioBars
+              data={commercializedMixBars}
+              insightTitle="Mix de proteção"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Aqui a ideia é comparar rapidamente o peso relativo entre físico, derivativos e pagamentos físicos.",
+                    "Funciona como um retrato simples da composição do volume já tratado na operação.",
+                  ]}
+                />
+              }
+            />
+            <ScenarioBars
+              data={cultureGapBars.length ? cultureGapBars : [{ label: "Sem dados", value: 1, formatted: "0 sc livres", color: "#cbd5e1" }]}
+              insightTitle="Gap por cultura"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Mostra quais culturas ainda concentram maior volume livre, sem ação comercial equivalente.",
+                    "É útil para enxergar onde a visão generalista aponta maior espaço de decisão.",
+                  ]}
+                />
+              }
+            />
+            <ScenarioBars
+              data={maturityBars.length ? maturityBars : [{ label: "Sem agenda", value: 1, formatted: "Sem vencimentos", color: "#cbd5e1" }]}
+              insightTitle="Agenda de vencimentos"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Distribui os próximos vencimentos por bloco operacional.",
+                    "Serve como visão geral de pressão de agenda no curto prazo.",
+                  ]}
+                />
+              }
+            />
+            <ScenarioBars
+              data={marketMoverBars.length ? marketMoverBars : [{ label: "Sem cotações", value: 1, formatted: "0,00%", color: "#cbd5e1" }]}
+              insightTitle="Movimentos do mercado"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Destaca os ativos com maior variação percentual entre as cotações monitoradas.",
+                    "Ajuda a trazer contexto de mercado para a leitura generalista do resumo.",
+                  ]}
+                />
+              }
+            />
+            <DonutChart
+              centerLabel="Base"
+              centerValue={`${formatNumber0(filledFormsPercent)}%`}
+              slices={baseCompletionSlices}
+              insightTitle="Qualidade da base"
+              insightMessage={
+                <SummaryInsightCopy
+                  paragraphs={[
+                    "Mostra a proporção entre módulos já preenchidos e pendentes dentro do resumo.",
+                    "É uma leitura importante porque a visão generalista fica mais confiável quanto mais completa estiver a base.",
+                  ]}
+                />
+              }
+            />
+            <article className="chart-card strategy-top-summary-card is-table summary-insight-card">
+              <div className="chart-card-header">
+                <div>
+                  <h3>Mais próximos do alvo</h3>
+                  <p className="muted">Mini-tabela dos gatilhos mais próximos do strike em percentual.</p>
+                </div>
+              </div>
+              <div className="strategy-top-table">
+                <div className="strategy-top-table-head">
+                  <span>Bolsa</span>
+                  <span>Gatilho</span>
+                </div>
+                {summaryTriggerClosestRows.length ? (
+                  summaryTriggerClosestRows.map((item) => (
+                    <div key={item.id} className="strategy-top-table-row strategy-top-table-row--summary">
+                      <span>{item.exchange}</span>
+                      <span>{item.label}</span>
+                      <small>{item.scope}</small>
+                      <strong className={item.tone}>{item.distance}</strong>
+                    </div>
+                  ))
+                ) : (
+                  <div className="strategy-top-table-empty">Sem gatilhos com percentual calculado.</div>
+                )}
+              </div>
+            </article>
           </section>
         </>
       ) : (
@@ -10211,6 +10743,32 @@ const resolveTriggerStrikeValue = (trigger) => parseLocalizedNumber(trigger?.str
 const resolveTriggerVolumeTargetValue = (trigger) => parseLocalizedNumber(trigger?.volume_objetivo ?? trigger?.volume);
 const resolveTriggerExchangeValue = (trigger) => String(trigger?.bolsa || trigger?.produto_bolsa || "").trim();
 const resolveTriggerDirectionValue = (trigger) => String(trigger?.acima_abaixo || "").trim();
+const resolveTriggerPositionValue = (trigger) => String(trigger?.posicao || "").trim();
+const resolveTriggerPriceUnitValue = (trigger) =>
+  String(trigger?.moeda_unidade || trigger?.strike_moeda_unidade || trigger?.unidade || "").trim();
+const readRelationLabel = (value, keys = []) => {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  for (const key of keys) {
+    if (value?.[key]) {
+      return String(value[key]).trim();
+    }
+  }
+  return String(value?.label || value?.nome || value?.descricao || "").trim();
+};
+
+const collectRelationLabels = (row, pluralKey, singularKey, labelKeys = []) => {
+  const pluralValues = Array.isArray(row?.[pluralKey]) ? row[pluralKey] : [];
+  const values = pluralValues.length ? pluralValues : row?.[singularKey] ? [row[singularKey]] : [];
+  return values
+    .map((entry) => readRelationLabel(entry, labelKeys))
+    .filter(Boolean);
+};
+
+const formatCompactRelationList = (labels = [], emptyLabel) => {
+  if (!labels.length) return emptyLabel;
+  return labels.join(", ");
+};
 
 const findMatchingDerivativeQuote = (trigger, quotes = []) => {
   const contractKey = normalizeTriggerLookupKey(resolveTriggerContractValue(trigger));
@@ -10273,6 +10831,23 @@ const formatTriggerPercentDistance = (currentPrice, strike) => {
   })}% ${direction} do strike`;
 };
 
+const formatTriggerTargetDistance = ({ currentPrice, strike, directionLabel, isHit }) => {
+  if (isHit) {
+    return "Alvo atingido";
+  }
+  if (!Number.isFinite(currentPrice) || !Number.isFinite(strike) || strike <= 0) {
+    return "Sem percentual";
+  }
+
+  const percent = Math.abs(((currentPrice - strike) / strike) * 100);
+  const normalizedDirection = normalizeText(directionLabel);
+  const relativeLabel = normalizedDirection.includes("abaixo") ? "acima" : "abaixo";
+  return `${percent.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}% ${relativeLabel} do alvo`;
+};
+
 const getTriggerPercentDistanceValue = (currentPrice, strike) => {
   if (!Number.isFinite(currentPrice) || !Number.isFinite(strike) || strike <= 0) {
     return Number.NaN;
@@ -10280,10 +10855,38 @@ const getTriggerPercentDistanceValue = (currentPrice, strike) => {
   return ((currentPrice - strike) / strike) * 100;
 };
 
+const buildDuplicatePayloadFromDefinition = (definition, item) =>
+  Object.fromEntries(
+    (definition?.fields || []).map((field) => {
+      const rawValue = item?.[field.name];
+      if (field.type === "relation") {
+        return [field.name, typeof rawValue === "object" ? rawValue?.id ?? null : rawValue ?? null];
+      }
+      if (field.type === "multirelation") {
+        const values = Array.isArray(rawValue) ? rawValue : rawValue ? [rawValue] : [];
+        return [
+          field.name,
+          values
+            .map((entry) => (typeof entry === "object" ? entry?.id : entry))
+            .filter((entry) => entry !== undefined && entry !== null && entry !== ""),
+        ];
+      }
+      return [field.name, rawValue];
+    }),
+  );
+
 function StrategiesTriggersDashboard({ dashboardFilter }) {
   const [strategies, setStrategies] = useState([]);
   const [triggers, setTriggers] = useState([]);
   const [quotes, setQuotes] = useState([]);
+  const [exchanges, setExchanges] = useState([]);
+  const [selectedStrategyIds, setSelectedStrategyIds] = useState([]);
+  const [selectedTriggerStatus, setSelectedTriggerStatus] = useState("");
+  const [selectedTriggerExchange, setSelectedTriggerExchange] = useState("");
+  const [activeStrategyForm, setActiveStrategyForm] = useState(null);
+  const [activeTriggerForm, setActiveTriggerForm] = useState(null);
+  const [strategyFormError, setStrategyFormError] = useState("");
+  const [triggerFormError, setTriggerFormError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -10291,16 +10894,28 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
       resourceService.listAll("strategies").catch(() => []),
       resourceService.listAll("strategy-triggers").catch(() => []),
       resourceService.listTradingviewQuotes({ force: true }).catch(() => []),
-    ]).then(([strategiesResponse, triggersResponse, quotesResponse]) => {
+      resourceService.listAll("exchanges").catch(() => []),
+    ]).then(([strategiesResponse, triggersResponse, quotesResponse, exchangesResponse]) => {
       if (!isMounted) return;
       setStrategies(Array.isArray(strategiesResponse) ? strategiesResponse : []);
       setTriggers(Array.isArray(triggersResponse) ? triggersResponse : []);
       setQuotes(Array.isArray(quotesResponse) ? quotesResponse : []);
+      setExchanges(Array.isArray(exchangesResponse) ? exchangesResponse : []);
     });
     return () => {
       isMounted = false;
     };
   }, []);
+
+  const exchangePriceUnitMap = useMemo(
+    () =>
+      new Map(
+        (Array.isArray(exchanges) ? exchanges : [])
+          .filter((item) => item?.nome)
+          .map((item) => [String(item.nome).trim(), String(item.moeda_unidade_padrao || "").trim()]),
+      ),
+    [exchanges],
+  );
 
   const filteredStrategies = useMemo(
     () =>
@@ -10334,6 +10949,8 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
           const strike = resolveTriggerStrikeValue(trigger);
           const volumeObjetivo = resolveTriggerVolumeTargetValue(trigger);
           const direction = resolveTriggerDirectionValue(trigger);
+          const position = resolveTriggerPositionValue(trigger);
+          const priceUnit = resolveTriggerPriceUnitValue(trigger);
           const quote = normalizeText(tipo) === "derivativo" ? findMatchingDerivativeQuote(trigger, quotes) : null;
           const currentPrice = quote ? parseLocalizedNumber(quote?.price) : Number.NaN;
 
@@ -10368,6 +10985,8 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
             strike,
             volumeObjetivo,
             directionLabel: direction || "Sem direção",
+            positionLabel: position || "Sem posição",
+            priceUnitLabel: priceUnit,
             quote,
 	            currentPrice,
 	            percentDistanceValue: getTriggerPercentDistanceValue(currentPrice, strike),
@@ -10377,6 +10996,7 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
             quoteLabel: quote?.ticker || quote?.symbol || "Sem cotação",
             exchangeLabel: resolveTriggerExchangeValue(trigger) || "Sem bolsa",
             cultureLabel: readCultureLabel(trigger?.cultura),
+            exchangeAndContractLabel: [resolveTriggerExchangeValue(trigger), contractLabel].filter(Boolean).join(" | ") || "Sem bolsa | Sem contrato",
           };
         })
         .sort((left, right) => {
@@ -10424,31 +11044,78 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
       .slice(0, 6);
   }, [evaluatedTriggers, filteredStrategies]);
 
+  const strategyFilterRows = useMemo(
+    () =>
+      filteredStrategies
+        .map((strategy) => {
+          const groupLabels = collectRelationLabels(strategy, "grupos", "grupo", ["grupo", "nome"]);
+          const subgroupLabels = collectRelationLabels(strategy, "subgrupos", "subgrupo", ["subgrupo", "nome"]);
+          const totalTriggers = evaluatedTriggers.filter((item) => String(item?.estrategia || item?.estrategia?.id || "") === String(strategy.id)).length;
+          const hitTriggers = evaluatedTriggers.filter(
+            (item) =>
+              String(item?.estrategia || item?.estrategia?.id || "") === String(strategy.id) && item.derivedSituation === "atingido",
+          ).length;
+          return {
+            ...strategy,
+            totalTriggers,
+            hitTriggers,
+            groupLabels,
+            subgroupLabels,
+            groupSummary: formatCompactRelationList(groupLabels, "Sem grupos"),
+            subgroupSummary: formatCompactRelationList(subgroupLabels, "Sem subgrupos"),
+          };
+        })
+        .sort((left, right) => right.totalTriggers - left.totalTriggers || String(left.descricao_estrategia || "").localeCompare(String(right.descricao_estrategia || ""))),
+    [evaluatedTriggers, filteredStrategies],
+  );
+
+  const strategyScopedEvaluatedTriggers = useMemo(() => {
+    if (!selectedStrategyIds.length) {
+      return evaluatedTriggers;
+    }
+    const selectedIds = new Set(selectedStrategyIds.map(String));
+    return evaluatedTriggers.filter((item) => selectedIds.has(String(item?.estrategia || item?.estrategia?.id || "")));
+  }, [evaluatedTriggers, selectedStrategyIds]);
+
+  const visibleEvaluatedTriggers = useMemo(
+    () =>
+      strategyScopedEvaluatedTriggers.filter((item) => {
+        if (selectedTriggerStatus && item.derivedSituation !== selectedTriggerStatus) {
+          return false;
+        }
+        if (selectedTriggerExchange && item.exchangeLabel !== selectedTriggerExchange) {
+          return false;
+        }
+        return true;
+      }),
+    [selectedTriggerExchange, selectedTriggerStatus, strategyScopedEvaluatedTriggers],
+  );
+
   const triggerTypeSlices = useMemo(() => {
-    const fisico = evaluatedTriggers.filter((item) => normalizeText(item.tipoLabel) === "fisico").length;
-    const derivativo = evaluatedTriggers.filter((item) => normalizeText(item.tipoLabel) === "derivativo").length;
-    const semTipo = evaluatedTriggers.filter((item) => !["fisico", "derivativo"].includes(normalizeText(item.tipoLabel))).length;
+    const fisico = visibleEvaluatedTriggers.filter((item) => normalizeText(item.tipoLabel) === "fisico").length;
+    const derivativo = visibleEvaluatedTriggers.filter((item) => normalizeText(item.tipoLabel) === "derivativo").length;
+    const semTipo = visibleEvaluatedTriggers.filter((item) => !["fisico", "derivativo"].includes(normalizeText(item.tipoLabel))).length;
     const items = [
       { label: "Fisico", value: fisico, color: "#2563eb" },
       { label: "Derivativo", value: derivativo, color: "#0f766e" },
       { label: "Sem tipo", value: semTipo, color: "#94a3b8" },
     ].filter((item) => item.value > 0);
     return items.length ? items : [{ label: "Sem gatilhos", value: 1, color: "#cbd5e1" }];
-  }, [evaluatedTriggers]);
+  }, [visibleEvaluatedTriggers]);
 
   const strategyAssociationSlices = useMemo(() => {
-    const linked = evaluatedTriggers.filter((item) => item.hasStrategy).length;
-    const unlinked = evaluatedTriggers.length - linked;
+    const linked = visibleEvaluatedTriggers.filter((item) => item.hasStrategy).length;
+    const unlinked = visibleEvaluatedTriggers.length - linked;
     const items = [
       { label: "Com estratégia", value: linked, color: "#0f766e" },
       { label: "Sem estratégia", value: unlinked, color: "#f59e0b" },
     ].filter((item) => item.value > 0);
     return items.length ? items : [{ label: "Sem gatilhos", value: 1, color: "#cbd5e1" }];
-  }, [evaluatedTriggers]);
+  }, [visibleEvaluatedTriggers]);
 
   const closestTriggerBars = useMemo(
     () =>
-      evaluatedTriggers
+      visibleEvaluatedTriggers
         .filter((item) => Number.isFinite(item.percentDistanceValue))
         .sort((left, right) => Math.abs(left.percentDistanceValue) - Math.abs(right.percentDistanceValue))
         .slice(0, 5)
@@ -10464,11 +11131,11 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
                 ? "#ea580c"
                 : "#2563eb",
         })),
-    [evaluatedTriggers],
+    [visibleEvaluatedTriggers],
   );
 
   const associationRows = useMemo(() => {
-    const strategyLabelToRows = evaluatedTriggers.reduce((acc, item) => {
+    const strategyLabelToRows = visibleEvaluatedTriggers.reduce((acc, item) => {
       const key = item.hasStrategy ? item.strategyLabel : "Sem estratégia";
       const current = acc.get(key) || {
         label: key,
@@ -10488,13 +11155,13 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
     return Array.from(strategyLabelToRows.values())
       .sort((left, right) => right.total - left.total || left.label.localeCompare(right.label))
       .slice(0, 6);
-  }, [evaluatedTriggers]);
+  }, [visibleEvaluatedTriggers]);
 
   const triggerStatusSlices = useMemo(() => {
-    const waiting = evaluatedTriggers.filter((item) => item.derivedSituation === "monitorando").length;
-    const triggered = evaluatedTriggers.filter((item) => item.derivedSituation === "atingido").length;
-    const inactive = evaluatedTriggers.filter((item) => item.derivedSituation === "inativo").length;
-    const noQuote = evaluatedTriggers.filter((item) => item.derivedSituation === "sem_cotacao").length;
+    const waiting = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "monitorando").length;
+    const triggered = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "atingido").length;
+    const inactive = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "inativo").length;
+    const noQuote = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "sem_cotacao").length;
     const items = [
       { label: "Monitorando", value: waiting, color: "#0f766e" },
       { label: "Atingidos", value: triggered, color: "#f59e0b" },
@@ -10502,10 +11169,10 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
       { label: "Inativos", value: inactive, color: "#94a3b8" },
     ].filter((item) => item.value > 0);
     return items.length ? items : [{ label: "Sem gatilhos", value: 1, color: "#cbd5e1" }];
-  }, [evaluatedTriggers]);
+  }, [visibleEvaluatedTriggers]);
   const triggerCultureBars = useMemo(() => {
     const map = new Map();
-    evaluatedTriggers.forEach((item) => {
+    visibleEvaluatedTriggers.forEach((item) => {
       const label = item.cultureLabel;
       if (!label || normalizeText(label) === "sem ativo") return;
       map.set(label, (map.get(label) || 0) + 1);
@@ -10519,235 +11186,561 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
       }))
       .sort((left, right) => right.value - left.value)
       .slice(0, 5);
-  }, [evaluatedTriggers]);
+  }, [visibleEvaluatedTriggers]);
+
+  const strategyDefinition = resourceDefinitions.strategies;
+  const triggerDefinition = resourceDefinitions.strategyTriggers;
+
+  const openCreateStrategy = () => {
+    setStrategyFormError("");
+    setActiveStrategyForm({});
+  };
+
+  const openEditStrategy = (strategy) => {
+    setStrategyFormError("");
+    setActiveStrategyForm(strategy);
+  };
+
+  const closeStrategyForm = () => {
+    setActiveStrategyForm(null);
+    setStrategyFormError("");
+  };
+
+  const openCreateTrigger = () => {
+    setTriggerFormError("");
+    setActiveTriggerForm({});
+  };
+
+  const openCreateTriggerForStrategy = (strategy) => {
+    setTriggerFormError("");
+    setActiveTriggerForm({
+      estrategia: strategy?.id || "",
+    });
+  };
+
+  const openEditTrigger = (trigger) => {
+    setTriggerFormError("");
+    setActiveTriggerForm(trigger);
+  };
+
+  const closeTriggerForm = () => {
+    setActiveTriggerForm(null);
+    setTriggerFormError("");
+  };
+
+  const saveStrategyRecord = async (payload) => {
+    try {
+      const saved = activeStrategyForm?.id
+        ? await resourceService.update(strategyDefinition.resource, activeStrategyForm.id, payload)
+        : await resourceService.create(strategyDefinition.resource, payload);
+
+      setStrategies((current) => {
+        const index = current.findIndex((item) => String(item.id) === String(saved.id));
+        if (index >= 0) {
+          const next = [...current];
+          next[index] = saved;
+          return next;
+        }
+        return [saved, ...current];
+      });
+      closeStrategyForm();
+    } catch (error) {
+      setStrategyFormError(error?.response?.data?.detail || "Nao foi possivel salvar a estrategia.");
+    }
+  };
+
+  const saveTriggerRecord = async (payload) => {
+    try {
+      const saved = activeTriggerForm?.id
+        ? await resourceService.update(triggerDefinition.resource, activeTriggerForm.id, payload)
+        : await resourceService.create(triggerDefinition.resource, payload);
+
+      setTriggers((current) => {
+        const index = current.findIndex((item) => String(item.id) === String(saved.id));
+        if (index >= 0) {
+          const next = [...current];
+          next[index] = saved;
+          return next;
+        }
+        return [saved, ...current];
+      });
+      closeTriggerForm();
+    } catch (error) {
+      setTriggerFormError(error?.response?.data?.detail || "Nao foi possivel salvar o gatilho.");
+    }
+  };
+
+  const toggleStrategyFilter = (strategyId) => {
+    setSelectedStrategyIds((current) => {
+      const normalizedId = String(strategyId);
+      return current.some((item) => String(item) === normalizedId)
+        ? current.filter((item) => String(item) !== normalizedId)
+        : [...current, strategyId];
+    });
+  };
+
+  const duplicateStrategyRecord = async (strategy) => {
+    try {
+      const payload = buildDuplicatePayloadFromDefinition(strategyDefinition, strategy);
+      payload.descricao_estrategia = `${strategy?.descricao_estrategia || `Estrategia ${strategy?.id || ""}`}`.trim() + " (copia)";
+      const saved = await resourceService.create(strategyDefinition.resource, payload);
+      setStrategies((current) => [saved, ...current]);
+    } catch (error) {
+      setStrategyFormError(error?.response?.data?.detail || "Nao foi possivel duplicar a estrategia.");
+    }
+  };
+
+  const removeStrategyRecord = async (strategy) => {
+    const strategyLabel = strategy?.descricao_estrategia || `Estratégia ${strategy?.id || ""}`;
+    if (!window.confirm(`Excluir a estratégia "${strategyLabel}"?`)) {
+      return;
+    }
+
+    try {
+      await resourceService.remove(strategyDefinition.resource, strategy.id);
+      setStrategies((current) => current.filter((item) => String(item.id) !== String(strategy.id)));
+      setSelectedStrategyIds((current) => current.filter((item) => String(item) !== String(strategy.id)));
+      if (String(activeStrategyForm?.id || "") === String(strategy.id)) {
+        closeStrategyForm();
+      }
+    } catch (error) {
+      setStrategyFormError(error?.response?.data?.detail || "Nao foi possivel excluir a estrategia.");
+    }
+  };
+
+  const duplicateTriggerRecord = async (trigger) => {
+    try {
+      const payload = buildDuplicatePayloadFromDefinition(triggerDefinition, trigger);
+      payload.obs = `${payload.obs || ""}`.trim();
+      const saved = await resourceService.create(triggerDefinition.resource, payload);
+      setTriggers((current) => [saved, ...current]);
+    } catch (error) {
+      setTriggerFormError(error?.response?.data?.detail || "Nao foi possivel duplicar o gatilho.");
+    }
+  };
+
+  const removeTriggerRecord = async (trigger) => {
+    const triggerLabel = trigger?.contractLabel || trigger?.contrato_derivativo || trigger?.contrato_bolsa || `Gatilho ${trigger?.id || ""}`;
+    if (!window.confirm(`Excluir o gatilho "${triggerLabel}"?`)) {
+      return;
+    }
+
+    try {
+      await resourceService.remove(triggerDefinition.resource, trigger.id);
+      setTriggers((current) => current.filter((item) => String(item.id) !== String(trigger.id)));
+      if (String(activeTriggerForm?.id || "") === String(trigger.id)) {
+        closeTriggerForm();
+      }
+    } catch (error) {
+      setTriggerFormError(error?.response?.data?.detail || "Nao foi possivel excluir o gatilho.");
+    }
+  };
+
+  const strategyCardRows = useMemo(
+    () =>
+      strategyFilterRows.map((strategy) => {
+        const linkedTriggers = evaluatedTriggers
+          .filter((item) => String(item?.estrategia || item?.estrategia?.id || "") === String(strategy.id))
+          .map((item) => ({
+            id: item.id,
+            label: item.contractLabel,
+            status: item.derivedSituation,
+            directionLabel: item.directionLabel,
+            strikeLabel: formatTriggerMarketValue(item.strike),
+          }));
+        return {
+          ...strategy,
+          linkedTriggers,
+        };
+      }),
+    [evaluatedTriggers, strategyFilterRows],
+  );
+
+  const triggerRowsByExchange = useMemo(() => {
+    const exchangeMap = new Map();
+    visibleEvaluatedTriggers.forEach((item) => {
+      const key = item.exchangeLabel || "Sem bolsa";
+      exchangeMap.set(key, (exchangeMap.get(key) || 0) + 1);
+    });
+    return Array.from(exchangeMap.entries())
+      .map(([label, value], index) => ({
+        label,
+        value,
+        formatted: `${value} gatilho(s)`,
+        color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+      }))
+      .sort((left, right) => right.value - left.value)
+      .slice(0, 6);
+  }, [visibleEvaluatedTriggers]);
+
+  const strategyLoadBars = useMemo(
+    () =>
+      strategyCardRows
+        .slice()
+        .sort((left, right) => right.totalTriggers - left.totalTriggers)
+        .slice(0, 6)
+        .map((item, index) => ({
+          label: item.descricao_estrategia || `Estratégia ${item.id}`,
+          value: item.totalTriggers || 0.01,
+          formatted: `${item.totalTriggers} gatilho(s)`,
+          color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+        })),
+    [strategyCardRows],
+  );
+
+  const hitVsMonitoringBars = useMemo(() => {
+    const hit = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "atingido").length;
+    const monitoring = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "monitorando").length;
+    const noQuote = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "sem_cotacao").length;
+    return [
+      { label: "Atingidos", value: hit || 0.01, formatted: `${hit} gatilho(s)`, color: "#f59e0b" },
+      { label: "Monitorando", value: monitoring || 0.01, formatted: `${monitoring} gatilho(s)`, color: "#0f766e" },
+      { label: "Sem cotação", value: noQuote || 0.01, formatted: `${noQuote} gatilho(s)`, color: "#2563eb" },
+    ];
+  }, [visibleEvaluatedTriggers]);
+
+  const triggerTopStatusRows = useMemo(
+    () => [
+      { label: "Cadastrados", value: strategyScopedEvaluatedTriggers.length, filterValue: "", isActive: selectedTriggerStatus === "" },
+      { label: "Atingidos", value: strategyScopedEvaluatedTriggers.filter((item) => item.derivedSituation === "atingido").length, filterValue: "atingido", isActive: selectedTriggerStatus === "atingido" },
+      { label: "Monitorando", value: strategyScopedEvaluatedTriggers.filter((item) => item.derivedSituation === "monitorando").length, filterValue: "monitorando", isActive: selectedTriggerStatus === "monitorando" },
+      { label: "Sem cotação", value: strategyScopedEvaluatedTriggers.filter((item) => item.derivedSituation === "sem_cotacao").length, filterValue: "sem_cotacao", isActive: selectedTriggerStatus === "sem_cotacao" },
+    ],
+    [selectedTriggerStatus, strategyScopedEvaluatedTriggers],
+  );
+
+  const triggerTopExchangeRows = useMemo(
+    () =>
+      triggerRowsByExchange.length
+        ? [{ label: "Todas", value: `${strategyScopedEvaluatedTriggers.length} gatilho(s)`, filterValue: "", isActive: selectedTriggerExchange === "" }, ...triggerRowsByExchange.slice(0, 4).map((item) => ({
+            label: item.label,
+            value: item.formatted,
+            filterValue: item.label,
+            isActive: selectedTriggerExchange === item.label,
+          }))]
+        : [{ label: "Todas", value: "0 gatilhos", filterValue: "", isActive: true }],
+    [selectedTriggerExchange, strategyScopedEvaluatedTriggers.length, triggerRowsByExchange],
+  );
+
+  const triggerTopClosestRows = useMemo(
+    () =>
+      visibleEvaluatedTriggers
+        .slice()
+        .sort((left, right) => {
+          const leftDistance = Number.isFinite(left.percentDistanceValue) ? Math.abs(left.percentDistanceValue) : Number.POSITIVE_INFINITY;
+          const rightDistance = Number.isFinite(right.percentDistanceValue) ? Math.abs(right.percentDistanceValue) : Number.POSITIVE_INFINITY;
+          if (leftDistance !== rightDistance) {
+            return leftDistance - rightDistance;
+          }
+          return String(left.contractLabel).localeCompare(String(right.contractLabel));
+        })
+        .map((item) => ({
+          id: item.id,
+          label: `${item.directionLabel ? `${String(item.directionLabel).trim()} de` : "Sem direção"} ${formatTriggerMarketValue(item.strike)}${
+            (exchangePriceUnitMap.get(item.exchangeLabel) || item.priceUnitLabel) ? ` ${exchangePriceUnitMap.get(item.exchangeLabel) || item.priceUnitLabel}` : ""
+          }`.trim(),
+          exchange: item.exchangeAndContractLabel,
+          distance: formatTriggerTargetDistance(item),
+          tone: item.isHit ? "is-hit" : Number.isFinite(item.percentDistanceValue) ? "is-open" : "is-missing",
+        })),
+    [exchangePriceUnitMap, visibleEvaluatedTriggers],
+  );
 
   return (
     <section className="risk-kpi-shell">
-      <section className="stats-grid risk-kpi-grid">
-        <article className="card stat-card summary-insight-card">
-          <SummaryInsightButton
-            title="Estratégias"
-            message={
-              <SummaryInsightCopy
-                paragraphs={[
-                  `O número principal de ${formatNumber0(filteredStrategies.length)} representa o total de estratégias dentro do filtro atual.`,
-                  `A linha secundária mostra quantas continuam ativas agora: ${formatNumber0(activeStrategies)}.`,
-                ]}
-              />
-            }
-          />
-          <span>Estratégias</span>
-          <strong>{formatNumber0(filteredStrategies.length)}</strong>
-          <span className="stat-card-secondary-label">Ativas</span>
-          <strong className="stat-card-secondary-value">{formatNumber0(activeStrategies)}</strong>
-        </article>
-        <article className="card stat-card summary-insight-card">
-          <SummaryInsightButton
-            title="Gatilhos monitorados"
-            message={
-              <SummaryInsightCopy
-                paragraphs={[
-                  `O total de gatilhos cadastrados no filtro atual é ${formatNumber0(filteredTriggers.length)}.`,
-                  `Desses, ${formatNumber0(openTriggers)} estão monitorando mercado agora e ${formatNumber0(hitDerivativeTriggers)} derivativos já bateram a regra de strike pela API de cotações.`,
-                ]}
-              />
-            }
-          />
-          <span>Gatilhos</span>
-          <strong>{formatNumber0(filteredTriggers.length)}</strong>
-          <span className="stat-card-secondary-label">Atingidos por cotação</span>
-          <strong className="stat-card-secondary-value">{formatNumber0(hitDerivativeTriggers)}</strong>
-        </article>
-        <article className="card stat-card summary-insight-card">
-          <SummaryInsightButton
-            title="Cobertura de mercado"
-            message={
-              <SummaryInsightCopy
-                paragraphs={[
-                  `O dashboard encontrou cotação para ${formatNumber0(quoteCoverage)} gatilhos e manteve ${formatNumber0(activeTriggers)} gatilhos ativos no recorte atual.`,
-                  "Quando o gatilho é derivativo, essa cobertura é o que permite comparar a cotação atual com o strike e dizer claramente se foi atingido ou não.",
-                ]}
-              />
-            }
-          />
-          <span>Com cotação encontrada</span>
-          <strong>{formatNumber0(quoteCoverage)}</strong>
-          <span className="stat-card-secondary-label">Ativos</span>
-          <strong className="stat-card-secondary-value">{formatNumber0(activeTriggers)}</strong>
-        </article>
-        <article className="card stat-card summary-insight-card">
-          <SummaryInsightButton
-            title="Vínculo com estratégia"
-            message={
-              <SummaryInsightCopy
-                paragraphs={[
-                  `Hoje existem ${formatNumber0(unlinkedTriggers)} gatilhos sem estratégia associada e ${formatNumber0(monitoredCrops)} ativos diferentes sendo monitorados.`,
-                  "Isso reforça a regra operacional do módulo: uma estratégia pode ter vários gatilhos, mas o gatilho pode existir sozinho quando fizer sentido para o monitoramento do mercado.",
-                ]}
-              />
-            }
-          />
-          <span>Sem estratégia</span>
-          <strong>{formatNumber0(unlinkedTriggers)}</strong>
-          <span className="stat-card-secondary-label">Ativos monitorados</span>
-          <strong className="stat-card-secondary-value">{formatNumber0(monitoredCrops)}</strong>
-        </article>
+      <section className="strategy-actions-row">
+        <button type="button" className="btn btn-secondary" onClick={openCreateStrategy}>
+          Nova estratégia
+        </button>
+        <button type="button" className="btn btn-primary" onClick={openCreateTrigger}>
+          Novo gatilho
+        </button>
       </section>
 
-      <section className="content-grid">
-        <div className="chart-card chart-card-large summary-insight-card">
-          <SummaryInsightButton
-            title="Gatilhos de mercado"
-            message={
-              <SummaryInsightCopy
-                paragraphs={[
-                  "Cada linha mostra o gatilho monitorado, a estratégia associada quando existir, a regra de disparo e a leitura atual do mercado.",
-                  "Para derivativos, a coluna de situação compara a cotação atual da API com o strike e informa de forma objetiva se o gatilho foi atingido, se ainda está monitorando ou se ficou sem cotação.",
-                ]}
-              />
-            }
-          />
+      <section className="strategy-top-summary-grid">
+        <article className="chart-card strategy-top-summary-card">
           <div className="chart-card-header">
             <div>
-              <h3>Gatilhos monitorados</h3>
-              <p className="muted">Painel operacional para deixar explícito o que já bateu no mercado e o que ainda segue em observação.</p>
+              <h3>Resumo dos gatilhos</h3>
+              <p className="muted">Leitura rápida do total cadastrado e do status operacional atual.</p>
             </div>
           </div>
-          <div className="strategy-trigger-table-wrap">
-            {evaluatedTriggers.length ? (
-              <table className="strategy-trigger-table">
-                <thead>
-                  <tr>
-                    <th>Gatilho</th>
-                    <th>Situação</th>
-                    <th>Cotação atual</th>
-                    <th>Strike</th>
-                    <th>Volume</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {evaluatedTriggers.slice(0, 12).map((item) => (
-                    <tr key={item.id}>
-                      <td>
-                        <div className="strategy-trigger-main-cell">
-	                          <strong>{item.contractLabel}</strong>
-	                          <span>{`${item.tipoLabel} | ${item.exchangeLabel} | ${item.cultureLabel}`}</span>
-	                          <span>{`${item.directionLabel} de ${formatTriggerMarketValue(item.strike)}${item.hasStrategy ? ` | ${item.strategyLabel}` : " | Sem estratégia"}`}</span>
-	                          {item.percentDistanceLabel ? (
-	                            <span className={`strategy-trigger-distance${!item.isHit ? " is-alert" : ""}`}>
-	                              {item.percentDistanceLabel}
-	                            </span>
-	                          ) : null}
-	                        </div>
-	                      </td>
-                      <td>
-                        <span className={`strategy-trigger-status is-${item.derivedSituation}`}>
-                          {item.derivedSituation === "atingido"
-                            ? "Atingido"
-                            : item.derivedSituation === "monitorando"
-                              ? "Monitorando"
-                              : item.derivedSituation === "sem_cotacao"
-                                ? "Sem cotação"
-                                : item.statusLabel || "Manual"}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="strategy-trigger-quote-cell">
-                          <strong>{formatTriggerMarketValue(item.currentPrice)}</strong>
-                          <span>{item.quoteLabel}</span>
-                        </div>
-                      </td>
-                      <td>{formatTriggerMarketValue(item.strike)}</td>
-                      <td>{item.volumeObjetivo > 0 ? `${formatNumber0(item.volumeObjetivo)} ${item.unidade || ""}`.trim() : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="strategy-top-summary-stack">
+            {triggerTopStatusRows.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                className={`strategy-top-summary-row${item.isActive ? " is-active" : ""}`}
+                onClick={() => setSelectedTriggerStatus(item.filterValue)}
+              >
+                <span>{item.label}</span>
+                <strong>{formatNumber0(item.value)}</strong>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="chart-card strategy-top-summary-card">
+          <div className="chart-card-header">
+            <div>
+              <h3>Bolsas dos gatilhos</h3>
+              <p className="muted">Concentração dos gatilhos por bolsa dentro do filtro atual.</p>
+            </div>
+          </div>
+          <div className="strategy-top-summary-stack">
+            {triggerTopExchangeRows.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                className={`strategy-top-summary-row${item.isActive ? " is-active" : ""}`}
+                onClick={() => setSelectedTriggerExchange(item.filterValue)}
+              >
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="chart-card strategy-top-summary-card is-table">
+          <div className="chart-card-header">
+            <div>
+              <h3>Mais próximos do alvo</h3>
+              <p className="muted">Mini-tabela dos gatilhos mais próximos do strike em percentual.</p>
+            </div>
+          </div>
+          <div className="strategy-top-table">
+            <div className="strategy-top-table-head">
+              <span>Bolsa</span>
+              <span>Gatilho</span>
+            </div>
+            {triggerTopClosestRows.length ? (
+              triggerTopClosestRows.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="strategy-top-table-row"
+                  onClick={() => {
+                    const row = visibleEvaluatedTriggers.find((trigger) => String(trigger.id) === String(item.id));
+                    if (row) {
+                      openEditTrigger(row);
+                    }
+                  }}
+                >
+                  <span>{item.exchange}</span>
+                  <span>{item.label}</span>
+                  <strong className={item.tone}>{item.distance}</strong>
+                </button>
+              ))
             ) : (
-              <p className="muted">Sem gatilhos no filtro atual.</p>
+              <div className="strategy-top-table-empty">Sem gatilhos com percentual calculado.</div>
             )}
           </div>
-        </div>
-        <div className="strategy-trigger-side-stack">
-          <DonutChart
-            centerLabel="Gatilhos"
-            centerValue={`${evaluatedTriggers.length}`}
-            slices={triggerStatusSlices}
-            insightTitle="Status dos gatilhos"
-            insightMessage={
-              <SummaryInsightCopy
-                paragraphs={[
-                  `O número central mostra ${formatNumber0(evaluatedTriggers.length)} gatilhos no total.`,
-                  "As fatias separam o que já foi atingido, o que segue monitorando, o que ficou sem cotação e o que está inativo.",
-                ]}
-              />
-            }
-          />
-          <ScenarioBars
-            data={triggerCultureBars.length ? triggerCultureBars : [{ label: "Sem dados", value: 1, formatted: "0 gatilhos", color: "#cbd5e1" }]}
-            insightTitle="Gatilhos por ativo"
-            insightMessage={
-              <SummaryInsightCopy
-                paragraphs={[
-                  "Cada barra mostra quantos gatilhos existem por ativo ou cultura.",
-                  "Isso ajuda a enxergar rapidamente onde o monitoramento está mais concentrado no recorte atual.",
-                ]}
-              />
-            }
-          />
-          <div className="chart-card summary-insight-card">
-            <div className="chart-card-header">
-              <div>
-                <h3>Estratégias e cobertura</h3>
-                <p className="muted">Quantos gatilhos cada estratégia já concentra e quais vencem primeiro.</p>
-              </div>
-            </div>
-            <div className="risk-kpi-list">
-              {strategyCoverageRows.map((item) => (
-                <div key={item.id} className="risk-kpi-row">
-                  <div>
-                    <strong>{item.descricao}</strong>
-                    <span>{`${item.status} | ${item.triggerCount} gatilho(s)`}</span>
-                  </div>
-                  <b>{item.validade ? formatBrazilianDate(item.validade) : "Sem validade"}</b>
-                </div>
-              ))}
-              {!strategyCoverageRows.length ? <p className="muted">Sem estratégias no filtro atual.</p> : null}
-              {nextExpiringStrategies.length ? (
-                <div className="strategy-trigger-side-note">
-                  Próximos vencimentos: {nextExpiringStrategies.map((item) => formatShortBrazilianDate(item.data_validade)).join(", ")}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
+        </article>
       </section>
 
-      <section className="content-grid">
+      <section className="strategy-primary-grid">
+        <article className="chart-card summary-insight-card">
+          <div className="chart-card-header">
+            <div>
+              <h3>Estratégias</h3>
+              <p className="muted">Clique na estratégia para editar. Use o botão lateral para filtrar os gatilhos relacionados.</p>
+            </div>
+            <div className="strategy-card-summary">
+              <strong>{formatNumber0(filteredStrategies.length)}</strong>
+              <span>{formatNumber0(activeStrategies)} ativas</span>
+            </div>
+          </div>
+          <div className="strategy-collection-list">
+            {strategyCardRows.length ? (
+              strategyCardRows.map((strategy) => {
+                const isFiltered = selectedStrategyIds.some((item) => String(item) === String(strategy.id));
+                return (
+                  <article
+                    key={strategy.id}
+                    className={`strategy-entity-card${isFiltered ? " is-filtered" : ""}`}
+                    onClick={() => openEditStrategy(strategy)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openEditStrategy(strategy);
+                      }
+                    }}
+                  >
+                    <div className="strategy-entity-header">
+                      <div>
+                        <strong>{strategy.descricao_estrategia || `Estratégia ${strategy.id}`}</strong>
+                        <span>{`${strategy.totalTriggers} gatilho(s) | ${strategy.hitTriggers} atingido(s)`}</span>
+                      </div>
+                      <div className="strategy-entity-actions">
+                        <button
+                          type="button"
+                          className={`strategy-filter-chip${isFiltered ? " active" : ""}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleStrategyFilter(strategy.id);
+                          }}
+                        >
+                          Filtrar
+                        </button>
+                        <button
+                          type="button"
+                          className="strategy-trigger-inline-action"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            duplicateStrategyRecord(strategy);
+                          }}
+                        >
+                          Duplicar
+                        </button>
+                      </div>
+                    </div>
+                    <div className="strategy-entity-meta">
+                      <span>{strategy.status || "Sem status"}</span>
+                      <span>{strategy.data_validade ? formatBrazilianDate(strategy.data_validade) : "Sem validade"}</span>
+                      <span>{`${strategy.totalTriggers} gatilho(s)`}</span>
+                      <span>{strategy.groupSummary}</span>
+                      <span>{strategy.subgroupSummary}</span>
+                    </div>
+                    <div className="strategy-linked-trigger-table">
+                      {strategy.linkedTriggers.length ? (
+                        strategy.linkedTriggers.map((trigger) => (
+                          <div key={trigger.id} className="strategy-linked-trigger-row">
+                            <span className="strategy-linked-trigger-name">{trigger.label}</span>
+                            <span className={`strategy-linked-trigger-state strategy-linked-trigger-${trigger.status}`}>{trigger.status === "atingido" ? "Atingido" : trigger.status === "monitorando" ? "Monitorando" : trigger.status === "sem_cotacao" ? "Sem cotação" : "Manual"}</span>
+                            <span className="strategy-linked-trigger-rule">{`${trigger.directionLabel} ${trigger.strikeLabel}`}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <span className="strategy-linked-trigger-empty">Sem gatilhos cadastrados</span>
+                      )}
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <p className="muted">Sem estratégias no filtro atual.</p>
+            )}
+          </div>
+        </article>
+
+        <article className="chart-card summary-insight-card">
+          <div className="chart-card-header">
+            <div>
+              <h3>Gatilhos</h3>
+              <p className="muted">Visual detalhado dos gatilhos monitorados. Clique no item para editar e use duplicar para replicar rapidamente.</p>
+            </div>
+            <div className="strategy-card-summary">
+              <strong>{formatNumber0(visibleEvaluatedTriggers.length)}</strong>
+              <span>{formatNumber0(visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "atingido").length)} atingidos</span>
+            </div>
+          </div>
+          <div className="strategy-trigger-detail-list">
+            {visibleEvaluatedTriggers.length ? (
+              visibleEvaluatedTriggers.map((item) => (
+                <article
+                  key={item.id}
+                  className="strategy-trigger-detail-card"
+                  onClick={() => openEditTrigger(item)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openEditTrigger(item);
+                    }
+                  }}
+                >
+                  <div className="strategy-trigger-detail-top">
+                    <div className="strategy-trigger-detail-heading">
+                      <strong>{item.contractLabel}</strong>
+                      <span>{`${item.tipoLabel} | ${item.exchangeLabel} | ${item.cultureLabel}`}</span>
+                    </div>
+                  </div>
+                  <div className="strategy-trigger-detail-body">
+                    <div className="strategy-trigger-detail-actions">
+                      <span className={`strategy-trigger-status is-${item.derivedSituation}`}>
+                        {item.derivedSituation === "atingido"
+                          ? "Atingido"
+                          : item.derivedSituation === "monitorando"
+                            ? "Monitorando"
+                            : item.derivedSituation === "sem_cotacao"
+                              ? "Sem cotação"
+                              : item.statusLabel || "Manual"}
+                      </span>
+                      <button
+                        type="button"
+                        className="strategy-trigger-inline-action"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          duplicateTriggerRecord(item);
+                        }}
+                      >
+                        Duplicar
+                      </button>
+                    </div>
+                    <div className="strategy-trigger-compact-grid">
+                      <span><b>Estratégia:</b> {item.hasStrategy ? item.strategyLabel : "Sem estratégia"}</span>
+                      <span><b>Regra:</b> {`${item.directionLabel} de ${formatTriggerMarketValue(item.strike)}`}</span>
+                      <span><b>Cotação:</b> {`${formatTriggerMarketValue(item.currentPrice)}${item.quoteLabel ? ` | ${item.quoteLabel}` : ""}`}</span>
+                      <span><b>Volume:</b> {item.volumeObjetivo > 0 ? `${formatNumber0(item.volumeObjetivo)} ${item.unidade || ""}`.trim() : "—"}</span>
+                    </div>
+                  </div>
+                  {item.percentDistanceLabel ? (
+                    <div className={`strategy-trigger-distance-row${!item.isHit ? " is-alert" : ""}`}>
+                      {item.percentDistanceLabel}
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            ) : (
+              <p className="muted">Sem gatilhos para o filtro atual.</p>
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section className="strategy-analytics-grid">
         <DonutChart
-          centerLabel="Tipos"
-          centerValue={`${evaluatedTriggers.length}`}
-          slices={triggerTypeSlices}
-          insightTitle="Físico x derivativo"
+          centerLabel="Status"
+          centerValue={`${visibleEvaluatedTriggers.length}`}
+          slices={triggerStatusSlices}
+          insightTitle="Status dos gatilhos"
           insightMessage={
             <SummaryInsightCopy
               paragraphs={[
-                "Esse gráfico separa os gatilhos por tipo operacional.",
-                "Ajuda a diferenciar rapidamente o que depende de leitura manual do mercado físico e o que já pode ser acompanhado automaticamente pela cotação dos derivativos.",
+                "Distribuição dos gatilhos entre atingidos, monitorando, sem cotação e inativos.",
+                "Serve para entender rapidamente o estado operacional da carteira filtrada.",
+              ]}
+            />
+          }
+        />
+        <DonutChart
+          centerLabel="Tipos"
+          centerValue={`${visibleEvaluatedTriggers.length}`}
+          slices={triggerTypeSlices}
+          insightTitle="Fisico x derivativo"
+          insightMessage={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Separa os gatilhos por natureza operacional.",
+                "Ajuda a medir o peso do que depende de API versus acompanhamento manual.",
               ]}
             />
           }
         />
         <DonutChart
           centerLabel="Vínculo"
-          centerValue={`${evaluatedTriggers.length}`}
+          centerValue={`${visibleEvaluatedTriggers.length}`}
           slices={strategyAssociationSlices}
-          insightTitle="Associação com estratégia"
+          insightTitle="Com e sem estratégia"
           insightMessage={
             <SummaryInsightCopy
               paragraphs={[
-                "Esse gráfico mostra a proporção entre gatilhos ligados a uma estratégia e gatilhos independentes.",
-                "Ele deixa mais visível onde o time está usando o gatilho como monitor autônomo e onde ele está servindo de apoio direto a uma estratégia comercial.",
+                "Mostra a proporção entre gatilhos associados a estratégias e gatilhos independentes.",
+                "Ajuda a entender o quanto o monitoramento está estruturado por estratégia.",
               ]}
             />
           }
@@ -10758,71 +11751,124 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
           insightMessage={
             <SummaryInsightCopy
               paragraphs={[
-                "As barras destacam os gatilhos mais próximos do strike, priorizando o que exige atenção primeiro.",
-                "Quanto menor a distância percentual para o strike, maior a urgência operacional para acompanhar esse gatilho.",
+                "Prioriza os gatilhos mais próximos de bater a condição.",
+                "Quanto menor a distância, maior a urgência operacional.",
+              ]}
+            />
+          }
+        />
+        <ScenarioBars
+          data={triggerCultureBars.length ? triggerCultureBars : [{ label: "Sem dados", value: 1, formatted: "0 gatilhos", color: "#cbd5e1" }]}
+          insightTitle="Gatilhos por ativo"
+          insightMessage={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Concentração de gatilhos por ativo monitorado.",
+                "Ajuda a identificar onde a mesa está mais exposta em termos de atenção.",
+              ]}
+            />
+          }
+        />
+        <ScenarioBars
+          data={strategyLoadBars.length ? strategyLoadBars : [{ label: "Sem dados", value: 1, formatted: "0 gatilhos", color: "#cbd5e1" }]}
+          insightTitle="Estratégias com mais gatilhos"
+          insightMessage={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Ranking das estratégias com mais gatilhos cadastrados.",
+                "Bom para identificar estruturas mais complexas ou mais acompanhadas.",
+              ]}
+            />
+          }
+        />
+        <ScenarioBars
+          data={triggerRowsByExchange.length ? triggerRowsByExchange : [{ label: "Sem dados", value: 1, formatted: "0 gatilhos", color: "#cbd5e1" }]}
+          insightTitle="Gatilhos por bolsa"
+          insightMessage={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Mostra em quais bolsas os gatilhos estão concentrados.",
+                "Ajuda a enxergar foco de monitoramento por mercado.",
+              ]}
+            />
+          }
+        />
+        <ScenarioBars
+          data={hitVsMonitoringBars}
+          insightTitle="Atingidos x monitorando"
+          insightMessage={
+            <SummaryInsightCopy
+              paragraphs={[
+                "Comparativo direto entre o que já atingiu, o que ainda monitora e o que está sem cotação.",
+                "Funciona como leitura rápida de produtividade operacional do monitoramento.",
               ]}
             />
           }
         />
       </section>
 
-      <section className="content-grid">
-        <div className="chart-card chart-card-large summary-insight-card">
-          <div className="chart-card-header">
-            <div>
-              <h3>Associação por estratégia</h3>
-              <p className="muted">Leitura rápida de quantos gatilhos cada estratégia concentra e em que situação eles estão.</p>
-            </div>
-          </div>
-          <div className="risk-kpi-list">
-            {associationRows.length ? (
-              associationRows.map((item) => (
-                <div key={item.label} className="risk-kpi-row">
-                  <div>
-                    <strong>{item.label}</strong>
-                    <span>{`${item.total} gatilho(s) | ${item.monitoring} monitorando | ${item.hit} atingido(s)`}</span>
-                  </div>
-                  <b>{item.noQuote ? `${item.noQuote} sem cotação` : "Coberto"}</b>
+      {activeStrategyForm !== null ? (
+        <ResourceForm
+          title={activeStrategyForm?.id ? "Editar Estratégia" : "Nova Estratégia"}
+          fields={strategyDefinition.fields}
+          initialValues={activeStrategyForm}
+          submitLabel={activeStrategyForm?.id ? "Salvar estratégia" : "Criar estratégia"}
+          beforeContent={
+            <div className="strategy-form-shortcut">
+              {activeStrategyForm?.id ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => openCreateTriggerForStrategy(activeStrategyForm)}
+                  >
+                    Cadastrar gatilho desta estratégia
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => removeStrategyRecord(activeStrategyForm)}
+                  >
+                    Excluir estratégia
+                  </button>
+                </>
+              ) : (
+                <div className="field-help">
+                  Salve a estratégia primeiro para cadastrar um gatilho já vinculado a ela.
                 </div>
-              ))
-            ) : (
-              <p className="muted">Sem associações para exibir no filtro atual.</p>
-            )}
-          </div>
-        </div>
+              )}
+            </div>
+          }
+          error={strategyFormError}
+          onClose={closeStrategyForm}
+          onSubmit={saveStrategyRecord}
+        />
+      ) : null}
 
-        <div className="chart-card summary-insight-card">
-          <div className="chart-card-header">
-            <div>
-              <h3>Leitura operacional</h3>
-              <p className="muted">Resumo textual para orientar a priorização diária.</p>
-            </div>
-          </div>
-          <div className="risk-kpi-list">
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Gatilhos derivativos</strong>
-                <span>{`${triggerTypeSlices.find((item) => item.label === "Derivativo")?.value || 0} acompanhados por cotação`}</span>
+      {activeTriggerForm !== null ? (
+        <ResourceForm
+          title={activeTriggerForm?.id ? "Editar Gatilho" : "Novo Gatilho"}
+          fields={triggerDefinition.fields}
+          initialValues={activeTriggerForm}
+          submitLabel={activeTriggerForm?.id ? "Salvar gatilho" : "Criar gatilho"}
+          beforeContent={
+            activeTriggerForm?.id ? (
+              <div className="strategy-form-shortcut">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => removeTriggerRecord(activeTriggerForm)}
+                >
+                  Excluir gatilho
+                </button>
               </div>
-              <b>{formatNumber0(hitDerivativeTriggers)} atingidos</b>
-            </div>
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Sem estratégia associada</strong>
-                <span>Gatilhos independentes que exigem leitura própria do mercado.</span>
-              </div>
-              <b>{formatNumber0(unlinkedTriggers)}</b>
-            </div>
-            <div className="risk-kpi-row">
-              <div>
-                <strong>Sem cotação encontrada</strong>
-                <span>Itens que ainda não tiveram correspondência clara na API de preços.</span>
-              </div>
-              <b>{formatNumber0(evaluatedTriggers.filter((item) => item.derivedSituation === "sem_cotacao").length)}</b>
-            </div>
-          </div>
-        </div>
-      </section>
+            ) : null
+          }
+          error={triggerFormError}
+          onClose={closeTriggerForm}
+          onSubmit={saveTriggerRecord}
+        />
+      ) : null}
     </section>
   );
 }
@@ -10830,7 +11876,10 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
 function MtmDashboard({ dashboardFilter }) {
   const [derivatives, setDerivatives] = useState([]);
   const [physicalSales, setPhysicalSales] = useState([]);
+  const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
   const [resourceTableModal, setResourceTableModal] = useState(null);
+  const [mtmScope, setMtmScope] = useState("all");
+  const [mtmFacet, setMtmFacet] = useState("all");
 
   useEffect(() => {
     let isMounted = true;
@@ -10838,7 +11887,8 @@ function MtmDashboard({ dashboardFilter }) {
       resourceService.listAll("derivative-operations").catch(() => []),
       resourceService.listAll("exchanges").catch(() => []),
       resourceService.listAll("physical-sales").catch(() => []),
-    ]).then(([derivativeResponse, exchangeResponse, physicalSalesResponse]) => {
+      resourceService.listAll("tradingview-watchlist-quotes").catch(() => []),
+    ]).then(([derivativeResponse, exchangeResponse, physicalSalesResponse, quotesResponse]) => {
       if (!isMounted) return;
       setDerivatives(
         (Array.isArray(derivativeResponse) ? derivativeResponse : []).map((item) => ({
@@ -10847,6 +11897,7 @@ function MtmDashboard({ dashboardFilter }) {
         })),
       );
       setPhysicalSales(Array.isArray(physicalSalesResponse) ? physicalSalesResponse : []);
+      setTradingviewQuotes(Array.isArray(quotesResponse) ? quotesResponse : []);
     });
 
     return () => {
@@ -10862,7 +11913,26 @@ function MtmDashboard({ dashboardFilter }) {
     [dashboardFilter],
   );
 
-  const normalizedRows = useMemo(() => {
+  const usdBrlQuote = useMemo(() => {
+    const directMatch = (tradingviewQuotes || []).find(
+      (item) => String(item?.ticker || "").trim().toUpperCase() === "USDBRL",
+    );
+    const directValue = Number(directMatch?.price || 0);
+    return Number.isFinite(directValue) && directValue > 0 ? directValue : 0;
+  }, [tradingviewQuotes]);
+
+  const derivativeQuotesByTicker = useMemo(
+    () =>
+      (tradingviewQuotes || []).reduce((acc, item) => {
+        const ticker = String(item?.ticker || "").trim();
+        if (!ticker) return acc;
+        acc[ticker] = parseLocalizedNumber(item?.price);
+        return acc;
+      }, {}),
+    [tradingviewQuotes],
+  );
+
+  const allNormalizedRows = useMemo(() => {
     const rows = derivatives
       .filter((item) =>
         rowMatchesDashboardFilter(item, mtmFilter, {
@@ -10870,6 +11940,8 @@ function MtmDashboard({ dashboardFilter }) {
         }),
       )
       .map((item) => {
+        const strikeMtm = derivativeQuotesByTicker[item?.contrato_derivativo] ?? 0;
+        const mtm = calculatePriceCompositionDerivativeMtm(item, strikeMtm, usdBrlQuote);
         const exchangeLabel =
           item.bolsa_ref ||
           item.ctrbolsa ||
@@ -10878,8 +11950,8 @@ function MtmDashboard({ dashboardFilter }) {
           item.bolsa ||
           "Sem bolsa";
         const statusLabel = normalizeText(item?.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto";
-        const mtmBrl = parseLocalizedNumber(item?.ajustes_totais_brl);
-        const mtmUsd = parseLocalizedNumber(item?.ajustes_totais_usd);
+        const mtmBrl = mtm.brl;
+        const mtmUsd = mtm.usd;
         const standardVolume = getDerivativeVolumeInStandardUnit(item, item.__exchangeRows || []);
         const rawVolume = resolvePriceCompositionDerivativeVolume(item) || getDerivativeVolumeValue(item);
         const lots = parseLocalizedNumber(item?.numero_lotes || item?.quantidade_derivativos);
@@ -10911,6 +11983,7 @@ function MtmDashboard({ dashboardFilter }) {
           statusLabel,
           mtmBrl,
           mtmUsd,
+          strikeMtm,
           standardVolume,
           rawVolume,
           lots,
@@ -10925,10 +11998,45 @@ function MtmDashboard({ dashboardFilter }) {
       });
 
     return rows.sort((left, right) => Math.abs(right.mtmBrl) - Math.abs(left.mtmBrl));
-  }, [derivatives, mtmFilter]);
+  }, [derivativeQuotesByTicker, derivatives, mtmFilter, usdBrlQuote]);
 
-  const summary = useMemo(() => {
-    const totals = normalizedRows.reduce(
+  const normalizedRows = useMemo(() => {
+    const scopeRows =
+      mtmScope === "open"
+        ? allNormalizedRows.filter((item) => item.statusLabel === "Em aberto")
+        : mtmScope === "closed"
+          ? allNormalizedRows.filter((item) => item.statusLabel === "Encerrado")
+          : allNormalizedRows;
+
+    if (mtmFacet === "all") {
+      return scopeRows;
+    }
+
+    return scopeRows.filter((item) => {
+      if (mtmScope === "all") {
+        if (mtmFacet === "positive") return item.direction === "positive";
+        if (mtmFacet === "negative") return item.direction === "negative";
+        if (mtmFacet === "neutral") return item.direction === "neutral";
+      }
+
+      if (mtmScope === "open") {
+        if (mtmFacet === "open_all") return item.statusLabel === "Em aberto";
+        if (mtmFacet === "due7") return item.daysToSettlement != null && item.daysToSettlement >= 0 && item.daysToSettlement <= 7;
+        if (mtmFacet === "due30") return item.daysToSettlement != null && item.daysToSettlement >= 0 && item.daysToSettlement <= 30;
+      }
+
+      if (mtmScope === "closed") {
+        if (mtmFacet === "closed_all") return item.statusLabel === "Encerrado";
+        if (mtmFacet === "positive") return item.direction === "positive";
+        if (mtmFacet === "negative") return item.direction === "negative";
+      }
+
+      return true;
+    });
+  }, [allNormalizedRows, mtmFacet, mtmScope]);
+
+  const summarizeMtmRows = useCallback((rows) => {
+    const totals = rows.reduce(
       (acc, item) => {
         acc.total += 1;
         acc.netBrl += item.mtmBrl;
@@ -10978,21 +12086,44 @@ function MtmDashboard({ dashboardFilter }) {
         due7: 0,
       },
     );
-    const bestOperation = normalizedRows
+    const bestOperation = rows
       .filter((item) => item.mtmBrl > 0)
       .sort((left, right) => right.mtmBrl - left.mtmBrl)[0] || null;
-    const worstOperation = normalizedRows
+    const worstOperation = rows
       .filter((item) => item.mtmBrl < 0)
       .sort((left, right) => left.mtmBrl - right.mtmBrl)[0] || null;
     return {
       ...totals,
-      exchanges: new Set(normalizedRows.map((item) => item.exchangeLabel)).size,
+      exchanges: new Set(rows.map((item) => item.exchangeLabel)).size,
       averageMtmBrl: totals.total ? totals.netBrl / totals.total : 0,
       avgStrike: totals.totalStrikeWeight > 0 ? totals.totalStrikeWeighted / totals.totalStrikeWeight : 0,
       bestOperation,
       worstOperation,
     };
-  }, [normalizedRows]);
+  }, []);
+
+  const summary = useMemo(() => {
+    return summarizeMtmRows(normalizedRows);
+  }, [normalizedRows, summarizeMtmRows]);
+
+  const allSummary = useMemo(() => summarizeMtmRows(allNormalizedRows), [allNormalizedRows, summarizeMtmRows]);
+  const openSummary = useMemo(
+    () => summarizeMtmRows(allNormalizedRows.filter((item) => item.statusLabel === "Em aberto")),
+    [allNormalizedRows, summarizeMtmRows],
+  );
+  const closedSummary = useMemo(
+    () => summarizeMtmRows(allNormalizedRows.filter((item) => item.statusLabel === "Encerrado")),
+    [allNormalizedRows, summarizeMtmRows],
+  );
+
+  const openRowsInView = useMemo(
+    () => normalizedRows.filter((item) => item.statusLabel === "Em aberto"),
+    [normalizedRows],
+  );
+  const closedRowsInView = useMemo(
+    () => normalizedRows.filter((item) => item.statusLabel === "Encerrado"),
+    [normalizedRows],
+  );
 
   const normalizedSales = useMemo(() => {
     return (physicalSales || [])
@@ -11067,7 +12198,9 @@ function MtmDashboard({ dashboardFilter }) {
   }, [normalizedRows]);
 
   const exchangeRowsWithTotal = useMemo(() => {
-    const baseRows = exchangeRows.slice(0, 8);
+    const baseRows = [...exchangeRows]
+      .sort((left, right) => left.netBrl - right.netBrl)
+      .slice(0, 8);
     if (!baseRows.length) return [];
     return [
       ...baseRows,
@@ -11230,20 +12363,29 @@ function MtmDashboard({ dashboardFilter }) {
   const formatMtmCompactLabel = (value) => {
     const numericValue = Number(value || 0);
     const prefix = numericValue < 0 ? "-R$ " : "R$ ";
-    return `${prefix}${Math.abs(numericValue).toLocaleString("pt-BR", {
-      notation: "compact",
-      maximumFractionDigits: 1,
-    })}`;
+    const absoluteValue = Math.abs(numericValue);
+    if (absoluteValue >= 1000) {
+      return `${prefix}${Math.round(absoluteValue / 1000).toLocaleString("pt-BR")} mil`;
+    }
+    return `${prefix}${Math.round(absoluteValue).toLocaleString("pt-BR")}`;
   };
 
   const formatSignedMtmCompactLabel = (value) => {
     const numericValue = Number(value || 0);
     const prefix = numericValue > 0 ? "+ R$ " : numericValue < 0 ? "- R$ " : "R$ ";
-    return `${prefix}${Math.abs(numericValue).toLocaleString("pt-BR", {
-      notation: "compact",
-      maximumFractionDigits: 1,
-    })}`;
+    const absoluteValue = Math.abs(numericValue);
+    if (absoluteValue >= 1000) {
+      return `${prefix}${Math.round(absoluteValue / 1000).toLocaleString("pt-BR")} mil`;
+    }
+    return `${prefix}${Math.round(absoluteValue).toLocaleString("pt-BR")}`;
   };
+
+  const formatMtmIntegerValue = (value) =>
+    Math.round(Math.abs(Number(value || 0))).toLocaleString("pt-BR", {
+      maximumFractionDigits: 0,
+    });
+
+  const formatMtmIntegerLabel = (value) => `${Number(value || 0) < 0 ? "-R$ " : "R$ "}${formatMtmIntegerValue(value)}`;
 
   const formatOpsLabel = (value) => `${formatNumber0(value)} ops`;
   const openMtmRowsModal = useCallback((title, rows, definition = resourceDefinitions.derivativeOperations) => {
@@ -11397,6 +12539,66 @@ function MtmDashboard({ dashboardFilter }) {
     [],
   );
 
+  const createMiniDonutOption = useCallback(
+    ({ rows, centerLabel = "", centerValue = "", valueFormatter = (value) => formatNumber0(value) }) => ({
+      animationDuration: 180,
+      tooltip: {
+        trigger: "item",
+        formatter: ({ name, value }) => `${name}: ${valueFormatter(value)}`,
+      },
+      legend: {
+        bottom: 0,
+        textStyle: { color: "#475569", fontSize: 11 },
+      },
+      series: [
+        {
+          type: "pie",
+          radius: ["50%", "74%"],
+          center: ["50%", "42%"],
+          avoidLabelOverlap: true,
+          minAngle: 10,
+          labelLine: { show: false },
+          label: {
+            show: true,
+            position: "inside",
+            color: "#0f172a",
+            fontWeight: 800,
+            fontSize: 11,
+            formatter: ({ percent }) => (Number(percent || 0) >= 16 ? `${Math.round(percent)}%` : ""),
+          },
+          data: rows,
+        },
+      ],
+      graphic: [
+        {
+          type: "text",
+          left: "center",
+          top: "34%",
+          style: {
+            text: centerValue,
+            fill: "#0f172a",
+            fontSize: 22,
+            fontWeight: 900,
+            textAlign: "center",
+          },
+        },
+        {
+          type: "text",
+          left: "center",
+          top: "49%",
+          style: {
+            text: centerLabel,
+            fill: "#64748b",
+            fontSize: 11,
+            fontWeight: 700,
+            textAlign: "center",
+          },
+        },
+      ],
+    }),
+    [],
+  );
+
   const positionRows = useMemo(() => {
     const map = new Map();
     normalizedRows.forEach((item) => {
@@ -11434,6 +12636,121 @@ function MtmDashboard({ dashboardFilter }) {
     () => normalizedRows.filter((item) => item.statusLabel === "Encerrado" && item.mtmBrl > 0).sort((left, right) => right.mtmBrl - left.mtmBrl).slice(0, 8),
     [normalizedRows],
   );
+  const closedNegativeRows = useMemo(
+    () => normalizedRows.filter((item) => item.statusLabel === "Encerrado" && item.mtmBrl < 0).sort((left, right) => left.mtmBrl - right.mtmBrl).slice(0, 8),
+    [normalizedRows],
+  );
+
+  const openExchangePressureRows = useMemo(() => {
+    const map = new Map();
+    openRowsInView.forEach((item) => {
+      const current = map.get(item.exchangeLabel) || { label: item.exchangeLabel, value: 0, rows: [] };
+      current.value += item.mtmBrl;
+      current.rows.push(item);
+      map.set(item.exchangeLabel, current);
+    });
+    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
+  }, [openRowsInView]);
+
+  const openTypeExposureRows = useMemo(() => {
+    const map = new Map();
+    openRowsInView.forEach((item) => {
+      const label = item.derivativeType || "Outros";
+      const current = map.get(label) || { label, value: 0, rows: [] };
+      current.value += item.standardVolume || item.rawVolume || 0;
+      current.rows.push(item);
+      map.set(label, current);
+    });
+    return Array.from(map.values()).sort((left, right) => right.value - left.value).slice(0, 6);
+  }, [openRowsInView]);
+
+  const openSettlementBandRows = useMemo(() => {
+    const bands = [
+      { label: "0-7d", match: (value) => value != null && value >= 0 && value <= 7 },
+      { label: "8-15d", match: (value) => value != null && value >= 8 && value <= 15 },
+      { label: "16-30d", match: (value) => value != null && value >= 16 && value <= 30 },
+      { label: "31-60d", match: (value) => value != null && value >= 31 && value <= 60 },
+      { label: "61-90d", match: (value) => value != null && value >= 61 && value <= 90 },
+      { label: "90d+", match: (value) => value != null && value > 90 },
+    ];
+
+    return bands.map((band) => {
+      const rows = openRowsInView.filter((item) => band.match(item.daysToSettlement));
+      return { label: band.label, value: rows.length, rows };
+    });
+  }, [openRowsInView]);
+
+  const openPositionNetRows = useMemo(() => {
+    const map = new Map();
+    openRowsInView.forEach((item) => {
+      const label = item?.posicao ? String(item.posicao).trim() : "Sem posição";
+      const current = map.get(label) || { label, value: 0, rows: [] };
+      current.value += item.mtmBrl;
+      current.rows.push(item);
+      map.set(label, current);
+    });
+    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
+  }, [openRowsInView]);
+
+  const openDirectionSlices = useMemo(() => ([
+    { name: "Positivas", value: openRowsInView.filter((item) => item.direction === "positive").length, itemStyle: { color: "#16a34a" } },
+    { name: "Negativas", value: openRowsInView.filter((item) => item.direction === "negative").length, itemStyle: { color: "#dc2626" } },
+    { name: "Neutras", value: openRowsInView.filter((item) => item.direction === "neutral").length, itemStyle: { color: "#94a3b8" } },
+  ]).filter((item) => item.value > 0), [openRowsInView]);
+
+  const closedExchangeResultRows = useMemo(() => {
+    const map = new Map();
+    closedRowsInView.forEach((item) => {
+      const current = map.get(item.exchangeLabel) || { label: item.exchangeLabel, value: 0, rows: [] };
+      current.value += item.mtmBrl;
+      current.rows.push(item);
+      map.set(item.exchangeLabel, current);
+    });
+    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
+  }, [closedRowsInView]);
+
+  const closedTypeResultRows = useMemo(() => {
+    const map = new Map();
+    closedRowsInView.forEach((item) => {
+      const label = item.derivativeType || "Outros";
+      const current = map.get(label) || { label, value: 0, rows: [] };
+      current.value += item.mtmBrl;
+      current.rows.push(item);
+      map.set(label, current);
+    });
+    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
+  }, [closedRowsInView]);
+
+  const closedSettlementMonthRows = useMemo(() => {
+    const map = new Map();
+    closedRowsInView.forEach((item) => {
+      if (!item.settlementDate) return;
+      const label = new Intl.DateTimeFormat("pt-BR", { month: "short", year: "2-digit" }).format(item.settlementDate).replace(".", "");
+      const current = map.get(label) || { label, value: 0, rows: [] };
+      current.value += item.mtmBrl;
+      current.rows.push(item);
+      map.set(label, current);
+    });
+    return Array.from(map.values()).slice(-8);
+  }, [closedRowsInView]);
+
+  const closedPositionResultRows = useMemo(() => {
+    const map = new Map();
+    closedRowsInView.forEach((item) => {
+      const label = item?.posicao ? String(item.posicao).trim() : "Sem posição";
+      const current = map.get(label) || { label, value: 0, rows: [] };
+      current.value += item.mtmBrl;
+      current.rows.push(item);
+      map.set(label, current);
+    });
+    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
+  }, [closedRowsInView]);
+
+  const closedDirectionSlices = useMemo(() => ([
+    { name: "Positivas", value: closedRowsInView.filter((item) => item.direction === "positive").length, itemStyle: { color: "#16a34a" } },
+    { name: "Negativas", value: closedRowsInView.filter((item) => item.direction === "negative").length, itemStyle: { color: "#dc2626" } },
+    { name: "Neutras", value: closedRowsInView.filter((item) => item.direction === "neutral").length, itemStyle: { color: "#94a3b8" } },
+  ]).filter((item) => item.value > 0), [closedRowsInView]);
 
   const monthlyContractRows = useMemo(() => {
     const map = new Map();
@@ -11558,7 +12875,7 @@ function MtmDashboard({ dashboardFilter }) {
             formatter: (params) => {
               const point = salesExchangeRows.find((item) => item.label === params.name);
               return point
-                ? `${point.label}<br/>Basis: ${formatNumber2(point.basisAvg)}<br/>MTM: R$ ${formatCurrency2(exchangeRows.find((row) => row.label === point.label)?.netBrl || 0)}`
+                ? `${point.label}<br/>Basis: ${formatNumber2(point.basisAvg)}<br/>MTM: ${formatMtmIntegerLabel(exchangeRows.find((row) => row.label === point.label)?.netBrl || 0)}`
                 : params.name;
             },
           },
@@ -11596,7 +12913,7 @@ function MtmDashboard({ dashboardFilter }) {
           columns: ["Contrato", "Ops", "MTM"],
           rows: contractRows.slice(0, 6).map((item) => ({
             key: item.label,
-            cells: [item.label, formatNumber0(item.total), `R$ ${formatCurrency2(item.netBrl)}`],
+            cells: [item.label, formatNumber0(item.total), formatMtmIntegerLabel(item.netBrl)],
             tone: item.netBrl >= 0 ? "positive" : "negative",
             onClick: () => openMtmRowsModal(`Contrato ${item.label}`, item.rows),
           })),
@@ -11610,7 +12927,7 @@ function MtmDashboard({ dashboardFilter }) {
           columns: ["Operação", "Bolsa", "MTM"],
           rows: openRiskRows.map((item) => ({
             key: item.id,
-            cells: [item.operationName, item.exchangeLabel, `R$ ${formatCurrency2(item.mtmBrl)}`],
+            cells: [item.operationName, item.exchangeLabel, formatMtmIntegerLabel(item.mtmBrl)],
             tone: "negative",
             onClick: () => openMtmRowsModal(`Operação ${item.operationName}`, [item]),
           })),
@@ -11624,7 +12941,7 @@ function MtmDashboard({ dashboardFilter }) {
           columns: ["Operação", "Bolsa", "MTM"],
           rows: closedPositiveRows.map((item) => ({
             key: item.id,
-            cells: [item.operationName, item.exchangeLabel, `R$ ${formatCurrency2(item.mtmBrl)}`],
+            cells: [item.operationName, item.exchangeLabel, formatMtmIntegerLabel(item.mtmBrl)],
             tone: "positive",
             onClick: () => openMtmRowsModal(`Operação ${item.operationName}`, [item]),
           })),
@@ -11859,7 +13176,17 @@ function MtmDashboard({ dashboardFilter }) {
         type: "pie",
         radius: ["52%", "76%"],
         center: ["50%", "42%"],
-        label: { show: true, formatter: "{b}\n{c}", color: "#0f172a", fontWeight: 700, fontSize: 11 },
+        avoidLabelOverlap: true,
+        minAngle: 8,
+        labelLine: { show: false },
+        label: {
+          show: true,
+          position: "inside",
+          color: "#0f172a",
+          fontWeight: 800,
+          fontSize: 12,
+          formatter: ({ name, value, percent }) => (Number(percent || 0) >= 18 ? `${name}\n${formatNumber0(value)}` : ""),
+        },
         itemStyle: { borderColor: "#fff7ed", borderWidth: 4 },
         data: [
           { name: "Positivas", value: summary.positive, itemStyle: { color: "#16a34a" } },
@@ -11879,7 +13206,17 @@ function MtmDashboard({ dashboardFilter }) {
         type: "pie",
         radius: ["52%", "76%"],
         center: ["50%", "42%"],
-        label: { show: true, formatter: "{b}\n{c}", color: "#0f172a", fontWeight: 700, fontSize: 11 },
+        avoidLabelOverlap: true,
+        minAngle: 8,
+        labelLine: { show: false },
+        label: {
+          show: true,
+          position: "inside",
+          color: "#0f172a",
+          fontWeight: 800,
+          fontSize: 12,
+          formatter: ({ name, value, percent }) => (Number(percent || 0) >= 20 ? `${name}\n${formatNumber0(value)}` : ""),
+        },
         itemStyle: { borderColor: "#fff7ed", borderWidth: 4 },
         data: [
           { name: "Em aberto", value: summary.open, itemStyle: { color: "#2563eb" } },
@@ -11889,16 +13226,22 @@ function MtmDashboard({ dashboardFilter }) {
     ],
   };
 
+  const exchangeMtmMaxSeriesValue = Math.max(
+    ...exchangeRowsWithTotal.flatMap((item) => [item.positiveBrl, item.negativeBrl]),
+    1,
+  );
+  const exchangeMtmAxisPadding = Math.max(exchangeMtmMaxSeriesValue * 0.08, 1200);
+
   const exchangeMtmOption = {
     animationDuration: 220,
-    grid: { left: 160, right: 28, top: 26, bottom: 26 },
+    grid: { left: 168, right: 22, top: 18, bottom: 18 },
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
       formatter: (params) =>
         params
-          .map((item) => `${item.marker}${item.seriesName}: R$ ${formatCurrency2(Math.abs(Number(item.value || 0)))}`)
-          .join("<br/>"),
+            .map((item) => `${item.marker}${item.seriesName}: ${formatMtmIntegerLabel(item.value)}`)
+            .join("<br/>"),
     },
     legend: {
       top: 0,
@@ -11907,8 +13250,11 @@ function MtmDashboard({ dashboardFilter }) {
     },
     xAxis: {
       type: "value",
+      min: -exchangeMtmMaxSeriesValue - exchangeMtmAxisPadding,
+      max: exchangeMtmMaxSeriesValue + exchangeMtmAxisPadding,
       axisLabel: { color: "#475569", formatter: (value) => `R$ ${Number(value).toLocaleString("pt-BR", { notation: "compact" })}` },
       splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.16)" } },
+      axisLine: { lineStyle: { color: "rgba(71, 85, 105, 0.38)" } },
     },
     yAxis: {
       type: "category",
@@ -11962,28 +13308,18 @@ function MtmDashboard({ dashboardFilter }) {
         name: "Positivo",
         type: "bar",
         stack: "mtm",
+        barMaxWidth: 30,
         itemStyle: { color: "#16a34a", borderRadius: [0, CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0] },
-        label: {
-          show: true,
-          position: "insideRight",
-          color: "#ecfdf5",
-          fontWeight: 700,
-          formatter: ({ value }) => (Number(value || 0) >= 70000 ? formatMtmCompactLabel(value) : ""),
-        },
+        label: { show: false },
         data: exchangeRowsWithTotal.map((item) => item.positiveBrl),
       },
       {
         name: "Negativo",
         type: "bar",
         stack: "mtm",
+        barMaxWidth: 30,
         itemStyle: { color: "#dc2626", borderRadius: [CHART_BAR_RADIUS, 0, 0, CHART_BAR_RADIUS] },
-        label: {
-          show: true,
-          position: "insideLeft",
-          color: "#fef2f2",
-          fontWeight: 700,
-          formatter: ({ value }) => (Number(value || 0) <= -70000 ? formatMtmCompactLabel(value) : ""),
-        },
+        label: { show: false },
         data: exchangeRowsWithTotal.map((item) => -item.negativeBrl),
       },
     ],
@@ -12454,70 +13790,58 @@ function MtmDashboard({ dashboardFilter }) {
 
   const heroCards = useMemo(
     () => {
-      const openRows = normalizedRows.filter((item) => item.statusLabel === "Em aberto");
-      const closedRows = normalizedRows.filter((item) => item.statusLabel === "Encerrado");
-      const closedPositiveRowsCount = closedRows.filter((item) => item.direction === "positive").length;
-      const closedNegativeRowsCount = closedRows.filter((item) => item.direction === "negative").length;
-
-      return [
+      const cards = [
         {
+          key: "all",
           label: "MTM líquido consolidado",
-          value: `R$ ${formatCurrency2(summary.netBrl)}`,
-          help: summary.netBrl >= 0 ? "Carteira com saldo agregado positivo" : "Carteira com pressão negativa agregada",
-          className: summary.netBrl >= 0 ? "is-positive" : "is-negative",
-          rows: normalizedRows,
+          value: formatMtmIntegerLabel(allSummary.netBrl),
+          help: "Soma dos ajustes MTM R$ de toda a carteira.",
+          className: allSummary.netBrl >= 0 ? "is-positive" : allSummary.netBrl < 0 ? "is-negative" : "is-neutral",
+          rows: allNormalizedRows,
           title: "MTM consolidado · Todas as operações",
-        },
-        {
-          label: "Operações em aberto",
-          value: `R$ ${formatCurrency2(summary.openNetBrl)}`,
-          help: "Book ativo que ainda exige monitoramento diário.",
-          className: summary.openNetBrl >= 0 ? "is-positive" : "is-negative",
-          rows: openRows,
-          title: "MTM · Operações em aberto",
           metaItems: [
-            { label: "Ativas", value: formatNumber0(summary.open) },
-            { label: "Vencem em 7 dias", value: formatNumber0(summary.due7) },
-            { label: "Vencem em 30 dias", value: formatNumber0(summary.due30) },
+            { key: "positive", label: "Positivas", value: formatNumber0(allSummary.positive) },
+            { key: "negative", label: "Negativas", value: formatNumber0(allSummary.negative) },
+            { key: "neutral", label: "Neutras", value: formatNumber0(allSummary.neutral) },
           ],
         },
         {
+          key: "open",
+          label: "Operações em aberto",
+          value: formatMtmIntegerLabel(openSummary.netBrl),
+          help: "Soma dos ajustes MTM R$ das operações em aberto.",
+          className: openSummary.netBrl >= 0 ? "is-positive" : openSummary.netBrl < 0 ? "is-negative" : "is-neutral",
+          rows: allNormalizedRows.filter((item) => item.statusLabel === "Em aberto"),
+          title: "MTM · Operações em aberto",
+          metaItems: [
+            { key: "open_all", label: "Ativas", value: formatNumber0(openSummary.open) },
+            { key: "due7", label: "Vencem em 7 dias", value: formatNumber0(openSummary.due7) },
+            { key: "due30", label: "Vencem em 30 dias", value: formatNumber0(openSummary.due30) },
+          ],
+        },
+        {
+          key: "closed",
           label: "Operações encerradas",
-          value: `R$ ${formatCurrency2(summary.closedNetBrl)}`,
-          help: "Resultado já realizado nas operações encerradas.",
-          className: summary.closedNetBrl >= 0 ? "is-positive" : "is-negative",
-          rows: closedRows,
+          value: formatMtmIntegerLabel(closedSummary.netBrl),
+          help: "Soma dos ajustes MTM R$ das operações encerradas.",
+          className: closedSummary.netBrl >= 0 ? "is-positive" : closedSummary.netBrl < 0 ? "is-negative" : "is-neutral",
+          rows: allNormalizedRows.filter((item) => item.statusLabel === "Encerrado"),
           title: "MTM · Operações encerradas",
           metaItems: [
-            { label: "Encerradas", value: formatNumber0(summary.closed) },
-            { label: "Positivas", value: formatNumber0(closedPositiveRowsCount) },
-            { label: "Negativas", value: formatNumber0(closedNegativeRowsCount) },
+            { key: "closed_all", label: "Encerradas", value: formatNumber0(closedSummary.closed) },
+            { key: "positive", label: "Positivas", value: formatNumber0(closedSummary.positive) },
+            { key: "negative", label: "Negativas", value: formatNumber0(closedSummary.negative) },
           ],
         },
       ];
+
+      return cards.map((card) => ({
+        ...card,
+        isActive: mtmScope === card.key,
+      }));
     },
-    [normalizedRows, summary],
+    [allNormalizedRows, allSummary, closedSummary, mtmScope, openSummary],
   );
-
-  const clickableSummaryCards = useMemo(() => {
-    const openRows = normalizedRows.filter((item) => item.statusLabel === "Em aberto");
-    const closedRows = normalizedRows.filter((item) => item.statusLabel === "Encerrado");
-    const positiveRows = normalizedRows.filter((item) => item.direction === "positive");
-    const negativeRows = normalizedRows.filter((item) => item.direction === "negative");
-    const due7Rows = normalizedRows.filter((item) => item.daysToSettlement != null && item.daysToSettlement <= 7);
-    const due30Rows = normalizedRows.filter((item) => item.daysToSettlement != null && item.daysToSettlement <= 30);
-
-    return [
-      {
-        label: "Sinal operacional",
-        items: [
-          { label: "Positivas", value: formatNumber0(summary.positive), tone: "positive", rows: positiveRows, title: "Operações com MTM positivo" },
-          { label: "Negativas", value: formatNumber0(summary.negative), tone: "negative", rows: negativeRows, title: "Operações com MTM negativo" },
-          { label: "Neutras", value: formatNumber0(summary.neutral), rows: normalizedRows.filter((item) => item.direction === "neutral"), title: "Operações com MTM neutro" },
-        ],
-      },
-    ];
-  }, [normalizedRows, summary]);
 
   const exchangeMtmEvents = useMemo(
     () => ({
@@ -12675,6 +13999,126 @@ function MtmDashboard({ dashboardFilter }) {
     [normalizedRows, openMtmRowsModal],
   );
 
+  const openExchangePressureEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = openExchangePressureRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Em aberto · ${row.label}`, row.rows);
+      },
+    }),
+    [openExchangePressureRows, openMtmRowsModal],
+  );
+
+  const openTypeExposureEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = openTypeExposureRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Em aberto · ${row.label}`, row.rows);
+      },
+    }),
+    [openMtmRowsModal, openTypeExposureRows],
+  );
+
+  const openSettlementBandEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = openSettlementBandRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Em aberto · Vencimento ${row.label}`, row.rows);
+      },
+    }),
+    [openMtmRowsModal, openSettlementBandRows],
+  );
+
+  const openPositionNetEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = openPositionNetRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Em aberto · ${row.label}`, row.rows);
+      },
+    }),
+    [openMtmRowsModal, openPositionNetRows],
+  );
+
+  const openDirectionEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const direction =
+          params.name === "Positivas" ? "positive" : params.name === "Negativas" ? "negative" : "neutral";
+        openMtmRowsModal(`Em aberto · ${params.name}`, openRowsInView.filter((item) => item.direction === direction));
+      },
+    }),
+    [openMtmRowsModal, openRowsInView],
+  );
+
+  const closedExchangeResultEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = closedExchangeResultRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Encerrado · ${row.label}`, row.rows);
+      },
+    }),
+    [closedExchangeResultRows, openMtmRowsModal],
+  );
+
+  const closedTypeResultEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = closedTypeResultRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Encerrado · ${row.label}`, row.rows);
+      },
+    }),
+    [closedTypeResultRows, openMtmRowsModal],
+  );
+
+  const closedSettlementMonthEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = closedSettlementMonthRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Encerrado · Liquidação ${row.label}`, row.rows);
+      },
+    }),
+    [closedSettlementMonthRows, openMtmRowsModal],
+  );
+
+  const closedPositionResultEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const row = closedPositionResultRows.find((item) => item.label === params.name);
+        if (!row) return;
+        openMtmRowsModal(`Encerrado · ${row.label}`, row.rows);
+      },
+    }),
+    [closedPositionResultRows, openMtmRowsModal],
+  );
+
+  const closedDirectionEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const direction =
+          params.name === "Positivas" ? "positive" : params.name === "Negativas" ? "negative" : "neutral";
+        openMtmRowsModal(`Encerrado · ${params.name}`, closedRowsInView.filter((item) => item.direction === direction));
+      },
+    }),
+    [closedRowsInView, openMtmRowsModal],
+  );
+
   if (!normalizedRows.length) {
     return (
       <section className="mtm-shell">
@@ -12686,267 +14130,440 @@ function MtmDashboard({ dashboardFilter }) {
     );
   }
 
-  return (
-    <section className="mtm-shell">
-      <section className="mtm-hero-grid">
-        {heroCards.map((card) => (
-          <button
-            type="button"
-            key={card.label}
-            className={`card mtm-hero-card ${card.className}`}
-            onClick={() => openMtmRowsModal(card.title, card.rows)}
-          >
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-            {card.metaItems?.length ? (
-              <div className="mtm-hero-metrics">
-                {card.metaItems.map((item) => (
-                  <div key={`${card.label}-${item.label}`} className="mtm-hero-metric">
-                    <small>{item.label}</small>
-                    <b>{item.value}</b>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <small>{card.help}</small>
-          </button>
-        ))}
-      </section>
+  const activeScopeMeta = {
+    all: {
+      title: "Consolidado",
+      description: "Visão geral da carteira, reunindo o saldo total, a distribuição operacional e as leituras comparativas mais importantes.",
+    },
+    open: {
+      title: "Em aberto",
+      description: "Recorte focado apenas nas posições ainda ativas, com prioridade para vencimento próximo, exposição e monitoramento do resultado vivo.",
+    },
+    closed: {
+      title: "Encerrado",
+      description: "Recorte focado apenas nas operações encerradas e nas maiores contribuições efetivas do período filtrado.",
+    },
+  }[mtmScope];
 
-      <section className="mtm-summary-grid">
-        {clickableSummaryCards.map((card) => (
-          <article key={card.label} className="card mtm-summary-card">
-            <span>{card.label}</span>
-            <div className="mtm-summary-metrics">
-              {card.items.map((item) => (
-                <button
-                  type="button"
-                  key={`${card.label}-${item.label}`}
-                  className={`mtm-summary-metric${item.tone ? ` is-${item.tone}` : ""}`}
-                  onClick={() => openMtmRowsModal(item.title, item.rows)}
-                >
-                  <small>{item.label}</small>
-                  <strong>{item.value}</strong>
-                </button>
-              ))}
-            </div>
-          </article>
-        ))}
-      </section>
-
-      <section className="mtm-chart-grid">
-        <article className="card mtm-chart-card">
-          <div className="mtm-chart-head">
-            <h3>MTM por bolsa</h3>
-            <p>Bloco positivo versus pressão negativa por bolsa.</p>
-          </div>
-          <ReactECharts option={exchangeMtmOption} onEvents={exchangeMtmEvents} style={{ height: 360, width: "100%" }} opts={{ renderer: "svg" }} />
-        </article>
-        <article className="card mtm-chart-card">
-          <div className="mtm-chart-head">
-            <h3>Status por bolsa</h3>
-            <p>Distribuição de operações em aberto e encerradas.</p>
-          </div>
-          <ReactECharts option={exchangeStatusOption} onEvents={exchangeStatusEvents} style={{ height: 360, width: "100%" }} opts={{ renderer: "svg" }} />
-        </article>
-        <article className="card mtm-chart-card">
-          <div className="mtm-chart-head">
-            <h3>Volume semanal até 90d</h3>
-            <p>Semanas S1 a S13, com colunas separadas por bolsa e tooltip com o intervalo completo.</p>
-          </div>
-          <ReactECharts option={weeklyVolumeByExchangeOption} onEvents={weeklyVolumeByExchangeEvents} style={{ height: 360, width: "100%" }} opts={{ renderer: "svg" }} />
-        </article>
-        <article className="card mtm-chart-card">
-          <div className="mtm-chart-head">
-            <h3>MTM semanal até 90d</h3>
-            <p>Semanas S1 a S13, com colunas separadas por bolsa e leitura dos ajustes MTM em R$.</p>
-          </div>
-          <ReactECharts option={weeklyMtmByExchangeOption} onEvents={weeklyMtmByExchangeEvents} style={{ height: 360, width: "100%" }} opts={{ renderer: "svg" }} />
-        </article>
-        <article className="card mtm-chart-card">
-          <div className="mtm-chart-head">
-            <h3>Matriz bolsa x tipo</h3>
-            <p>Heatmap com a concentração operacional por tipo de derivativo.</p>
-          </div>
-          <ReactECharts option={heatmapOption} onEvents={heatmapEvents} style={{ height: 360, width: "100%" }} opts={{ renderer: "svg" }} />
-        </article>
-        <article className="card mtm-chart-card">
-          <div className="mtm-chart-head">
-            <h3>Matriz MTM R$ x tipo</h3>
-            <p>Heatmap com os ajustes MTM em R$ por bolsa e estrutura.</p>
-          </div>
-          <ReactECharts option={heatmapMtmOption} onEvents={heatmapEvents} style={{ height: 360, width: "100%" }} opts={{ renderer: "svg" }} />
-        </article>
-        <article className="card mtm-chart-card mtm-chart-card--donuts">
-          <div className="mtm-dual-donuts">
-            <div>
-              <div className="mtm-chart-head">
-                <h3>Sinal do MTM</h3>
-                <p>Positivas, negativas e neutras.</p>
-              </div>
-              <ReactECharts option={statusDonutOption} onEvents={statusDonutEvents} style={{ height: 300, width: "100%" }} opts={{ renderer: "svg" }} />
-            </div>
-            <div>
-              <div className="mtm-chart-head">
-                <h3>Abertas x encerradas</h3>
-                <p>Mix operacional do book.</p>
-              </div>
-              <ReactECharts option={openClosedDonutOption} onEvents={openClosedDonutEvents} style={{ height: 300, width: "100%" }} opts={{ renderer: "svg" }} />
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <section className="mtm-exchange-section">
-        <div className="mtm-section-head">
-          <h3>Cards por bolsa</h3>
-          <p>Um bloco para cada bolsa, sem filtro por cultura e com leitura rápida de quantidade, ganho, perda e operação extrema.</p>
-        </div>
-        <div className="mtm-exchange-grid">
-          {exchangeRows.map((exchange) => {
-            const exchangeBarBase = Math.max(Math.abs(exchange.netBrl), exchange.positiveBrl, exchange.negativeBrl, 1);
-
-            return (
-              <button
-                type="button"
-                key={exchange.label}
-                className="card mtm-exchange-card"
-                onClick={() => openExchangeModal(exchange.label)}
-              >
-                <div className="mtm-exchange-head">
-                  <div>
-                    <strong>{exchange.label}</strong>
-                    <span>{`${formatNumber0(exchange.total)} operações`}</span>
-                  </div>
-                </div>
-                <div className="mtm-exchange-stats">
-                  <div><span>Em aberto</span><strong>{formatNumber0(exchange.open)}</strong></div>
-                  <div><span>Encerradas</span><strong>{formatNumber0(exchange.closed)}</strong></div>
-                  <div><span>Positivas</span><strong>{formatNumber0(exchange.positive)}</strong></div>
-                  <div><span>Negativas</span><strong>{formatNumber0(exchange.negative)}</strong></div>
-                  <div><span>Volume</span><strong>{`${formatNumber0(exchange.volume)} sc`}</strong></div>
-                  <div><span>Strike médio</span><strong>{exchange.avgStrike ? formatCurrency2(exchange.avgStrike) : "—"}</strong></div>
-                </div>
-                <div className="mtm-exchange-bars">
-                  <div className="mtm-exchange-bar-row">
-                    <span>Total</span>
-                    <div className="mtm-exchange-bar-track">
-                      <div
-                        className={`mtm-exchange-bar-fill ${exchange.netBrl >= 0 ? "is-total-positive" : "is-total-negative"}`}
-                        style={{ width: `${(Math.abs(exchange.netBrl) / exchangeBarBase) * 100}%` }}
-                      />
-                    </div>
-                    <strong className={exchange.netBrl >= 0 ? "is-positive" : "is-negative"}>{`R$ ${formatCurrency2(exchange.netBrl)}`}</strong>
-                  </div>
-                  <div className="mtm-exchange-bar-row">
-                    <span>Ganho bruto</span>
-                    <div className="mtm-exchange-bar-track">
-                      <div
-                        className="mtm-exchange-bar-fill is-positive"
-                        style={{ width: `${(exchange.positiveBrl / exchangeBarBase) * 100}%` }}
-                      />
-                    </div>
-                    <strong>{`R$ ${formatCurrency2(exchange.positiveBrl)}`}</strong>
-                  </div>
-                  <div className="mtm-exchange-bar-row">
-                    <span>Perda bruta</span>
-                    <div className="mtm-exchange-bar-track">
-                      <div
-                        className="mtm-exchange-bar-fill is-negative"
-                        style={{ width: `${(exchange.negativeBrl / exchangeBarBase) * 100}%` }}
-                      />
-                    </div>
-                    <strong>{`R$ ${formatCurrency2(exchange.negativeBrl)}`}</strong>
-                  </div>
-                </div>
-                <div className="mtm-exchange-foot">
-                  <small>{exchange.best ? `Melhor: ${exchange.best.operationName} (${formatCurrency2(exchange.best.mtmBrl)})` : "Sem ganho relevante"}</small>
-                  <small>{exchange.worst ? `Pior: ${exchange.worst.operationName} (${formatCurrency2(exchange.worst.mtmBrl)})` : "Sem perda relevante"}</small>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="card mtm-spotlight-card">
-        <div className="mtm-section-head">
-          <h3>Spotlight das operações</h3>
-          <p>As 12 operações com maior impacto absoluto no MTM, para leitura rápida e corte manual depois.</p>
-        </div>
-        <div className="mtm-spotlight-table-wrap">
-          <table className="mtm-spotlight-table">
-            <thead>
-              <tr>
-                <th>Operação</th>
-                <th>Bolsa</th>
-                <th>Status</th>
-                <th>Tipo</th>
-                <th>Strike</th>
-                <th>Volume</th>
-                <th>Liquidação</th>
-                <th>MTM BRL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {spotlightRows.map((item) => (
-                <tr key={item.id} onClick={() => openMtmRowsModal(`Operação · ${item.operationName}`, [item])}>
-                  <td>{item.operationName}</td>
-                  <td>{item.exchangeLabel}</td>
-                  <td>{item.statusLabel}</td>
-                  <td>{item.derivativeType}</td>
-                  <td>{item.strike ? formatCurrency2(item.strike) : "—"}</td>
-                  <td>{item.standardVolume || item.rawVolume ? `${formatNumber0(item.standardVolume || item.rawVolume)} sc` : "—"}</td>
-                  <td>{item.settlementDate ? formatShortBrazilianDate(item.settlementDate) : "—"}</td>
-                  <td className={item.mtmBrl >= 0 ? "is-positive" : "is-negative"}>{`R$ ${formatCurrency2(item.mtmBrl)}`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="mtm-extra-section">
-        <div className="mtm-section-head">
-          <h3>Mais Insights</h3>
-          <p>Leituras adicionais para explorar estrutura, risco, ritmo operacional e basis das vendas físicas junto do book derivativo.</p>
-        </div>
-        <div className="mtm-extra-grid">
-          {extraInsightCards.map((card) => (
-            <article key={card.key} className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>{card.title}</h4>
-                <p>{card.subtitle}</p>
-              </div>
-              {card.option ? (
-                <ReactECharts option={card.option} onEvents={card.events} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
-              ) : null}
-              {card.table ? (
-                <div className="mtm-mini-table-wrap">
-                  <table className="mtm-mini-table">
-                    <thead>
-                      <tr>
-                        {card.table.columns.map((column) => (
-                          <th key={`${card.key}-${column}`}>{column}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {card.table.rows.map((row) => (
-                        <tr key={row.key} className={row.tone ? `is-${row.tone}` : ""} onClick={row.onClick}>
-                          {row.cells.map((cell, index) => (
-                            <td key={`${row.key}-${index}`}>{cell}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
-            </article>
+  const renderHeroCard = (card) => (
+    <button
+      type="button"
+      key={card.label}
+      className={`card mtm-hero-card ${card.className}${card.isActive ? " is-active" : ""}`}
+      aria-pressed={card.isActive}
+      onClick={() => {
+        setMtmScope(card.key);
+        setMtmFacet("all");
+      }}
+    >
+      <span>{card.label}</span>
+      <strong>{card.value}</strong>
+      {card.metaItems?.length ? (
+        <div className="mtm-hero-metrics">
+          {card.metaItems.map((item) => (
+            <button
+              type="button"
+              key={`${card.label}-${item.label}`}
+              className={`mtm-hero-metric${card.isActive && mtmFacet === item.key ? " is-active" : ""}`}
+              aria-pressed={card.isActive && mtmFacet === item.key}
+              onClick={(event) => {
+                event.stopPropagation();
+                setMtmScope(card.key);
+                setMtmFacet(item.key);
+              }}
+            >
+              <small>{item.label}</small>
+              <b>{item.value}</b>
+            </button>
           ))}
         </div>
+      ) : null}
+      <small>{card.help}</small>
+    </button>
+  );
+
+  return (
+    <section className="mtm-shell">
+      <section className="mtm-phase-section">
+        <div className="mtm-filter-note">
+          Os cards grandes e os mini cards abaixo funcionam como filtros do dashboard.
+        </div>
+        <div className="mtm-hero-grid">
+          {heroCards.map((card) => renderHeroCard(card))}
+        </div>
+        <div className="mtm-phase-head">
+          <h2>{activeScopeMeta.title}</h2>
+          <p>{activeScopeMeta.description}</p>
+        </div>
+        <section className="mtm-top-insight-grid">
+          <article className="card mtm-chart-card mtm-chart-card--donuts">
+            <div className="mtm-dual-donuts">
+              <div>
+                <div className="mtm-chart-head">
+                  <h3>Sinal do MTM</h3>
+                  <p>Positivas, negativas e neutras.</p>
+                </div>
+                <ReactECharts option={statusDonutOption} onEvents={statusDonutEvents} style={{ height: 340, width: "100%" }} opts={{ renderer: "svg" }} />
+              </div>
+              <div>
+                <div className="mtm-chart-head">
+                  <h3>Abertas x encerradas</h3>
+                  <p>Mix operacional do book.</p>
+                </div>
+                <ReactECharts option={openClosedDonutOption} onEvents={openClosedDonutEvents} style={{ height: 340, width: "100%" }} opts={{ renderer: "svg" }} />
+              </div>
+            </div>
+          </article>
+        </section>
+        <section className="mtm-chart-grid">
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>MTM por bolsa</h3>
+              <p>Bloco positivo versus pressão negativa por bolsa.</p>
+            </div>
+            <ReactECharts option={exchangeMtmOption} onEvents={exchangeMtmEvents} style={{ height: 460, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Status por bolsa</h3>
+              <p>Distribuição de operações em aberto e encerradas.</p>
+            </div>
+            <ReactECharts option={exchangeStatusOption} onEvents={exchangeStatusEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Matriz bolsa x tipo</h3>
+              <p>Heatmap com a concentração operacional por tipo de derivativo.</p>
+            </div>
+            <ReactECharts option={heatmapOption} onEvents={heatmapEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Matriz MTM R$ x tipo</h3>
+              <p>Heatmap com os ajustes MTM em R$ por bolsa e estrutura.</p>
+            </div>
+            <ReactECharts option={heatmapMtmOption} onEvents={heatmapEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+        </section>
+        <section className="mtm-exchange-section">
+          <div className="mtm-section-head">
+            <h3>Cards por bolsa</h3>
+            <p>Um bloco para cada bolsa, sem filtro por cultura e com leitura rápida de quantidade, ganho, perda e operação extrema.</p>
+          </div>
+          <div className="mtm-exchange-grid">
+            {exchangeRows.map((exchange) => {
+              const exchangeBarBase = Math.max(Math.abs(exchange.netBrl), exchange.positiveBrl, exchange.negativeBrl, 1);
+
+              return (
+                <button
+                  type="button"
+                  key={exchange.label}
+                  className="card mtm-exchange-card"
+                  onClick={() => openExchangeModal(exchange.label)}
+                >
+                  <div className="mtm-exchange-head">
+                    <div>
+                      <strong>{exchange.label}</strong>
+                      <span>{`${formatNumber0(exchange.total)} operações`}</span>
+                    </div>
+                  </div>
+                  <div className="mtm-exchange-stats">
+                    <div><span>Em aberto</span><strong>{formatNumber0(exchange.open)}</strong></div>
+                    <div><span>Encerradas</span><strong>{formatNumber0(exchange.closed)}</strong></div>
+                    <div><span>Positivas</span><strong>{formatNumber0(exchange.positive)}</strong></div>
+                    <div><span>Negativas</span><strong>{formatNumber0(exchange.negative)}</strong></div>
+                    <div><span>Volume</span><strong>{`${formatNumber0(exchange.volume)} sc`}</strong></div>
+                    <div><span>Strike médio</span><strong>{exchange.avgStrike ? formatCurrency2(exchange.avgStrike) : "—"}</strong></div>
+                  </div>
+                  <div className="mtm-exchange-bars">
+                    <div className="mtm-exchange-bar-row">
+                      <span>Total</span>
+                      <div className="mtm-exchange-bar-track">
+                        <div
+                          className={`mtm-exchange-bar-fill ${exchange.netBrl >= 0 ? "is-total-positive" : "is-total-negative"}`}
+                          style={{ width: `${(Math.abs(exchange.netBrl) / exchangeBarBase) * 100}%` }}
+                        />
+                      </div>
+                      <strong className={exchange.netBrl >= 0 ? "is-positive" : "is-negative"}>{formatMtmIntegerLabel(exchange.netBrl)}</strong>
+                    </div>
+                    <div className="mtm-exchange-bar-row">
+                      <span>Ganho bruto</span>
+                      <div className="mtm-exchange-bar-track">
+                        <div
+                          className="mtm-exchange-bar-fill is-positive"
+                          style={{ width: `${(exchange.positiveBrl / exchangeBarBase) * 100}%` }}
+                        />
+                      </div>
+                      <strong>{formatMtmIntegerLabel(exchange.positiveBrl)}</strong>
+                    </div>
+                    <div className="mtm-exchange-bar-row">
+                      <span>Perda bruta</span>
+                      <div className="mtm-exchange-bar-track">
+                        <div
+                          className="mtm-exchange-bar-fill is-negative"
+                          style={{ width: `${(exchange.negativeBrl / exchangeBarBase) * 100}%` }}
+                        />
+                      </div>
+                      <strong>{formatMtmIntegerLabel(exchange.negativeBrl)}</strong>
+                    </div>
+                  </div>
+                  <div className="mtm-exchange-foot">
+                    <small>{exchange.best ? `Melhor: ${exchange.best.operationName} (${formatMtmIntegerLabel(exchange.best.mtmBrl)})` : "Sem ganho relevante"}</small>
+                    <small>{exchange.worst ? `Pior: ${exchange.worst.operationName} (${formatMtmIntegerLabel(exchange.worst.mtmBrl)})` : "Sem perda relevante"}</small>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+        <section className="mtm-extra-section">
+          <div className="mtm-section-head">
+            <h3>Mais Insights</h3>
+            <p>Leituras adicionais para explorar estrutura, risco, ritmo operacional e basis das vendas físicas junto do book derivativo.</p>
+          </div>
+          <div className="mtm-extra-grid">
+            {extraInsightCards.map((card) => (
+              <article key={card.key} className="card mtm-mini-card">
+                <div className="mtm-mini-card-head">
+                  <h4>{card.title}</h4>
+                  <p>{card.subtitle}</p>
+                </div>
+                {card.option ? (
+                  <ReactECharts option={card.option} onEvents={card.events} style={{ height: 290, width: "100%" }} opts={{ renderer: "svg" }} />
+                ) : null}
+                {card.table ? (
+                  <div className="mtm-mini-table-wrap">
+                    <table className="mtm-mini-table">
+                      <thead>
+                        <tr>
+                          {card.table.columns.map((column) => (
+                            <th key={`${card.key}-${column}`}>{column}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {card.table.rows.map((row) => (
+                          <tr key={row.key} className={row.tone ? `is-${row.tone}` : ""} onClick={row.onClick}>
+                            {row.cells.map((cell, index) => (
+                              <td key={`${row.key}-${index}`}>{cell}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
       </section>
+
+      {openRowsInView.length ? (
+      <section className="mtm-phase-section">
+        <div className="mtm-phase-head">
+          <h2>Em aberto</h2>
+          <p>Recorte focado nas posições ainda ativas, com prioridade para vencimento próximo, exposição e monitoramento do resultado vivo.</p>
+        </div>
+        <section className="mtm-chart-grid">
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Volume semanal até 90d</h3>
+              <p>Semanas S1 a S13, com colunas separadas por bolsa e tooltip com o intervalo completo.</p>
+            </div>
+            <ReactECharts option={weeklyVolumeByExchangeOption} onEvents={weeklyVolumeByExchangeEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>MTM semanal até 90d</h3>
+              <p>Semanas S1 a S13, com colunas separadas por bolsa e leitura dos ajustes MTM em R$.</p>
+            </div>
+            <ReactECharts option={weeklyMtmByExchangeOption} onEvents={weeklyMtmByExchangeEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+        </section>
+        <section className="mtm-extra-section">
+          <div className="mtm-section-head">
+            <h3>Painel operacional em aberto</h3>
+            <p>Gráficos dedicados apenas às posições em aberto, olhando pressão, exposição, vencimento e composição do book vivo.</p>
+          </div>
+          <div className="mtm-extra-grid">
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Pressão por bolsa</h4>
+                <p>Saldo MTM das operações ainda abertas por bolsa.</p>
+              </div>
+              <ReactECharts
+                option={createMiniHorizontalBarOption({ rows: openExchangePressureRows, color: "#16a34a" })}
+                onEvents={openExchangePressureEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Exposição por tipo</h4>
+                <p>Volume ainda aberto por estrutura derivativa.</p>
+              </div>
+              <ReactECharts
+                option={createMiniVerticalBarOption({ rows: openTypeExposureRows, color: "#2563eb", valueFormatter: formatNumber0 })}
+                onEvents={openTypeExposureEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Janela de vencimento</h4>
+                <p>Quantidade de posições abertas por faixa de dias.</p>
+              </div>
+              <ReactECharts
+                option={createMiniVerticalBarOption({ rows: openSettlementBandRows, color: "#7c3aed", valueFormatter: formatNumber0 })}
+                onEvents={openSettlementBandEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>MTM por posição</h4>
+                <p>Compra versus venda nas operações ainda vivas.</p>
+              </div>
+              <ReactECharts
+                option={createMiniHorizontalBarOption({ rows: openPositionNetRows, color: "#f97316" })}
+                onEvents={openPositionNetEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Mix de sinal</h4>
+                <p>Quantas abertas estão positivas, negativas ou neutras.</p>
+              </div>
+              <ReactECharts
+                option={createMiniDonutOption({ rows: openDirectionSlices, centerLabel: "Abertas", centerValue: formatNumber0(openRowsInView.length) })}
+                onEvents={openDirectionEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+          </div>
+        </section>
+      </section>
+      ) : null}
+
+      {closedRowsInView.length ? (
+      <section className="mtm-phase-section">
+        <div className="mtm-phase-head">
+          <h2>Encerrado</h2>
+          <p>Resultado já realizado, com foco nas operações finalizadas e nas maiores contribuições efetivas do período filtrado.</p>
+        </div>
+        <section className="card mtm-spotlight-card">
+          <div className="mtm-section-head">
+            <h3>Spotlight das operações</h3>
+            <p>As 12 operações com maior impacto absoluto no MTM, para leitura rápida e corte manual depois.</p>
+          </div>
+          <div className="mtm-spotlight-table-wrap">
+            <table className="mtm-spotlight-table">
+              <thead>
+                <tr>
+                  <th>Operação</th>
+                  <th>Bolsa</th>
+                  <th>Status</th>
+                  <th>Tipo</th>
+                  <th>Strike</th>
+                  <th>Volume</th>
+                  <th>Liquidação</th>
+                  <th>MTM BRL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {spotlightRows.map((item) => (
+                  <tr key={item.id} onClick={() => openMtmRowsModal(`Operação · ${item.operationName}`, [item])}>
+                    <td>{item.operationName}</td>
+                    <td>{item.exchangeLabel}</td>
+                    <td>{item.statusLabel}</td>
+                    <td>{item.derivativeType}</td>
+                    <td>{item.strike ? formatCurrency2(item.strike) : "—"}</td>
+                    <td>{item.standardVolume || item.rawVolume ? `${formatNumber0(item.standardVolume || item.rawVolume)} sc` : "—"}</td>
+                    <td>{item.settlementDate ? formatShortBrazilianDate(item.settlementDate) : "—"}</td>
+                    <td className={item.mtmBrl >= 0 ? "is-positive" : "is-negative"}>{formatMtmIntegerLabel(item.mtmBrl)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+        <section className="mtm-extra-section">
+          <div className="mtm-section-head">
+            <h3>Painel operacional encerrado</h3>
+            <p>Gráficos dedicados apenas às operações liquidadas, olhando captura de resultado, distribuição e composição do realizado.</p>
+          </div>
+          <div className="mtm-extra-grid">
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Resultado por bolsa</h4>
+                <p>Saldo realizado das operações encerradas por bolsa.</p>
+              </div>
+              <ReactECharts
+                option={createMiniHorizontalBarOption({ rows: closedExchangeResultRows, color: "#16a34a" })}
+                onEvents={closedExchangeResultEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Resultado por tipo</h4>
+                <p>Estruturas que mais contribuíram no encerrado.</p>
+              </div>
+              <ReactECharts
+                option={createMiniHorizontalBarOption({ rows: closedTypeResultRows, color: "#0f766e" })}
+                onEvents={closedTypeResultEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Liquidação por mês</h4>
+                <p>Ritmo mensal do MTM realizado no encerrado.</p>
+              </div>
+              <ReactECharts
+                option={createMiniLineOption({ rows: closedSettlementMonthRows, color: "#7c3aed" })}
+                onEvents={closedSettlementMonthEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Resultado por posição</h4>
+                <p>Compra versus venda no book já encerrado.</p>
+              </div>
+              <ReactECharts
+                option={createMiniHorizontalBarOption({ rows: closedPositionResultRows, color: "#ea580c" })}
+                onEvents={closedPositionResultEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+            <article className="card mtm-mini-card">
+              <div className="mtm-mini-card-head">
+                <h4>Mix de sinal realizado</h4>
+                <p>Quantas encerradas fecharam positivas, negativas ou neutras.</p>
+              </div>
+              <ReactECharts
+                option={createMiniDonutOption({ rows: closedDirectionSlices, centerLabel: "Encerradas", centerValue: formatNumber0(closedRowsInView.length) })}
+                onEvents={closedDirectionEvents}
+                style={{ height: 290, width: "100%" }}
+                opts={{ renderer: "svg" }}
+              />
+            </article>
+          </div>
+        </section>
+      </section>
+      ) : null}
 
       {resourceTableModal ? (
         <DashboardResourceTableModal

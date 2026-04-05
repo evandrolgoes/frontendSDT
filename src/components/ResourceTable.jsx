@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DataTable } from "./DataTable";
 import { resourceService } from "../services/resourceService";
+import { parseBrazilianDate } from "../utils/date";
 import { formatBrazilianNumber, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
 const TRADINGVIEW_REFRESH_MS = 60000;
@@ -125,6 +126,25 @@ const calculateDerivativeMtm = (row, strikeMtm, openUsdBrlQuote = 0) => {
   const brl = String(row.volume_financeiro_moeda || "").trim() === "U$" ? usd * fx : usd;
 
   return { usd, brl };
+};
+
+const toLocalIsoDate = (value = new Date()) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const isDerivativeOverdue = (row) => {
+  const settlementDate = parseBrazilianDate(row?.data_liquidacao, "");
+  const status = String(row?.status_operacao || "").trim().toLowerCase();
+
+  if (!settlementDate || status === "encerrado") {
+    return false;
+  }
+
+  return settlementDate <= toLocalIsoDate();
 };
 
 const buildTableColumns = (definition) => {
@@ -606,7 +626,12 @@ export function usePreparedResourceTable(definition, rows) {
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
   const getRowClassName =
     definition.customForm === "derivative-operation"
-      ? (row) => (String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "")
+      ? (row) => {
+          if (isDerivativeOverdue(row)) {
+            return "bubble-row-vencido";
+          }
+          return String(row.status_operacao || "").trim().toLowerCase() === "encerrado" ? "bubble-row-encerrado" : "";
+        }
       : undefined;
 
   return { normalizedRows, effectiveTableColumns, displayRows, getRowClassName };
