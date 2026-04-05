@@ -52,6 +52,15 @@ const extractIds = (row, keys) => {
 const matchesSelection = (selectedValues, candidateIds) =>
   !selectedValues.length || selectedValues.some((item) => candidateIds.includes(String(item)));
 
+export const filterSubgroupsByGroups = (subgroups = [], selectedGroupIds = []) => {
+  const normalizedGroupIds = normalizeValues(selectedGroupIds);
+  if (!normalizedGroupIds.length) {
+    return subgroups;
+  }
+
+  return subgroups.filter((item) => normalizedGroupIds.includes(String(item?.grupo)));
+};
+
 export const rowMatchesDashboardFilter = (
   row,
   filter,

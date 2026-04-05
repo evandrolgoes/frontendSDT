@@ -4,7 +4,7 @@ import { NavLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
 import { DashboardDebugProvider, useDashboardDebug } from "../contexts/DashboardDebugContext";
-import { useDashboardFilter } from "../contexts/DashboardFilterContext";
+import { filterSubgroupsByGroups, useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { getNavigationSections } from "../routes/routes";
 
 const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [] };
@@ -243,6 +243,11 @@ function AdminLayoutShell({ children }) {
 
     return [primaryLine, secondaryLine];
   }, [filter, options.crops, options.groups, options.seasons, options.subgroups]);
+
+  const visibleDraftSubgroups = useMemo(
+    () => filterSubgroupsByGroups(options.subgroups, draftFilter.grupo),
+    [draftFilter.grupo, options.subgroups],
+  );
 
   useEffect(() => {
     if (!panelOpen) return;
@@ -488,7 +493,7 @@ function AdminLayoutShell({ children }) {
             </div>
             <div className="sidebar-filter-panel modal dashboard-filter-popup-grid">
               <PopupChipGroup title="Grupos" items={options.groups} selectedValues={draftFilter.grupo} labelKey="grupo" onToggle={(value) => toggleDraftFilterValue("grupo", value)} onClear={() => updateDraftFilter("grupo", [])} />
-              <PopupChipGroup title="Subgrupos" items={options.subgroups} selectedValues={draftFilter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleDraftFilterValue("subgrupo", value)} onClear={() => updateDraftFilter("subgrupo", [])} />
+              <PopupChipGroup title="Subgrupos" items={visibleDraftSubgroups} selectedValues={draftFilter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleDraftFilterValue("subgrupo", value)} onClear={() => updateDraftFilter("subgrupo", [])} />
               {!isCashflowDashboard ? (
                 <PopupChipGroup title="Ativos" items={options.cropBoardCrops || []} selectedValues={draftFilter.cultura} labelKey="ativo" onToggle={(value) => toggleDraftFilterValue("cultura", value)} onClear={() => updateDraftFilter("cultura", [])} />
               ) : null}

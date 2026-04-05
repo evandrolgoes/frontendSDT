@@ -23,7 +23,7 @@ import { InfoPopup } from "../components/InfoPopup";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceTable } from "../components/ResourceTable";
 import { ResourceForm } from "../components/ResourceForm";
-import { rowMatchesDashboardFilter, useDashboardFilter } from "../contexts/DashboardFilterContext";
+import { filterSubgroupsByGroups, rowMatchesDashboardFilter, useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate } from "../utils/date";
@@ -1379,6 +1379,7 @@ function FilterChipGroup({ title, items, selectedValues, labelKey, onToggle, onC
 
 function DashboardQuickFilters() {
   const { filter, options, updateFilter, toggleFilterValue } = useDashboardFilter();
+  const visibleSubgroups = useMemo(() => filterSubgroupsByGroups(options.subgroups, filter.grupo), [options.subgroups, filter.grupo]);
 
   return (
     <section className="dashboard-quick-filters">
@@ -1392,7 +1393,7 @@ function DashboardQuickFilters() {
       />
       <FilterChipGroup
         title="Subgrupos"
-        items={options.subgroups}
+        items={visibleSubgroups}
         selectedValues={filter.subgrupo}
         labelKey="subgrupo"
         onToggle={(value) => toggleFilterValue("subgrupo", value)}
