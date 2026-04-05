@@ -418,6 +418,58 @@ export function MassImportWorkspace() {
     applyPastedText(clipboard, rowIndex, columnIndex);
   };
 
+  // Copy selected range as TSV (Excel-compatible)
+  const handleCopy = (event) => {
+    const startRow = Math.min(selectionRange.startRowIndex, selectionRange.endRowIndex);
+    const endRow = Math.max(selectionRange.startRowIndex, selectionRange.endRowIndex);
+    const startCol = Math.min(selectionRange.startColumnIndex, selectionRange.endColumnIndex);
+    const endCol = Math.max(selectionRange.startColumnIndex, selectionRange.endColumnIndex);
+
+    const isMultiCell = startRow !== endRow || startCol !== endCol;
+    const isInputFocused = document.activeElement?.tagName === "INPUT";
+
+    // For single-cell input, let the browser copy the selected text
+    if (!isMultiCell && isInputFocused) return;
+
+    const tsv = rows
+      .slice(startRow, endRow + 1)
+      .map((row) =>
+        fields
+          .slice(startCol, endCol + 1)
+          .map((field) => formatCellDisplayValue(field, row, lookupOptions, tradingviewQuotes) || String(row[field.name] ?? ""))
+          .join("\t"),
+      )
+      .join("\n");
+
+    event.clipboardData.setData("text/plain", tsv);
+    event.preventDefault();
+  };
+
+  // Clear all cells in the current selection range
+  const clearSelectionRange = () => {
+    const startRow = Math.min(selectionRange.startRowIndex, selectionRange.endRowIndex);
+    const endRow = Math.max(selectionRange.startRowIndex, selectionRange.endRowIndex);
+    const startCol = Math.min(selectionRange.startColumnIndex, selectionRange.endColumnIndex);
+    const endCol = Math.max(selectionRange.startColumnIndex, selectionRange.endColumnIndex);
+
+    setRows((currentRows) =>
+      currentRows.map((row, rowIndex) => {
+        if (rowIndex < startRow || rowIndex > endRow) return row;
+        const nextRow = { ...row };
+        fields.slice(startCol, endCol + 1).forEach((field) => {
+          nextRow[field.name] = "";
+        });
+        return nextRow;
+      }),
+    );
+    setRowMeta((currentMeta) =>
+      currentMeta.map((meta, index) => {
+        if (index < startRow || index > endRow) return meta;
+        return { ...meta, touched: true };
+      }),
+    );
+  };
+
   const handleSubmit = async () => {
     setError("");
     setNotice("");
@@ -454,13 +506,17 @@ export function MassImportWorkspace() {
     }
   };
 
-  const isCellSelected = (rowIndex, columnIndex) => {
+  const isCellInSelectionRange = (rowIndex, columnIndex) => {
     const startRow = Math.min(selectionRange.startRowIndex, selectionRange.endRowIndex);
     const endRow = Math.max(selectionRange.startRowIndex, selectionRange.endRowIndex);
     const startColumn = Math.min(selectionRange.startColumnIndex, selectionRange.endColumnIndex);
     const endColumn = Math.max(selectionRange.startColumnIndex, selectionRange.endColumnIndex);
     return rowIndex >= startRow && rowIndex <= endRow && columnIndex >= startColumn && columnIndex <= endColumn;
   };
+
+  const isActiveCell = (rowIndex, columnIndex) =>
+    rowIndex === selectedCell.rowIndex && columnIndex === selectedCell.columnIndex;
+
   const isCellInFillPreview = (rowIndex, columnIndex) => {
     if (!fillDrag || fillDrag.columnIndex !== columnIndex || !fillDrag.targetRowIndex) return false;
     const startRow = Math.min(fillDrag.sourceRowIndex, fillDrag.targetRowIndex);
@@ -486,6 +542,57 @@ export function MassImportWorkspace() {
   };
 
   const handleKeyboardNavigation = (event, rowIndex, columnIndex) => {
+    const isInputActive = event.target.tagName === "INPUT";
+
+    // Ctrl/Cmd+A: select all cells
+    if ((event.ctrlKey || event.metaKey) && event.key === "a") {
+      event.preventDefault();
+      setSelectionRange({
+        startRowIndex: 0,
+        startColumnIndex: 0,
+        endRowIndex: rows.length - 1,
+        endColumnIndex: fields.length - 1,
+      });
+      return;
+    }
+
+    // Delete/Backspace on non-input element: clear selection range
+    if ((event.key === "Delete" || event.key === "Backspace") && !isInputActive) {
+      event.preventDefault();
+      clearSelectionRange();
+      return;
+    }
+
+    // Escape: close dropdown, clear fill drag
+    if (event.key === "Escape") {
+      setOpenDropdownCell(null);
+      setFillDrag(null);
+      return;
+    }
+
+    // Tab / Shift+Tab: move right / left
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (event.shiftKey) focusCell(rowIndex, columnIndex - 1);
+      else focusCell(rowIndex, columnIndex + 1);
+      return;
+    }
+
+    // Shift+Arrow: extend selection range without moving active cell
+    if (event.shiftKey && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault();
+      setSelectionRange((current) => {
+        const next = { ...current };
+        if (event.key === "ArrowUp") next.endRowIndex = Math.max(0, next.endRowIndex - 1);
+        if (event.key === "ArrowDown") next.endRowIndex = Math.min(rows.length - 1, next.endRowIndex + 1);
+        if (event.key === "ArrowLeft") next.endColumnIndex = Math.max(0, next.endColumnIndex - 1);
+        if (event.key === "ArrowRight") next.endColumnIndex = Math.min(fields.length - 1, next.endColumnIndex + 1);
+        return next;
+      });
+      return;
+    }
+
+    // Arrow key navigation
     if (event.key === "ArrowUp") {
       event.preventDefault();
       focusCell(rowIndex - 1, columnIndex);
@@ -510,6 +617,39 @@ export function MassImportWorkspace() {
       event.preventDefault();
       focusCell(rowIndex + 1, columnIndex);
     }
+  };
+
+  // Select entire column when clicking a column header
+  const handleColumnHeaderClick = (columnIndex) => {
+    setSelectedCell({ rowIndex: 0, columnIndex });
+    setSelectionRange({
+      startRowIndex: 0,
+      startColumnIndex: columnIndex,
+      endRowIndex: rows.length - 1,
+      endColumnIndex: columnIndex,
+    });
+  };
+
+  // Select entire row when clicking a row number
+  const handleRowHeaderClick = (rowIndex) => {
+    setSelectedCell({ rowIndex, columnIndex: 0 });
+    setSelectionRange({
+      startRowIndex: rowIndex,
+      startColumnIndex: 0,
+      endRowIndex: rowIndex,
+      endColumnIndex: fields.length - 1,
+    });
+  };
+
+  // Select all cells when clicking the corner header cell
+  const handleCornerHeaderClick = () => {
+    setSelectedCell({ rowIndex: 0, columnIndex: 0 });
+    setSelectionRange({
+      startRowIndex: 0,
+      startColumnIndex: 0,
+      endRowIndex: rows.length - 1,
+      endColumnIndex: fields.length - 1,
+    });
   };
 
   return (
@@ -568,44 +708,99 @@ export function MassImportWorkspace() {
         {error ? <div className="form-error">{error}</div> : null}
         {notice ? <div className="derivative-bulk-import-notice">{notice}</div> : null}
 
+        <div className="derivative-bulk-import-hints">
+          <span>Ctrl+C copiar</span>
+          <span>Ctrl+V colar</span>
+          <span>Delete limpar</span>
+          <span>Shift+Setas selecionar</span>
+          <span>Tab navegar</span>
+          <span>Enter próxima linha</span>
+        </div>
+
         <div
           ref={tableWrapRef}
           className="derivative-bulk-import-table-wrap custom-scrollbar"
           tabIndex={0}
           onPaste={(event) => handlePaste(event, selectedCell.rowIndex, selectedCell.columnIndex)}
+          onCopy={handleCopy}
         >
           <table className="derivative-bulk-import-table">
             <thead>
               <tr>
-                <th>#</th>
-                {fields.map((field) => (
-                  <th key={field.name}>{field.label}</th>
+                <th
+                  className="derivative-sheet-corner-header"
+                  title="Selecionar tudo"
+                  onClick={handleCornerHeaderClick}
+                >
+                  #
+                </th>
+                {fields.map((field, columnIndex) => (
+                  <th
+                    key={field.name}
+                    className="derivative-sheet-col-header"
+                    title={`Selecionar coluna "${field.label}"`}
+                    onClick={() => handleColumnHeaderClick(columnIndex)}
+                  >
+                    {field.label}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((row, rowIndex) => (
                 <tr key={`mass-import-row-${rowIndex}`}>
-                  <td>{rowIndex + 1}</td>
+                  <td
+                    className="derivative-sheet-row-header"
+                    title={`Selecionar linha ${rowIndex + 1}`}
+                    onClick={() => handleRowHeaderClick(rowIndex)}
+                  >
+                    {rowIndex + 1}
+                  </td>
                   {fields.map((field, columnIndex) => {
-                    const cellSelected = isCellSelected(rowIndex, columnIndex);
+                    const cellActive = isActiveCell(rowIndex, columnIndex);
+                    const cellInRange = isCellInSelectionRange(rowIndex, columnIndex);
                     const fillPreview = isCellInFillPreview(rowIndex, columnIndex);
                     const options = getFieldOptions(field, lookupOptions, tradingviewQuotes, row);
                     const dropdownOpen = openDropdownCell === buildCellKey(rowIndex, columnIndex);
 
+                    const tdClass = [
+                      "derivative-bulk-import-td",
+                      cellInRange && !cellActive ? "is-in-range" : "",
+                      cellActive ? "is-active-cell" : "",
+                      fillPreview ? "is-fill-preview" : "",
+                    ].filter(Boolean).join(" ");
+
+                    const cellClass = [
+                      "derivative-sheet-cell",
+                      cellInRange && !cellActive ? "is-in-range" : "",
+                      cellActive ? "is-active-cell" : "",
+                      fillPreview ? "is-fill-preview" : "",
+                    ].filter(Boolean).join(" ");
+
                     return (
                       <td
                         key={field.name}
-                        className={`derivative-bulk-import-td${cellSelected ? " is-selected" : ""}${fillPreview ? " is-fill-preview" : ""}`}
-                        onMouseDown={() => {
-                          setSelectedCell({ rowIndex, columnIndex });
-                          setSelectionRange({
-                            startRowIndex: rowIndex,
-                            startColumnIndex: columnIndex,
-                            endRowIndex: rowIndex,
-                            endColumnIndex: columnIndex,
-                          });
-                          setIsSelecting(true);
+                        className={tdClass}
+                        onMouseDown={(event) => {
+                          if (event.shiftKey) {
+                            // Shift+Click: extend selection from current selectedCell
+                            event.preventDefault();
+                            setSelectionRange((current) => ({
+                              ...current,
+                              endRowIndex: rowIndex,
+                              endColumnIndex: columnIndex,
+                            }));
+                            setIsSelecting(true);
+                          } else {
+                            setSelectedCell({ rowIndex, columnIndex });
+                            setSelectionRange({
+                              startRowIndex: rowIndex,
+                              startColumnIndex: columnIndex,
+                              endRowIndex: rowIndex,
+                              endColumnIndex: columnIndex,
+                            });
+                            setIsSelecting(true);
+                          }
                         }}
                         onClick={() => {
                           setSelectedCell({ rowIndex, columnIndex });
@@ -631,7 +826,7 @@ export function MassImportWorkspace() {
                         }}
                       >
                         <div
-                          className={`derivative-sheet-cell${cellSelected ? " is-selected" : ""}${fillPreview ? " is-fill-preview" : ""}`}
+                          className={cellClass}
                           data-cell={buildCellKey(rowIndex, columnIndex)}
                           tabIndex={0}
                           onFocus={() => {
@@ -699,7 +894,7 @@ export function MassImportWorkspace() {
                               onPaste={(event) => handlePaste(event, rowIndex, columnIndex)}
                             />
                           )}
-                          {cellSelected ? (
+                          {cellActive ? (
                             <div
                               className="derivative-sheet-fill-handle"
                               onMouseDown={(event) => {

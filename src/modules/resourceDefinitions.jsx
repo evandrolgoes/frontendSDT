@@ -54,6 +54,23 @@ const moedaCmdtyeOptions = [
   { value: "Cmdtye", label: "Cmdtye" },
 ];
 
+const triggerTypeOptions = [
+  { value: "Fisico", label: "Fisico" },
+  { value: "Derivativo", label: "Derivativo" },
+];
+
+const triggerDirectionOptions = [
+  { value: "Acima", label: "Acima" },
+  { value: "Abaixo", label: "Abaixo" },
+];
+
+const triggerStatusOptions = [
+  { value: "Nao atingido", label: "Nao atingido" },
+  { value: "Atingido", label: "Atingido" },
+  { value: "Monitorando", label: "Monitorando" },
+  { value: "Inativo", label: "Inativo" },
+];
+
 const formatExchangeOptionLabel = (exchangeName) =>
   String(exchangeName || "")
     .replace(/[_-]+/g, " ")
@@ -492,35 +509,86 @@ const baseResourceDefinitions = {
   strategyTriggers: {
     resource: "strategy-triggers",
     title: "Gatilhos",
-    description: "Gatilhos relacionados a estrategia, cultura, grupo e subgrupo.",
+    description: "Gatilhos de mercado com ou sem estrategia, incluindo monitoramento de derivativos por cotacao.",
     searchPlaceholder: "Buscar gatilho...",
     columns: [
+      { key: "estrategia", label: "Estrategia", type: "relation", resource: "strategies", labelKey: "descricao_estrategia" },
       { key: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo" },
       { key: "cultura", label: "Ativo", type: "relation", ...commonRelationFields.cultura },
-      { key: "contrato_bolsa", label: "Contrato bolsa" },
-      { key: "tipo_fis_der", label: "Tipo" },
-      { key: "status_gatilho", label: "Status gatilho" },
-      { key: "strike_alvo", label: "Strike alvo", type: "number" },
+      { key: "tipo", label: "Tipo" },
+      { key: "bolsa", label: "Bolsa" },
+      { key: "contrato_derivativo", label: "Contrato derivativo" },
+      { key: "acima_abaixo", label: "Acima/Abaixo" },
+      { key: "strike", label: "Strike", type: "number" },
+      { key: "volume_objetivo", label: "Volume objetivo", type: "number" },
+      { key: "unidade", label: "Unidade" },
+      { key: "status", label: "Status" },
     ],
     fields: [
-      { name: "estrategia", label: "Estrategia", type: "relation", resource: "strategies", labelKey: "descricao_estrategia", optional: true },
-      { name: "acima_abaixo", label: "Acima/Abaixo" },
-      { name: "contrato_bolsa", label: "Contrato bolsa" },
-      { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
-      { name: "codigo_derivativo", label: "Codigo derivativo" },
-      { name: "codigos_estrategia", label: "Codigos da estrategia", type: "json-list", helpText: "Separe por virgula." },
-      { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
-      { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
-      { name: "posicao", label: "Posicao" },
-      { name: "produto_bolsa", label: "Produto/Bolsa" },
-      { name: "status_gatilho", label: "Status gatilho" },
-      { name: "strike_alvo", label: "Strike alvo", type: "number" },
-      { name: "tipo_fis_der", label: "Tipo (Fis/Der)" },
-      { name: "unidade", label: "Unidade", ...catalogSelectFields.unidade },
-      { name: "volume", label: "Volume", type: "number" },
-      { name: "obs", label: "Observacoes", type: "textarea" },
-      { name: "status", label: "Status" },
+      { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true, section: "Escopo" },
+      {
+        name: "subgrupos",
+        label: "Subgrupo",
+        type: "multirelation",
+        resource: "subgroups",
+        labelKey: "subgrupo",
+        optional: true,
+        section: "Escopo",
+        filterByCurrent: { grupo: "grupos" },
+      },
+      { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true, section: "Mercado" },
+      { name: "tipo", label: "Tipo (Fisico ou Derivativo)", type: "select", options: triggerTypeOptions, section: "Mercado" },
+      {
+        name: "bolsa",
+        label: "Bolsa",
+        type: "select",
+        resource: "exchanges",
+        labelKey: "nome",
+        valueKey: "nome",
+        optional: true,
+        section: "Mercado",
+      },
+      {
+        name: "contrato_derivativo",
+        label: "Contrato derivativo",
+        type: "select",
+        resource: "tradingview-watchlist-quotes",
+        resources: ["tradingview-watchlist-quotes"],
+        optional: true,
+        section: "Mercado",
+        visibleWhen: { field: "tipo", equals: "Derivativo" },
+        getOptions: ({ lookupOptions, values }) => {
+          const selectedExchange = normalizeLookupValue(values?.bolsa);
+          const unique = new Map();
+          (lookupOptions["tradingview-watchlist-quotes"] || []).forEach((item) => {
+            const ticker = String(item?.ticker || item?.symbol || "").trim();
+            if (!ticker) {
+              return;
+            }
+            const section = normalizeLookupValue(item?.section_name);
+            const description = String(item?.description || "").trim();
+            if (selectedExchange && !section.includes(selectedExchange) && !normalizeLookupValue(description).includes(selectedExchange)) {
+              return;
+            }
+            if (!unique.has(ticker)) {
+              unique.set(ticker, {
+                value: ticker,
+                label: description ? `${ticker} - ${description}` : ticker,
+              });
+            }
+          });
+          return Array.from(unique.values());
+        },
+        helpText: "Para derivativos, o dashboard compara a cotacao atual da API com o strike deste contrato.",
+      },
+      { name: "acima_abaixo", label: "Acima/Abaixo", type: "select", options: triggerDirectionOptions, section: "Alerta" },
+      { name: "strike", label: "Strike", type: "number", section: "Alerta" },
+      { name: "volume_objetivo", label: "Volume objetivo", type: "number", section: "Alerta" },
+      { name: "unidade", label: "Unidade", ...catalogSelectFields.unidade, section: "Alerta" },
+      { name: "status", label: "Status", type: "select", options: triggerStatusOptions, section: "Controle" },
+      { name: "estrategia", label: "Estrategia associada", type: "relation", resource: "strategies", labelKey: "descricao_estrategia", optional: true, section: "Controle" },
+      { name: "obs", label: "Observacoes/Descricao", type: "textarea", optional: true, section: "Controle" },
     ],
   },
   hedgePolicies: {

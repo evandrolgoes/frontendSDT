@@ -11,6 +11,7 @@ import {
   PointElement,
   Tooltip,
 } from "chart.js";
+import ChartDataLabels from "chartjs-plugin-datalabels";
 
 import { InfoPopup } from "../components/InfoPopup";
 import { PageHeader } from "../components/PageHeader";
@@ -138,6 +139,7 @@ if (!chartRegistered) {
     PointElement,
     Tooltip,
     Legend,
+    ChartDataLabels,
     lastNetValueLabelPlugin,
     longShortCenterTextPlugin,
   );
@@ -287,6 +289,8 @@ function FundPositionChartCanvas({ rows, seriesLabel, expanded = false }) {
             backgroundColor: "rgba(59,130,246,.45)",
             borderColor: "rgba(59,130,246,.85)",
             borderWidth: 1,
+            borderRadius: 2,
+            borderSkipped: false,
             barPercentage: 0.8,
             categoryPercentage: 0.86,
             order: 3,
@@ -299,6 +303,8 @@ function FundPositionChartCanvas({ rows, seriesLabel, expanded = false }) {
             backgroundColor: "rgba(239,68,68,.45)",
             borderColor: "rgba(239,68,68,.85)",
             borderWidth: 1,
+            borderRadius: 2,
+            borderSkipped: false,
             barPercentage: 0.8,
             categoryPercentage: 0.86,
             order: 3,
@@ -337,7 +343,24 @@ function FundPositionChartCanvas({ rows, seriesLabel, expanded = false }) {
         interaction: { mode: "index", intersect: false },
         plugins: {
           datalabels: {
-            display: false,
+            display(context) {
+              return context.dataset.type === "bar";
+            },
+            color(context) {
+              return context.dataset.label === "Long" ? "#eff6ff" : "#fef2f2";
+            },
+            anchor: "center",
+            align: "center",
+            clamp: true,
+            clip: true,
+            font: {
+              weight: 800,
+              size: expanded ? 11 : 10,
+            },
+            formatter(value) {
+              const numericValue = Math.abs(Number(value));
+              return numericValue >= 50000 ? formatInteger(numericValue) : "";
+            },
           },
           legend: {
             display: expanded,

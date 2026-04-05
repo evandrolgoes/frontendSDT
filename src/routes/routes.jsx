@@ -11,10 +11,10 @@ const loadCopyBasePageModule = () => import("../pages/CopyBasePage");
 const loadMassImportPageModule = () => import("../pages/MassImportPage");
 const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
 const loadMercadoPageModule = () => import("../pages/MercadoPage");
+const loadMercadoTestesPageModule = () => import("../pages/MercadoTestesPage");
+const loadBasisPageModule = () => import("../pages/BasisPage");
 const loadFundPositionsPageModule = () => import("../pages/FundPositionsPage");
 const loadBlogStudioPageModule = () => import("../pages/BlogStudioPage");
-const loadInsightsPageModule = () => import("../pages/InsightsPage");
-const loadInsightsQuestionLabPageModule = () => import("../pages/InsightsQuestionLabPage");
 const loadMarketSummaryPageModule = () => import("../pages/MarketSummaryPage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
@@ -39,10 +39,10 @@ const CopyBasePage = lazyNamedExport(loadCopyBasePageModule, "CopyBasePage");
 const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage");
 const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage");
 const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
+const MercadoTestesPage = lazyNamedExport(loadMercadoTestesPageModule, "MercadoTestesPage");
+const BasisPage = lazyNamedExport(loadBasisPageModule, "BasisPage");
 const FundPositionsPage = lazyNamedExport(loadFundPositionsPageModule, "FundPositionsPage");
 const BlogStudioPage = lazyNamedExport(loadBlogStudioPageModule, "BlogStudioPage");
-const InsightsPage = lazyNamedExport(loadInsightsPageModule, "InsightsPage");
-const InsightsQuestionLabPage = lazyNamedExport(loadInsightsQuestionLabPageModule, "InsightsQuestionLabPage");
 const MarketSummaryPage = lazyNamedExport(loadMarketSummaryPageModule, "MarketSummaryPage");
 const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
 const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
@@ -65,7 +65,10 @@ const warmDashboardKind = (kind) => {
     case "commercialRisk":
       return resourceService.getCommercialRiskSummary().catch(() => null);
     case "strategiesTriggers":
-      return warmResources("strategies", "strategy-triggers");
+      return Promise.all([
+        warmResources("strategies", "strategy-triggers"),
+        warmTradingviewQuotes(),
+      ]);
     case "simulations":
       return Promise.all([
         warmResources("physical-quotes", "physical-sales", "hedge-policies", "budget-costs", "derivative-operations"),
@@ -121,13 +124,6 @@ const baseNavigationSections = [
       { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos", module: "dashboard_strategies_triggers" },
       { path: "/dashboard/mtm", label: "MTM", module: "dashboard_mtm" },
       { path: "/dashboard/simulacoes", label: "Simulacoes", module: "dashboard_simulations" },
-    ],
-  },
-  {
-    label: "Insights",
-    items: [
-      { path: "/insights/comercializacao", label: "Comercializacao", module: "insights_commercialization" },
-      { path: "/insights/perguntas-prontas", label: "Perguntas Prontas", module: "insights_commercialization" },
     ],
   },
   {
@@ -197,6 +193,7 @@ const baseNavigationSections = [
       { path: "/mercado/basis", label: "Basis", module: "market_basis" },
       { path: "/mercado/posicao-fundos", label: "Posicao de Fundos", module: "market_fund_positions" },
       { path: "/mercado/taxa-de-juros", label: "Taxa de Juros", module: "market_interest_rates" },
+      { path: "/mercado/testes", label: "Testes", module: "market_others" },
       { path: "/mercado/outros", label: "Outros", module: "market_others" },
     ],
   },
@@ -261,12 +258,28 @@ export const appRoutes = [
   { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
   { path: "/mercado/blog-news", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
   { path: "/mercado/blog-news/:postId", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
-  { path: "/insights/comercializacao", element: <InsightsPage />, module: "insights_commercialization", preload: loadInsightsPageModule },
-  { path: "/insights/perguntas-prontas", element: <InsightsQuestionLabPage />, module: "insights_commercialization", preload: loadInsightsQuestionLabPageModule },
   { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", preload: loadMercadoPageModule },
-  { path: "/mercado/basis", element: <MercadoPage kind="basis" />, module: "market_basis", preload: loadMercadoPageModule },
+  {
+    path: "/mercado/basis",
+    element: <BasisPage />,
+    module: "market_basis",
+    preload: loadBasisPageModule,
+    warmup: () => {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(endDate.getDate() - 365 * 5);
+      return resourceService
+        .getYahooHistory({
+          symbol: "ZS1!",
+          period1: Math.floor(startDate.getTime() / 1000),
+          period2: Math.floor(endDate.getTime() / 1000),
+        })
+        .catch(() => null);
+    },
+  },
   { path: "/mercado/posicao-fundos", element: <FundPositionsPage />, module: "market_fund_positions", preload: loadFundPositionsPageModule, warmup: () => resourceService.getFundPositionSeries("soja").catch(() => null) },
   { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates", preload: loadMercadoPageModule },
+  { path: "/mercado/testes", element: <MercadoTestesPage />, module: "market_others", preload: loadMercadoTestesPageModule, warmup: warmTradingviewQuotes },
   { path: "/mercado/outros", element: <MercadoPage kind="others" />, module: "market_others", preload: loadMercadoPageModule },
   { ...resourceRoute("/tenants", "tenants", "tenants"), module: "sys_tenants", superuserOnly: true },
   { ...resourceRoute("/grupos", "groups", "groups"), module: "cad_groups" },

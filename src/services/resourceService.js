@@ -248,6 +248,46 @@ export const resourceService = {
       api.get("mercado/posicao-fundos/", { params: { series: normalizedSeries } }).then((response) => response.data),
     );
   },
+  getYahooHistory: ({ symbol, period1, period2 }, options = {}) => {
+    const normalizedParams = normalizeRequestParams({ symbol, period1, period2 }) || {};
+    const cacheKey = buildCacheKey("market", "yahoo-history", normalizedParams);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("mercado/yahoo-proxy/", { params: normalizedParams }).then((response) => response.data),
+    );
+  },
+  getFredHistory: ({ series, start_date, end_date }, options = {}) => {
+    const normalizedParams = normalizeRequestParams({ series, start_date, end_date }) || {};
+    const cacheKey = buildCacheKey("market", "fred-history", normalizedParams);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("mercado/fred-proxy/", { params: normalizedParams }).then((response) => response.data),
+    );
+  },
+  getGovernmentBondHistory: ({ country, duration, start_date, end_date }, options = {}) => {
+    const normalizedParams = normalizeRequestParams({ country, duration, start_date, end_date }) || {};
+    const cacheKey = buildCacheKey("market", "government-bond-history", normalizedParams);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("mercado/government-bond-proxy/", { params: normalizedParams }).then((response) => response.data),
+    );
+  },
+  getBrazilMacroHistory: ({ symbol, start_date, end_date }, options = {}) => {
+    const normalizedParams = normalizeRequestParams({ symbol, start_date, end_date }) || {};
+    const cacheKey = buildCacheKey("market", "brazil-macro-history", normalizedParams);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("mercado/brazil-macro-proxy/", { params: normalizedParams }).then((response) => response.data),
+    );
+  },
   getCommercialRiskSummary: (params = {}, options = {}) => {
     const normalizedParams = normalizeRequestParams(params) || {};
     const cacheKey = buildCacheKey("dashboard", "commercial-risk-summary", normalizedParams);
