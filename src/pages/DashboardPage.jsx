@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarController,
   BarElement,
@@ -48,6 +48,7 @@ const COMMERCIAL_RISK_DERIVATIVE_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c
 const CHART_BAR_RADIUS = 2;
 const CASHFLOW_DEFAULT_PAST_DAYS = 30;
 const CASHFLOW_DEFAULT_FUTURE_DAYS = 365;
+const CASHFLOW_DAILY_DEFAULT_FUTURE_DAYS = 180;
 
 const shiftDateByDays = (value, days) => {
   const date = new Date(value);
@@ -77,6 +78,19 @@ const formatShortBrazilianDate = (value) => {
   }).format(date);
 };
 
+const formatCashflowDailyTableDate = (value) => {
+  const date = parseDashboardDate(value);
+  if (!date) return "—";
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = String(date.getFullYear()).slice(-2);
+  const weekday = new Intl.DateTimeFormat("pt-BR", { weekday: "short" })
+    .format(date)
+    .replace(".", "")
+    .toLowerCase();
+  return `${day}/${month}/${year} (${weekday})`;
+};
+
 const formatCashflowMonthYear = (value) => {
   const date = parseDashboardDate(value);
   if (!date) return "";
@@ -94,6 +108,11 @@ const buildCashflowDefaultDateRange = (today = new Date()) => ({
   toBrazilian: formatBrazilianDate(shiftDateByDays(today, CASHFLOW_DEFAULT_FUTURE_DAYS)),
   startIso: formatIsoDate(shiftDateByDays(today, -CASHFLOW_DEFAULT_PAST_DAYS)),
   endIso: formatIsoDate(shiftDateByDays(today, CASHFLOW_DEFAULT_FUTURE_DAYS)),
+});
+
+const buildCashflowDailyDefaultDateRange = (today = new Date()) => ({
+  startIso: formatIsoDate(shiftDateByDays(today, -7)),
+  endIso: formatIsoDate(shiftDateByDays(today, CASHFLOW_DAILY_DEFAULT_FUTURE_DAYS)),
 });
 
 const buildComponentSalesDefaultDateRange = (today = new Date()) => ({
@@ -1022,6 +1041,94 @@ function DashboardResourceTableModal({ title, definition, rows, onClose, onEdit 
   );
 }
 
+function CashflowDailyLaunchList({ entries, statusSavingByEntry, statusErrorByEntry, onStatusChange, onEdit }) {
+  if (!entries.length) {
+    return <div className="cashflow-daily-empty">Nenhum lançamento neste recorte.</div>;
+  }
+
+  return (
+    <div className="cashflow-daily-launch-list">
+      {entries.map((entry) => (
+        <article key={entry.id} className="cashflow-daily-launch-card">
+          <div className="cashflow-daily-launch-main">
+            <div className="cashflow-daily-launch-head">
+              <span className={`cashflow-daily-launch-type cashflow-daily-launch-type--${entry.type}`}>
+                {entry.typeLabel}
+              </span>
+              <strong>{entry.title}</strong>
+              <span className="cashflow-daily-launch-currency">{entry.currency || "R$"}</span>
+            </div>
+            {entry.date ? <p>{formatCashflowDailyTableDate(entry.date)}</p> : null}
+            {entry.subtitle ? <p>{entry.subtitle}</p> : null}
+            {entry.statusField && entry.statusOptions?.length ? (
+              <div>
+                <select
+                  value={entry.statusValue || ""}
+                  onChange={(event) => void onStatusChange(entry, event.target.value)}
+                  disabled={Boolean(statusSavingByEntry[entry.id])}
+                >
+                  {entry.statusOptions.map((option) => (
+                    <option key={`${entry.id}-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {entry.meta ? <small>{entry.meta}</small> : null}
+            {statusErrorByEntry[entry.id] ? <small>{statusErrorByEntry[entry.id]}</small> : null}
+            {entry.description ? <small>{entry.description}</small> : null}
+          </div>
+          <div className="cashflow-daily-launch-side">
+            <strong className={entry.amount >= 0 ? "is-positive" : "is-negative"}>
+              {formatCashflowDailyCurrency(Math.abs(entry.amount))}
+            </strong>
+            {statusSavingByEntry[entry.id] ? <small>Salvando status...</small> : null}
+            <button
+              type="button"
+              className="chart-period-btn"
+              onClick={() => onEdit(entry)}
+            >
+              Editar
+            </button>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function CashflowDailyEntriesModal({ open, title, entries, totalAmount, statusSavingByEntry, statusErrorByEntry, onStatusChange, onEdit, onClose }) {
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div className="component-popup-backdrop" onClick={onClose}>
+      <div className="component-popup cashflow-daily-summary-modal" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="component-popup-close" onClick={onClose}>
+          ×
+        </button>
+        <div className="component-popup-header">
+          <div>
+            <strong>{title}</strong>
+            <p className="muted">
+              {entries.length} operação(ões) somando {formatCashflowDailyCurrency(totalAmount)}.
+            </p>
+          </div>
+        </div>
+        <CashflowDailyLaunchList
+          entries={entries}
+          statusSavingByEntry={statusSavingByEntry}
+          statusErrorByEntry={statusErrorByEntry}
+          onStatusChange={onStatusChange}
+          onEdit={onEdit}
+        />
+      </div>
+    </div>
+  );
+}
+
 function useDashboardOperationEditor({
   sales = [],
   setSales,
@@ -1031,6 +1138,10 @@ function useDashboardOperationEditor({
   setPhysicalPayments,
   cashPayments = [],
   setCashPayments,
+  otherCashOutflows = [],
+  setOtherCashOutflows,
+  otherEntries = [],
+  setOtherEntries,
 }) {
   const [editingOperationItem, setEditingOperationItem] = useState(null);
   const [operationAttachments, setOperationAttachments] = useState([]);
@@ -1042,6 +1153,8 @@ function useDashboardOperationEditor({
     if (editingOperationItem.resourceKey === "physical-sales") return resourceDefinitions.physicalSales;
     if (editingOperationItem.resourceKey === "physical-payments") return resourceDefinitions.physicalPayments;
     if (editingOperationItem.resourceKey === "cash-payments") return resourceDefinitions.cashPayments;
+    if (editingOperationItem.resourceKey === "other-cash-outflows") return resourceDefinitions.otherCashOutflows;
+    if (editingOperationItem.resourceKey === "other-entries") return resourceDefinitions.otherEntries;
     return null;
   }, [editingOperationItem?.resourceKey]);
 
@@ -1102,12 +1215,16 @@ function useDashboardOperationEditor({
         ? sales
         : item.resourceKey === "physical-payments"
           ? physicalPayments
-          : cashPayments;
+          : item.resourceKey === "cash-payments"
+            ? cashPayments
+            : item.resourceKey === "other-cash-outflows"
+              ? otherCashOutflows
+            : otherEntries;
     const current = sourceRows.find((row) => String(row.id) === String(item.recordId));
     if (!current) return;
     setEditingOperationItem({ ...current, resourceKey: item.resourceKey });
     setOperationFormError("");
-  }, [cashPayments, derivatives, physicalPayments, sales]);
+  }, [cashPayments, derivatives, otherCashOutflows, otherEntries, physicalPayments, sales]);
 
   const replaceRowById = useCallback((items, updated) => items.map((row) => (String(row.id) === String(updated.id) ? updated : row)), []);
 
@@ -1248,6 +1365,10 @@ function useDashboardOperationEditor({
                 setPhysicalPayments((currentRows) => replaceRowById(currentRows, saved));
               } else if (operationFormDefinition.resource === "cash-payments" && setCashPayments) {
                 setCashPayments((currentRows) => replaceRowById(currentRows, saved));
+              } else if (operationFormDefinition.resource === "other-cash-outflows" && setOtherCashOutflows) {
+                setOtherCashOutflows((currentRows) => replaceRowById(currentRows, saved));
+              } else if (operationFormDefinition.resource === "other-entries" && setOtherEntries) {
+                setOtherEntries((currentRows) => replaceRowById(currentRows, saved));
               }
 
               closeOperationForm();
@@ -2493,6 +2614,25 @@ const calculatePriceCompositionDerivativeMtm = (item, strikeMtm, openUsdBrlQuote
 const formatMoneyByCurrency = (value, currencyLabel) =>
   `${currencyLabel} ${Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const CASHFLOW_STATUS_OPTIONS = {
+  payments: [
+    { value: "Pendente", label: "Pendente" },
+    { value: "Pago", label: "Pago" },
+  ],
+  otherCashOutflows: [
+    { value: "Pendente", label: "Pendente" },
+    { value: "Pago", label: "Pago" },
+  ],
+  otherEntries: [
+    { value: "Previsto", label: "Previsto" },
+    { value: "Recebido", label: "Recebido" },
+  ],
+  derivatives: [
+    { value: "Em aberto", label: "Em aberto" },
+    { value: "Encerrado", label: "Encerrado" },
+  ],
+};
+
 const readEChartNumericValue = (value) => {
   if (Array.isArray(value)) return Number(value[1] || 0);
   if (value && typeof value === "object" && Array.isArray(value.value)) return Number(value.value[1] || 0);
@@ -2509,15 +2649,19 @@ const getCashflowSeriesDefs = (currencyConfig) =>
   currencyConfig?.key === "BRL"
     ? [
         { key: "payments", label: "Pagamentos", color: "#ef4444", stack: "cashflow" },
+        { key: "otherCashOutflows", label: "Outras saídas Caixa", color: "#b91c1c", stack: "cashflow" },
         { key: "purchaseDerivatives", label: "Compra via Derivativos", color: "#f59e0b", stack: "cashflow" },
         { key: "physicalSales", label: "Vendas", color: "#16a34a", stack: "cashflow" },
+        { key: "otherEntries", label: "Outras Entradas Caixa", color: "#0f766e", stack: "cashflow" },
         { key: "saleDerivatives", label: "Vendas via Derivativos", color: "#86efac", stack: "cashflow" },
       ]
     : [
         { key: "payments", label: `Pagamentos em ${currencyConfig.label}`, color: "#ff3b30", stack: "cashflow" },
+        { key: "otherCashOutflows", label: `Outras saídas Caixa em ${currencyConfig.label}`, color: "#dc2626", stack: "cashflow" },
         { key: "paymentsSwap", label: `Pagamentos em ${currencyConfig.label} (com swap para R$)`, color: "#f9a8b5", stack: "cashflow" },
         { key: "purchaseDerivatives", label: `Compra de ${currencyConfig.label} via Derivativos`, color: "#ffd43b", stack: "cashflow" },
         { key: "physicalSales", label: `Vendas em ${currencyConfig.label}`, color: "#16a34a", stack: "cashflow" },
+        { key: "otherEntries", label: `Outras Entradas Caixa em ${currencyConfig.label}`, color: "#14b8a6", stack: "cashflow" },
         { key: "saleDerivatives", label: `Vendas em ${currencyConfig.label} via Derivativos`, color: "#b7f7bd", stack: "cashflow" },
       ];
 
@@ -2703,6 +2847,28 @@ const convertValueToBrl = (value, currency, usdBrlRate) => {
   if (!amount) return 0;
   if (!isUsdCurrency(currency)) return amount;
   return Number.isFinite(usdBrlRate) && usdBrlRate > 0 ? amount * usdBrlRate : amount;
+};
+
+const getUsdBrlQuoteValue = (quotes = []) => {
+  const directMatch = (quotes || []).find((item) => String(item?.ticker || "").trim().toUpperCase() === "USDBRL");
+  const directValue = Number(directMatch?.price || 0);
+  return Number.isFinite(directValue) && directValue > 0 ? directValue : 0;
+};
+
+const shouldIncludeCashflowCurrency = (currencyConfig, currency) => {
+  if (currencyConfig?.key === "BRL") {
+    return isBrlCurrency(currency) || isUsdCurrency(currency);
+  }
+  return currencyConfig?.matcher?.(currency);
+};
+
+const resolveCashflowDisplayValue = (value, currency, currencyConfig, usdBrlRate) => {
+  const amount = Math.abs(Number(value || 0));
+  if (!amount) return 0;
+  if (currencyConfig?.key === "BRL" && isUsdCurrency(currency)) {
+    return convertValueToBrl(amount, currency, usdBrlRate);
+  }
+  return amount;
 };
 
 const getPhysicalCostValue = (item, usdBrlRate) =>
@@ -3850,10 +4016,13 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 const buildCashflowRows = ({
   sales,
   cashPayments,
+  otherCashOutflows,
+  otherEntries,
   derivatives,
   counterpartyMap,
   dashboardFilter,
   currencyConfig,
+  usdBrlRate,
   cropsById,
 }) => {
   const labelMap = getCashflowSeriesLabelMap(currencyConfig);
@@ -3874,9 +4043,12 @@ const buildCashflowRows = ({
         seasonKeys: ["safra"],
       }),
     )
-    .filter((item) => currencyConfig.matcher(item.moeda))
+    .filter((item) => shouldIncludeCashflowCurrency(currencyConfig, item.moeda))
     .map((item) => {
-      const date = parseDate(item.data_pagamento);
+      const cashflowDate = item.data_pagamento || item.data_vencimento;
+      const rawAmount = Number(item.valor ?? item.volume ?? 0);
+      const amount = resolveCashflowDisplayValue(rawAmount, item.moeda, currencyConfig, usdBrlRate);
+      const date = parseDate(cashflowDate);
       if (!date) return null;
       return {
         recordId: item.id,
@@ -3884,21 +4056,27 @@ const buildCashflowRows = ({
         categoryKey: "payments",
         category: labelMap.payments,
         date,
-        data: formatBrazilianDate(item.data_pagamento || date),
-        valor: -Math.abs(Number(item.volume || 0)),
-        volume: Number(item.volume || 0),
-        instituicao: counterpartyMap[String(item.contraparte)] || "",
+        data: formatBrazilianDate(cashflowDate || date),
+        valor: -Math.abs(amount),
+        volume: rawAmount,
+        instituicao: item.contraparte_texto || counterpartyMap[String(item.contraparte)] || "",
         descricao: item.descricao || "",
+        conversionNote:
+          currencyConfig?.key === "BRL" && isUsdCurrency(item.moeda) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}).`
+            : "",
       };
     })
     .filter(Boolean);
 
   const salesRows = sales
     .filter((item) => rowMatchesDashboardFilter(item, dashboardFilter))
-    .filter((item) => currencyConfig.matcher(item.moeda_contrato))
+    .filter((item) => shouldIncludeCashflowCurrency(currencyConfig, item.moeda_contrato))
     .map((item) => {
       const date = parseDate(item.data_pagamento || item.data_negociacao);
       if (!date) return null;
+      const rawAmount = Math.abs(Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0));
+      const amount = resolveCashflowDisplayValue(rawAmount, item.moeda_contrato, currencyConfig, usdBrlRate);
       return {
         recordId: item.id,
         resourceKey: "physical-sales",
@@ -3906,11 +4084,69 @@ const buildCashflowRows = ({
         category: labelMap.physicalSales,
         date,
         data: formatBrazilianDate(item.data_pagamento || item.data_negociacao || date),
-        valor: Math.abs(Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0)),
+        valor: amount,
         volume: Number(item.volume_fisico || 0),
         preco: Number(item.preco || 0),
         moedaUnidade: item.moeda_contrato && item.unidade_contrato ? `${item.moeda_contrato}/${item.unidade_contrato}` : item.moeda_contrato || "",
         instituicao: counterpartyMap[String(item.contraparte)] || "",
+        conversionNote:
+          currencyConfig?.key === "BRL" && isUsdCurrency(item.moeda_contrato) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}).`
+            : "",
+      };
+    })
+    .filter(Boolean);
+
+  const otherCashOutflowRows = otherCashOutflows
+    .filter((item) => rowMatchesDashboardFilter(item, dashboardFilter))
+    .filter((item) => shouldIncludeCashflowCurrency(currencyConfig, item.moeda))
+    .map((item) => {
+      const date = parseDate(item.data_pagamento);
+      if (!date) return null;
+      const rawAmount = Number(item.valor || 0);
+      const amount = resolveCashflowDisplayValue(rawAmount, item.moeda, currencyConfig, usdBrlRate);
+      return {
+        recordId: item.id,
+        resourceKey: "other-cash-outflows",
+        categoryKey: "otherCashOutflows",
+        category: labelMap.otherCashOutflows,
+        date,
+        data: formatBrazilianDate(item.data_pagamento || date),
+        valor: -Math.abs(amount),
+        volume: rawAmount,
+        descricao: item.descricao || "",
+        instituicao: "",
+        conversionNote:
+          currencyConfig?.key === "BRL" && isUsdCurrency(item.moeda) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}).`
+            : "",
+      };
+    })
+    .filter(Boolean);
+
+  const otherEntryRows = otherEntries
+    .filter((item) => rowMatchesDashboardFilter(item, dashboardFilter))
+    .filter((item) => shouldIncludeCashflowCurrency(currencyConfig, item.moeda))
+    .map((item) => {
+      const date = parseDate(item.data_entrada);
+      if (!date) return null;
+      const rawAmount = Number(item.valor || 0);
+      const amount = resolveCashflowDisplayValue(rawAmount, item.moeda, currencyConfig, usdBrlRate);
+      return {
+        recordId: item.id,
+        resourceKey: "other-entries",
+        categoryKey: "otherEntries",
+        category: labelMap.otherEntries,
+        date,
+        data: formatBrazilianDate(item.data_entrada || date),
+        valor: Math.abs(amount),
+        volume: rawAmount,
+        descricao: item.descricao || "",
+        instituicao: "",
+        conversionNote:
+          currencyConfig?.key === "BRL" && isUsdCurrency(item.moeda) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}).`
+            : "",
       };
     })
     .filter(Boolean);
@@ -3922,12 +4158,15 @@ const buildCashflowRows = ({
       }),
     )
     .filter((item) => normalizeText(item.moeda_ou_cmdtye) === "moeda")
-    .filter((item) => currencyConfig.matcher(item.volume_financeiro_moeda || item.moeda_unidade))
+    .filter((item) => shouldIncludeCashflowCurrency(currencyConfig, item.volume_financeiro_moeda || item.moeda_unidade))
     .map((item) => {
       const date = parseDate(item.data_liquidacao || item.data_contratacao);
       if (!date) return null;
       const cashflowSide = getDerivativeCashflowSide(item, currencyConfig, cropsById);
       if (!cashflowSide) return null;
+      const derivativeCurrency = item.volume_financeiro_moeda || item.moeda_unidade;
+      const rawAmount = Number(item.volume_financeiro_valor_moeda_original ?? item.volume_financeiro_valor ?? 0);
+      const amount = resolveCashflowDisplayValue(rawAmount, derivativeCurrency, currencyConfig, usdBrlRate);
       return {
         recordId: item.id,
         resourceKey: "derivative-operations",
@@ -3935,17 +4174,21 @@ const buildCashflowRows = ({
         category: labelMap[cashflowSide],
         date,
         data: formatBrazilianDate(item.data_liquidacao || item.data_contratacao || date),
-        valor: Math.abs(Number(item.volume_financeiro_valor_moeda_original ?? item.volume_financeiro_valor ?? 0)),
+        valor: Math.abs(amount),
         volume: Number(item.volume || item.numero_lotes || 0),
         preco: Number(item.strike_montagem || item.strike_liquidacao || 0),
         moedaUnidade: item.moeda_unidade || item.volume_financeiro_moeda || "",
         instituicao: item.bolsa_ref || counterpartyMap[String(item.contraparte)] || "",
         tipo: item.tipo_derivativo || "",
+        conversionNote:
+          currencyConfig?.key === "BRL" && isUsdCurrency(derivativeCurrency) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}).`
+            : "",
       };
     })
     .filter(Boolean);
 
-  return reconcileCashflowRows([...paymentRows, ...salesRows, ...derivativeRows], currencyConfig);
+  return reconcileCashflowRows([...paymentRows, ...otherCashOutflowRows, ...salesRows, ...otherEntryRows, ...derivativeRows], currencyConfig);
 };
 
 const buildCashflowChartState = (rows, interval, currencyConfig, dateRange) => {
@@ -4047,6 +4290,7 @@ function CashflowCurrencyChart({
   onOpenTable,
   sectionRef,
   onDateRangeChange,
+  conversionMessage = "",
 }) {
   const chartWrapRef = useRef(null);
   const [chartWidth, setChartWidth] = useState(0);
@@ -4544,6 +4788,7 @@ function CashflowCurrencyChart({
         <div>
           <h3>{currencyConfig.title}</h3>
           <p className="muted">{isExpanded ? "Clique nas barras para detalhar e use o seletor inferior para recortar o período." : "Clique nas barras para detalhar o período."}</p>
+          {conversionMessage ? <p className="muted">{conversionMessage}</p> : null}
         </div>
         <div className="chart-toolbar cashflow-chart-toolbar">
           {onToggleExpand ? (
@@ -4631,9 +4876,12 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
   });
   const [sales, setSales] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
+  const [otherCashOutflows, setOtherCashOutflows] = useState([]);
+  const [otherEntries, setOtherEntries] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
   const [counterparties, setCounterparties] = useState([]);
   const [crops, setCrops] = useState([]);
+  const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
     sales,
     setSales,
@@ -4641,23 +4889,33 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
     setDerivatives,
     cashPayments,
     setCashPayments,
+    otherCashOutflows,
+    setOtherCashOutflows,
+    otherEntries,
+    setOtherEntries,
   });
 
   useEffect(() => {
     let isMounted = true;
     Promise.all([
-      resourceService.listAll("physical-sales"),
-      resourceService.listAll("cash-payments"),
-      resourceService.listAll("derivative-operations"),
-      resourceService.listAll("counterparties"),
-      resourceService.listAll("crops"),
-    ]).then(([salesResponse, cashPaymentsResponse, derivativesResponse, counterpartiesResponse, cropsResponse]) => {
+      resourceService.listAll("physical-sales").catch(() => []),
+      resourceService.listAll("cash-payments").catch(() => []),
+      resourceService.listAll("other-cash-outflows").catch(() => []),
+      resourceService.listAll("other-entries").catch(() => []),
+      resourceService.listAll("derivative-operations").catch(() => []),
+      resourceService.listAll("counterparties").catch(() => []),
+      resourceService.listAll("crops").catch(() => []),
+      resourceService.listTradingviewQuotes().catch(() => []),
+    ]).then(([salesResponse, cashPaymentsResponse, otherCashOutflowsResponse, otherEntriesResponse, derivativesResponse, counterpartiesResponse, cropsResponse, tradingviewQuotesResponse]) => {
       if (!isMounted) return;
       setSales(salesResponse || []);
       setCashPayments(cashPaymentsResponse || []);
+      setOtherCashOutflows(otherCashOutflowsResponse || []);
+      setOtherEntries(otherEntriesResponse || []);
       setDerivatives(derivativesResponse || []);
       setCounterparties(counterpartiesResponse || []);
       setCrops(cropsResponse || []);
+      setTradingviewQuotes(tradingviewQuotesResponse || []);
     });
     return () => {
       isMounted = false;
@@ -4672,6 +4930,14 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
     () => Object.fromEntries((crops || []).map((item) => [String(item.id), item])),
     [crops],
   );
+  const usdBrlQuote = useMemo(() => getUsdBrlQuoteValue(tradingviewQuotes), [tradingviewQuotes]);
+  const brlConversionMessage = useMemo(
+    () =>
+      usdBrlQuote > 0
+        ? `Valores em U$ foram convertidos para R$ usando o USDBRL de hoje: ${usdBrlQuote.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}.`
+        : "Valores em U$ devem ser convertidos para R$ pelo USDBRL de hoje quando a cotação estiver disponível.",
+    [usdBrlQuote],
+  );
   const defaultVisibleRange = useMemo(
     () => ({
       start: defaultSelectionRange.fromBrazilian,
@@ -4685,14 +4951,17 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
         buildCashflowRows({
           sales,
           cashPayments,
+          otherCashOutflows,
+          otherEntries,
           derivatives,
           counterpartyMap,
           dashboardFilter,
           currencyConfig,
+          usdBrlQuote,
           cropsById,
         }),
       ),
-    [cashPayments, counterpartyMap, cropsById, dashboardFilter, derivatives, sales],
+    [cashPayments, counterpartyMap, cropsById, dashboardFilter, derivatives, otherCashOutflows, otherEntries, sales, usdBrlQuote],
   );
   const sliderRange = useMemo(() => {
     const numericTimes = allCurrencyRows
@@ -4734,15 +5003,23 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
     const definition =
       resourceKey === "cash-payments"
         ? resourceDefinitions.cashPayments
+        : resourceKey === "other-cash-outflows"
+          ? resourceDefinitions.otherCashOutflows
         : resourceKey === "physical-sales"
           ? resourceDefinitions.physicalSales
-          : resourceDefinitions.derivativeOperations;
+          : resourceKey === "other-entries"
+            ? resourceDefinitions.otherEntries
+            : resourceDefinitions.derivativeOperations;
     const sourceRows =
       resourceKey === "cash-payments"
         ? cashPayments
+        : resourceKey === "other-cash-outflows"
+          ? otherCashOutflows
         : resourceKey === "physical-sales"
           ? sales
-          : derivatives;
+          : resourceKey === "other-entries"
+            ? otherEntries
+            : derivatives;
     const ids = new Set(
       chartRows
         .map((item) => item.recordId)
@@ -4756,7 +5033,7 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
       definition,
       rows: filteredRows,
     });
-  }, [cashPayments, derivatives, sales]);
+  }, [cashPayments, derivatives, otherCashOutflows, otherEntries, sales]);
 
   const currencyRows = useMemo(
     () =>
@@ -4766,15 +5043,18 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
           buildCashflowRows({
             sales,
             cashPayments,
+            otherCashOutflows,
+            otherEntries,
             derivatives,
             counterpartyMap,
             dashboardFilter,
             currencyConfig,
+            usdBrlQuote,
             cropsById,
           }),
         ]),
       ),
-    [cashPayments, counterpartyMap, cropsById, dashboardFilter, derivatives, sales],
+    [cashPayments, counterpartyMap, cropsById, dashboardFilter, derivatives, otherCashOutflows, otherEntries, sales, usdBrlQuote],
   );
 
   const visibleCurrencies = useMemo(
@@ -4863,6 +5143,7 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
           isExpanded={compact && isMobileViewport ? true : expandedCurrencyKey === currencyConfig.key}
           onOpenTable={handleOpenTable}
           onDateRangeChange={handleDateRangeChange}
+          conversionMessage={currencyConfig.key === "BRL" ? brlConversionMessage : ""}
           sectionRef={(node) => {
             if (node) {
               sectionRefs.current[currencyConfig.key] = node;
@@ -4890,6 +5171,1080 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
             recordId: row.id,
             resourceKey: selectedTableModal.definition.resource,
           })}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+const formatCashflowDailyCurrency = (value) =>
+  `R$ ${Number(value || 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`;
+
+const formatCashflowDailyInteger = (value) =>
+  Number(value || 0).toLocaleString("pt-BR", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+
+const resolvePhysicalSaleDailyAmountBrl = (item) => {
+  const contractValue = Math.abs(Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0));
+  if (!contractValue) return 0;
+  if (isUsdCurrency(item.moeda_contrato)) {
+    const fxRate = Number(item.dolar_de_venda || 0);
+    return fxRate > 0 ? contractValue * fxRate : contractValue;
+  }
+  return contractValue;
+};
+
+const buildCashflowDailyEntries = ({ sales, cashPayments, otherCashOutflows, otherEntries, derivatives, dashboardFilter, counterpartyMap, usdBrlRate }) => {
+  const salesEntries = (sales || [])
+    .filter((item) => rowMatchesDashboardFilter(item, dashboardFilter))
+    .filter((item) => normalizeText(item.compra_venda) !== "compra")
+    .map((item) => {
+      const date = startOfDashboardDay(item.data_pagamento);
+      if (!date) return null;
+      const rawAmount = Math.abs(Number(item.faturamento_total_contrato || 0) || Number(item.preco || 0) * Number(item.volume_fisico || 0));
+      const amount = resolveCashflowDisplayValue(rawAmount, item.moeda_contrato, { key: "BRL" }, usdBrlRate);
+      return {
+        id: `sale-${item.id}`,
+        recordId: item.id,
+        resourceKey: "physical-sales",
+        type: "entrada",
+        typeLabel: "Venda Físico",
+        date,
+        dateKey: dashboardDateKey(date),
+        amount,
+        currency: "R$",
+        title: item.cultura_produto || "Venda físico",
+        subtitle: counterpartyMap[String(item.contraparte)] || item.localidade || "",
+        description: item.obs || "",
+        meta: [
+          item.volume_fisico ? `${Number(item.volume_fisico).toLocaleString("pt-BR")} ${item.unidade_contrato || ""}`.trim() : "",
+          item.preco ? `Preço ${Number(item.preco).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "",
+          isUsdCurrency(item.moeda_contrato) && Number(item.dolar_de_venda || 0) > 0
+            ? `Câmbio ${Number(item.dolar_de_venda).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`
+            : "",
+          isUsdCurrency(item.moeda_contrato) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    })
+    .filter(Boolean);
+
+  const cashEntries = (cashPayments || [])
+    .filter((item) =>
+      rowMatchesDashboardFilter(item, dashboardFilter, {
+        cultureKeys: ["fazer_frente_com"],
+        seasonKeys: ["safra"],
+      }),
+    )
+    .map((item) => {
+      const cashflowDate = item.data_pagamento || item.data_vencimento;
+      const amount = resolveCashflowDisplayValue(Number(item.valor ?? item.volume ?? 0), item.moeda, { key: "BRL" }, usdBrlRate);
+      const date = startOfDashboardDay(cashflowDate);
+      if (!date) return null;
+      return {
+        id: `cash-${item.id}`,
+        recordId: item.id,
+        resourceKey: "cash-payments",
+        statusField: "status",
+        statusValue: item.status || "Pendente",
+        statusOptions: CASHFLOW_STATUS_OPTIONS.payments,
+        type: "saida",
+        typeLabel: "Pgto Caixa",
+        date,
+        dateKey: dashboardDateKey(date),
+        amount: -Math.abs(amount),
+        currency: item.moeda || "R$",
+        title: item.descricao || "Pagamento caixa",
+        subtitle: item.contraparte_texto || counterpartyMap[String(item.contraparte)] || "",
+        description: item.obs || "",
+        meta: [
+          isUsdCurrency(item.moeda) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
+            : "",
+        ].filter(Boolean).join(" · "),
+      };
+    })
+    .filter(Boolean);
+
+  const otherCashOutflowEntries = (otherCashOutflows || [])
+    .filter((item) => rowMatchesDashboardFilter(item, dashboardFilter))
+    .map((item) => {
+      const date = startOfDashboardDay(item.data_pagamento);
+      if (!date) return null;
+      const amount = resolveCashflowDisplayValue(Number(item.valor || 0), item.moeda, { key: "BRL" }, usdBrlRate);
+      return {
+        id: `other-cash-outflow-${item.id}`,
+        recordId: item.id,
+        resourceKey: "other-cash-outflows",
+        statusField: "status",
+        statusValue: item.status || "Pendente",
+        statusOptions: CASHFLOW_STATUS_OPTIONS.otherCashOutflows,
+        type: "saida",
+        typeLabel: "Outras saídas Caixa",
+        date,
+        dateKey: dashboardDateKey(date),
+        amount: -Math.abs(amount),
+        currency: item.moeda || "R$",
+        title: item.descricao || "Outra saída",
+        subtitle: "",
+        description: item.obs || "",
+        meta: [
+          isUsdCurrency(item.moeda) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
+            : "",
+        ].filter(Boolean).join(" · "),
+      };
+    })
+    .filter(Boolean);
+
+  const otherEntriesRows = (otherEntries || [])
+    .filter((item) => rowMatchesDashboardFilter(item, dashboardFilter))
+    .map((item) => {
+      const date = startOfDashboardDay(item.data_entrada);
+      if (!date) return null;
+      const amount = resolveCashflowDisplayValue(Number(item.valor || 0), item.moeda, { key: "BRL" }, usdBrlRate);
+      return {
+        id: `other-entry-${item.id}`,
+        recordId: item.id,
+        resourceKey: "other-entries",
+        statusField: "status",
+        statusValue: item.status || "Previsto",
+        statusOptions: CASHFLOW_STATUS_OPTIONS.otherEntries,
+        type: "entrada",
+        typeLabel: "Outras Entradas Caixa",
+        date,
+        dateKey: dashboardDateKey(date),
+        amount: Math.abs(amount),
+        currency: item.moeda || "R$",
+        title: item.descricao || "Outra entrada",
+        subtitle: "",
+        description: item.obs || "",
+        meta: [
+          isUsdCurrency(item.moeda) && usdBrlRate > 0
+            ? `Valor em U$ convertido para R$ pelo USDBRL de hoje (${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })})`
+            : "",
+        ].filter(Boolean).join(" · "),
+      };
+    })
+    .filter(Boolean);
+
+  const derivativeEntries = (derivatives || [])
+    .filter((item) =>
+      rowMatchesDashboardFilter(item, dashboardFilter, {
+        cultureKeys: DERIVATIVE_CULTURE_KEYS,
+      }),
+    )
+    .map((item) => {
+      const date = startOfDashboardDay(item.data_liquidacao || item.data_contratacao);
+      if (!date) return null;
+      const amount = Number(item.ajustes_totais_brl || 0);
+      if (!amount) return null;
+      return {
+        id: `derivative-${item.id}`,
+        recordId: item.id,
+        resourceKey: "derivative-operations",
+        statusField: "status_operacao",
+        statusValue: normalizeText(item.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto",
+        statusOptions: CASHFLOW_STATUS_OPTIONS.derivatives,
+        type: amount >= 0 ? "entrada" : "saida",
+        typeLabel: amount >= 0 ? "Ajuste MTM Derivativo" : "Ajuste MTM Derivativo",
+        date,
+        dateKey: dashboardDateKey(date),
+        amount,
+        currency: "R$",
+        title: item.nome_da_operacao || item.cod_operacao_mae || "Derivativo",
+        subtitle: item.bolsa_ref || counterpartyMap[String(item.contraparte)] || "",
+        description: item.obs || "",
+        meta: [
+          item.tipo_derivativo ? `Tipo ${item.tipo_derivativo}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      };
+    })
+    .filter(Boolean);
+
+  return [...salesEntries, ...cashEntries, ...otherCashOutflowEntries, ...otherEntriesRows, ...derivativeEntries].sort((left, right) => {
+    const timeDiff = (left.date?.getTime?.() || 0) - (right.date?.getTime?.() || 0);
+    if (timeDiff !== 0) return timeDiff;
+    return Number(right.amount || 0) - Number(left.amount || 0);
+  });
+};
+
+function CashflowDailyDashboard({ dashboardFilter }) {
+  const defaultRange = useMemo(() => buildCashflowDailyDefaultDateRange(), []);
+  const [dateStart, setDateStart] = useState(defaultRange.startIso);
+  const [dateEnd, setDateEnd] = useState(defaultRange.endIso);
+  const [chartInterval, setChartInterval] = useState("daily");
+  const [initialBalanceInput, setInitialBalanceInput] = useState("0");
+  const [openingBalanceOverrides, setOpeningBalanceOverrides] = useState({});
+  const [entriesOverrides, setEntriesOverrides] = useState({});
+  const [outputsOverrides, setOutputsOverrides] = useState({});
+  const [expandedDays, setExpandedDays] = useState(() => new Set());
+  const [entryPickerOpen, setEntryPickerOpen] = useState(false);
+  const [outputPickerOpen, setOutputPickerOpen] = useState(false);
+  const [summaryModal, setSummaryModal] = useState(null);
+  const [createModal, setCreateModal] = useState(null);
+  const [createFormError, setCreateFormError] = useState("");
+  const [sales, setSales] = useState([]);
+  const [cashPayments, setCashPayments] = useState([]);
+  const [otherCashOutflows, setOtherCashOutflows] = useState([]);
+  const [otherEntries, setOtherEntries] = useState([]);
+  const [derivatives, setDerivatives] = useState([]);
+  const [counterparties, setCounterparties] = useState([]);
+  const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
+  const [statusSavingByEntry, setStatusSavingByEntry] = useState({});
+  const [statusErrorByEntry, setStatusErrorByEntry] = useState({});
+  const { openOperationForm, editorNode } = useDashboardOperationEditor({
+    sales,
+    setSales,
+    derivatives,
+    setDerivatives,
+    cashPayments,
+    setCashPayments,
+    otherCashOutflows,
+    setOtherCashOutflows,
+    otherEntries,
+    setOtherEntries,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([
+      resourceService.listAll("physical-sales").catch(() => []),
+      resourceService.listAll("cash-payments").catch(() => []),
+      resourceService.listAll("other-cash-outflows").catch(() => []),
+      resourceService.listAll("other-entries").catch(() => []),
+      resourceService.listAll("derivative-operations").catch(() => []),
+      resourceService.listAll("counterparties").catch(() => []),
+      resourceService.listTradingviewQuotes().catch(() => []),
+    ]).then(([salesResponse, cashPaymentsResponse, otherCashOutflowsResponse, otherEntriesResponse, derivativesResponse, counterpartiesResponse, tradingviewQuotesResponse]) => {
+      if (!isMounted) return;
+      setSales(salesResponse || []);
+      setCashPayments(cashPaymentsResponse || []);
+      setOtherCashOutflows(otherCashOutflowsResponse || []);
+      setOtherEntries(otherEntriesResponse || []);
+      setDerivatives(derivativesResponse || []);
+      setCounterparties(counterpartiesResponse || []);
+      setTradingviewQuotes(tradingviewQuotesResponse || []);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const counterpartyMap = useMemo(
+    () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.contraparte || item.obs || `#${item.id}`])),
+    [counterparties],
+  );
+  const usdBrlQuote = useMemo(() => getUsdBrlQuoteValue(tradingviewQuotes), [tradingviewQuotes]);
+  const replaceRowById = useCallback((items, updated) => items.map((row) => (String(row.id) === String(updated.id) ? updated : row)), []);
+  const handleInlineStatusChange = useCallback(async (entry, nextStatus) => {
+    if (!entry?.recordId || !entry?.resourceKey || !entry?.statusField) return;
+    if (String(entry.statusValue || "") === String(nextStatus || "")) return;
+
+    setStatusSavingByEntry((current) => ({ ...current, [entry.id]: true }));
+    setStatusErrorByEntry((current) => {
+      const next = { ...current };
+      delete next[entry.id];
+      return next;
+    });
+
+    try {
+      const saved = await resourceService.patch(entry.resourceKey, entry.recordId, {
+        [entry.statusField]: nextStatus,
+      });
+
+      if (entry.resourceKey === "cash-payments") {
+        setCashPayments((currentRows) => replaceRowById(currentRows, saved));
+      } else if (entry.resourceKey === "other-cash-outflows") {
+        setOtherCashOutflows((currentRows) => replaceRowById(currentRows, saved));
+      } else if (entry.resourceKey === "other-entries") {
+        setOtherEntries((currentRows) => replaceRowById(currentRows, saved));
+      } else if (entry.resourceKey === "derivative-operations") {
+        setDerivatives((currentRows) => replaceRowById(currentRows, saved));
+      }
+    } catch (error) {
+      setStatusErrorByEntry((current) => ({
+        ...current,
+        [entry.id]: error?.response?.data?.detail || "Nao foi possivel salvar o status.",
+      }));
+    } finally {
+      setStatusSavingByEntry((current) => {
+        const next = { ...current };
+        delete next[entry.id];
+        return next;
+      });
+    }
+  }, [replaceRowById, setCashPayments, setDerivatives, setOtherCashOutflows, setOtherEntries]);
+
+  const initialBalance = useMemo(() => parseLocalizedNumber(initialBalanceInput), [initialBalanceInput]);
+  const rangeStart = useMemo(() => startOfDashboardDay(dateStart), [dateStart]);
+  const rangeEnd = useMemo(() => startOfDashboardDay(dateEnd), [dateEnd]);
+  const hasOpenDateRange = !rangeStart || !rangeEnd;
+  const normalizedEnd = useMemo(() => {
+    if (!rangeStart || !rangeEnd) return rangeEnd;
+    return rangeEnd >= rangeStart ? rangeEnd : rangeStart;
+  }, [rangeEnd, rangeStart]);
+
+  useEffect(() => {
+    if (!rangeStart || !rangeEnd || rangeEnd >= rangeStart) return;
+    setDateEnd(formatIsoDate(rangeStart));
+  }, [rangeEnd, rangeStart]);
+
+  const entries = useMemo(
+    () => buildCashflowDailyEntries({ sales, cashPayments, otherCashOutflows, otherEntries, derivatives, dashboardFilter, counterpartyMap, usdBrlRate: usdBrlQuote }),
+    [cashPayments, counterpartyMap, dashboardFilter, derivatives, otherCashOutflows, otherEntries, sales, usdBrlQuote],
+  );
+
+  const entriesDateBounds = useMemo(() => {
+    const datedEntries = entries.filter((entry) => entry.date?.getTime?.());
+    if (!datedEntries.length) return { start: null, end: null };
+
+    return datedEntries.reduce(
+      (acc, entry) => {
+        const time = entry.date.getTime();
+        if (!acc.start || time < acc.start.getTime()) acc.start = entry.date;
+        if (!acc.end || time > acc.end.getTime()) acc.end = entry.date;
+        return acc;
+      },
+      { start: null, end: null },
+    );
+  }, [entries]);
+
+  const effectiveRangeStart = hasOpenDateRange ? entriesDateBounds.start : rangeStart;
+  const effectiveRangeEnd = hasOpenDateRange ? entriesDateBounds.end : normalizedEnd;
+
+  const createFormFields = createModal?.definition?.fields || [];
+  const createInitialValues = useMemo(() => {
+    if (!createModal) return {};
+    return {
+      grupo: dashboardFilter?.grupo?.length === 1 ? dashboardFilter.grupo[0] : "",
+      subgrupo: dashboardFilter?.subgrupo?.length === 1 ? dashboardFilter.subgrupo[0] : "",
+    };
+  }, [createModal, dashboardFilter?.grupo, dashboardFilter?.subgrupo]);
+
+  const closeCreateModal = useCallback(() => {
+    setCreateModal(null);
+    setCreateFormError("");
+    setEntryPickerOpen(false);
+    setOutputPickerOpen(false);
+  }, []);
+
+  const openCreateModal = useCallback((definition, title) => {
+    setCreateFormError("");
+    setEntryPickerOpen(false);
+    setCreateModal({ definition, title });
+  }, []);
+
+  const entriesByDate = useMemo(
+    () =>
+      entries.reduce((acc, entry) => {
+        if (!acc[entry.dateKey]) acc[entry.dateKey] = [];
+        acc[entry.dateKey].push(entry);
+        return acc;
+      }, {}),
+    [entries],
+  );
+
+  const visibleEntries = useMemo(() => {
+    if (hasOpenDateRange) {
+      return entries.filter((entry) => Number.isFinite(entry.date?.getTime?.()));
+    }
+    if (!rangeStart || !normalizedEnd) return [];
+    const startTime = rangeStart.getTime();
+    const endTime = normalizedEnd.getTime();
+    return entries.filter((entry) => {
+      const entryTime = entry.date?.getTime?.();
+      return Number.isFinite(entryTime) && entryTime >= startTime && entryTime <= endTime;
+    });
+  }, [entries, hasOpenDateRange, normalizedEnd, rangeStart]);
+
+  const dayRows = useMemo(() => {
+    if (!effectiveRangeStart || !effectiveRangeEnd) return [];
+    const rows = [];
+    const cursor = new Date(effectiveRangeStart);
+    let runningBalance = initialBalance;
+
+    while (cursor <= effectiveRangeEnd) {
+      const date = new Date(cursor);
+      const dateKey = dashboardDateKey(date);
+      const launches = (entriesByDate[dateKey] || []).slice().sort((left, right) => Number(right.amount || 0) - Number(left.amount || 0));
+      const calculatedTotalIn = launches.reduce((sum, item) => sum + (Number(item.amount || 0) > 0 ? Number(item.amount || 0) : 0), 0);
+      const calculatedTotalOut = launches.reduce((sum, item) => sum + (Number(item.amount || 0) < 0 ? Math.abs(Number(item.amount || 0)) : 0), 0);
+      const overriddenTotalIn = entriesOverrides[dateKey];
+      const overriddenTotalOut = outputsOverrides[dateKey];
+      const totalIn = overriddenTotalIn !== undefined ? parseLocalizedNumber(overriddenTotalIn) : calculatedTotalIn;
+      const totalOut = overriddenTotalOut !== undefined ? parseLocalizedNumber(overriddenTotalOut) : calculatedTotalOut;
+      const overriddenOpeningBalance = openingBalanceOverrides[dateKey];
+      const openingBalance = overriddenOpeningBalance !== undefined
+        ? parseLocalizedNumber(overriddenOpeningBalance)
+        : runningBalance;
+      const closingBalance = openingBalance + totalIn - totalOut;
+
+      rows.push({
+        date,
+        dateKey,
+        label: formatCashflowDailyTableDate(date),
+        isToday: dateKey === dashboardDateKey(new Date()),
+        launches,
+        launchCount: launches.length,
+        totalIn,
+        totalOut,
+        totalInInput: overriddenTotalIn ?? formatCashflowDailyInteger(totalIn),
+        totalOutInput: overriddenTotalOut ?? formatCashflowDailyInteger(totalOut),
+        openingBalance,
+        openingBalanceInput: overriddenOpeningBalance ?? formatCashflowDailyInteger(openingBalance),
+        closingBalance,
+      });
+
+      runningBalance = closingBalance;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return rows;
+  }, [effectiveRangeEnd, effectiveRangeStart, entriesByDate, entriesOverrides, initialBalance, openingBalanceOverrides, outputsOverrides]);
+
+  const summary = useMemo(() => {
+    const totalIn = dayRows.reduce((sum, row) => sum + row.totalIn, 0);
+    const totalOut = dayRows.reduce((sum, row) => sum + row.totalOut, 0);
+    return {
+      totalIn,
+      totalOut,
+      finalBalance: dayRows.length ? dayRows[dayRows.length - 1].closingBalance : initialBalance,
+      totalDays: dayRows.length,
+      activeDays: dayRows.filter((row) => row.launchCount > 0).length,
+      foreignCurrencyEntries: visibleEntries.filter((item) => !isBrlCurrency(item.currency)).length,
+    };
+  }, [dayRows, initialBalance, visibleEntries]);
+
+  const totalInEntries = useMemo(
+    () => visibleEntries.filter((entry) => Number(entry.amount || 0) > 0),
+    [visibleEntries],
+  );
+
+  const totalOutEntries = useMemo(
+    () => visibleEntries.filter((entry) => Number(entry.amount || 0) < 0),
+    [visibleEntries],
+  );
+
+  const groupedChartRows = useMemo(() => {
+    if (chartInterval === "daily") {
+      return dayRows.map((row) => ({
+        label: row.label,
+        totalIn: row.totalIn,
+        totalOut: row.totalOut,
+        closingBalance: row.closingBalance,
+      }));
+    }
+
+    if (chartInterval === "geral") {
+      return [{
+        label: "Geral",
+        totalIn: dayRows.reduce((sum, row) => sum + row.totalIn, 0),
+        totalOut: dayRows.reduce((sum, row) => sum + row.totalOut, 0),
+        closingBalance: dayRows.length ? dayRows[dayRows.length - 1].closingBalance : initialBalance,
+      }];
+    }
+
+    const grouped = new Map();
+
+    dayRows.forEach((row) => {
+      const date = row.date;
+      if (!date) return;
+
+      let key = "";
+      let label = "";
+
+      if (chartInterval === "weekly") {
+        const start = startOfDashboardWeek(date);
+        const end = endOfDashboardWeek(date);
+        key = dashboardDateKey(start);
+        label = `${formatShortBrazilianDate(start)} a ${formatShortBrazilianDate(end)}`;
+      } else if (chartInterval === "monthly") {
+        const start = startOfDashboardMonth(date);
+        key = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`;
+        label = formatCashflowMonthYear(start);
+      } else if (chartInterval === "yearly") {
+        key = String(date.getFullYear());
+        label = String(date.getFullYear());
+      }
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          label,
+          totalIn: 0,
+          totalOut: 0,
+          closingBalance: row.closingBalance,
+          sortValue: date.getTime(),
+        });
+      }
+
+      const bucket = grouped.get(key);
+      bucket.totalIn += row.totalIn;
+      bucket.totalOut += row.totalOut;
+      bucket.closingBalance = row.closingBalance;
+    });
+
+    return Array.from(grouped.values()).sort((left, right) => left.sortValue - right.sortValue);
+  }, [chartInterval, dayRows, initialBalance]);
+
+  const cashflowDailyChartOption = useMemo(() => ({
+    animationDuration: 250,
+    grid: {
+      top: 34,
+      right: 24,
+      bottom: 56,
+      left: 56,
+    },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "cross" },
+      valueFormatter: (value) =>
+        `R$ ${Number(value || 0).toLocaleString("pt-BR", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })}`,
+    },
+    legend: {
+      bottom: 10,
+      itemWidth: 12,
+      itemHeight: 12,
+      textStyle: {
+        color: "#475569",
+        fontSize: 12,
+        fontWeight: 700,
+      },
+    },
+    xAxis: {
+      type: "category",
+      data: groupedChartRows.map((row) => row.label),
+      axisLabel: {
+        color: "#64748b",
+        fontSize: 11,
+        interval: groupedChartRows.length > 24 ? Math.ceil(groupedChartRows.length / 12) - 1 : 0,
+      },
+      axisLine: {
+        lineStyle: {
+          color: "rgba(15,23,42,0.12)",
+        },
+      },
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: {
+        color: "#64748b",
+        fontSize: 11,
+        formatter: (value) => Number(value || 0).toLocaleString("pt-BR"),
+      },
+      splitLine: {
+        lineStyle: {
+          color: "rgba(15,23,42,0.08)",
+        },
+      },
+    },
+    series: [
+      {
+        name: "Entradas",
+        type: "bar",
+        data: groupedChartRows.map((row) => row.totalIn),
+        itemStyle: {
+          color: "#16a34a",
+          borderRadius: [6, 6, 0, 0],
+        },
+      },
+      {
+        name: "Saídas",
+        type: "bar",
+        data: groupedChartRows.map((row) => -Math.abs(row.totalOut)),
+        itemStyle: {
+          color: "#dc2626",
+          borderRadius: [6, 6, 0, 0],
+        },
+      },
+      {
+        name: "Saldo final",
+        type: "line",
+        smooth: false,
+        data: groupedChartRows.map((row) => (row.closingBalance >= 0 ? row.closingBalance : null)),
+        symbol: "circle",
+        symbolSize: 7,
+        lineStyle: {
+          width: 3,
+          color: "#16a34a",
+        },
+        itemStyle: {
+          color: "#16a34a",
+          borderColor: "#ffffff",
+          borderWidth: 2,
+        },
+      },
+      {
+        name: "Saldo final",
+        type: "line",
+        smooth: false,
+        data: groupedChartRows.map((row) => (row.closingBalance < 0 ? row.closingBalance : null)),
+        symbol: "circle",
+        symbolSize: 7,
+        lineStyle: {
+          width: 3,
+          color: "#dc2626",
+        },
+        itemStyle: {
+          color: "#dc2626",
+          borderColor: "#ffffff",
+          borderWidth: 2,
+        },
+      },
+    ],
+  }), [groupedChartRows]);
+
+  const toggleDay = useCallback((dateKey) => {
+    setExpandedDays((current) => {
+      const next = new Set(current);
+      if (next.has(dateKey)) next.delete(dateKey);
+      else next.add(dateKey);
+      return next;
+    });
+  }, []);
+
+  const handleOpeningBalanceChange = useCallback((dateKey, value) => {
+    setOpeningBalanceOverrides((current) => ({
+      ...current,
+      [dateKey]: value,
+    }));
+  }, []);
+
+  const handleOpeningBalanceBlur = useCallback((dateKey, fallbackValue) => {
+    setOpeningBalanceOverrides((current) => {
+      const rawValue = String(current[dateKey] ?? "").trim();
+      if (!rawValue) {
+        const next = { ...current };
+        delete next[dateKey];
+        return next;
+      }
+      return {
+        ...current,
+        [dateKey]: formatCashflowDailyInteger(parseLocalizedNumber(rawValue || fallbackValue)),
+      };
+    });
+  }, []);
+
+  const handleEntriesChange = useCallback((dateKey, value) => {
+    setEntriesOverrides((current) => ({
+      ...current,
+      [dateKey]: value,
+    }));
+  }, []);
+
+  const handleEntriesBlur = useCallback((dateKey, fallbackValue) => {
+    setEntriesOverrides((current) => {
+      const rawValue = String(current[dateKey] ?? "").trim();
+      if (!rawValue) {
+        const next = { ...current };
+        delete next[dateKey];
+        return next;
+      }
+      return {
+        ...current,
+        [dateKey]: formatCashflowDailyInteger(parseLocalizedNumber(rawValue || fallbackValue)),
+      };
+    });
+  }, []);
+
+  const handleOutputsChange = useCallback((dateKey, value) => {
+    setOutputsOverrides((current) => ({
+      ...current,
+      [dateKey]: value,
+    }));
+  }, []);
+
+  const handleOutputsBlur = useCallback((dateKey, fallbackValue) => {
+    setOutputsOverrides((current) => {
+      const rawValue = String(current[dateKey] ?? "").trim();
+      if (!rawValue) {
+        const next = { ...current };
+        delete next[dateKey];
+        return next;
+      }
+      return {
+        ...current,
+        [dateKey]: formatCashflowDailyInteger(parseLocalizedNumber(rawValue || fallbackValue)),
+      };
+    });
+  }, []);
+
+  const openSummaryModal = useCallback((type) => {
+    if (type === "in") {
+      setSummaryModal({
+        title: "Operações de entradas",
+        entries: totalInEntries,
+        totalAmount: summary.totalIn,
+      });
+      return;
+    }
+
+    setSummaryModal({
+      title: "Operações de saídas",
+      entries: totalOutEntries,
+      totalAmount: summary.totalOut,
+    });
+  }, [summary.totalIn, summary.totalOut, totalInEntries, totalOutEntries]);
+
+  const cashflowDailyInsightMessage = (
+    <SummaryInsightCopy
+      paragraphs={[
+        "O saldo percorre dia a dia a partir do valor inicial. Vendas físicas, outras entradas e ajustes MTM R$ dos derivativos entram como crédito na data cadastrada, enquanto pgtos caixa e outras saídas caixa saem como débito.",
+        usdBrlQuote > 0
+          ? `Valores em U$ são convertidos para R$ usando o USDBRL de hoje: ${usdBrlQuote.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}.`
+          : "Valores em U$ são convertidos para R$ usando a cotação USDBRL mais recente disponível.",
+      ]}
+    />
+  );
+
+  return (
+    <section className="cashflow-daily-shell" data-dashboard-debug-region data-dashboard-debug-label="Fluxo de Caixa Diário">
+      <div className="card cashflow-daily-toolbar-card summary-insight-card">
+        <SummaryInsightButton
+          title="Como o fluxo diário é calculado"
+          message={cashflowDailyInsightMessage}
+        />
+        <div className="cashflow-daily-toolbar">
+          <div className="chart-date-filters">
+            <label className="chart-date-filter">
+              <span>Data início</span>
+              <DatePickerField value={dateStart} onChange={setDateStart} />
+            </label>
+            <label className="chart-date-filter">
+              <span>Data fim</span>
+              <DatePickerField value={dateEnd} onChange={setDateEnd} />
+            </label>
+            <label className="chart-date-filter cashflow-daily-balance-filter">
+              <span>Saldo inicial</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={initialBalanceInput}
+                onChange={(event) => setInitialBalanceInput(event.target.value)}
+                placeholder="0,00"
+              />
+            </label>
+          </div>
+          <div className="chart-toolbar">
+            <button
+              type="button"
+              className="chart-period-btn active"
+              onClick={() => setEntryPickerOpen(true)}
+            >
+              Cadastrar entrada
+            </button>
+            <button
+              type="button"
+              className="chart-period-btn"
+              onClick={() => setOutputPickerOpen(true)}
+            >
+              Cadastrar saída
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <section className="stats-grid cashflow-daily-summary-grid">
+        <article className="card stat-card">
+          <span>Saldo inicial</span>
+          <strong>{formatCashflowDailyCurrency(initialBalance)}</strong>
+        </article>
+        <button type="button" className="card stat-card cashflow-daily-summary-card-button is-positive" onClick={() => openSummaryModal("in")}>
+          <span>Entradas</span>
+          <strong>{formatCashflowDailyCurrency(summary.totalIn)}</strong>
+        </button>
+        <button type="button" className="card stat-card cashflow-daily-summary-card-button is-negative" onClick={() => openSummaryModal("out")}>
+          <span>Saídas</span>
+          <strong>{formatCashflowDailyCurrency(summary.totalOut)}</strong>
+        </button>
+        <article className="card stat-card">
+          <span>Saldo final</span>
+          <strong>{formatCashflowDailyCurrency(summary.finalBalance)}</strong>
+        </article>
+        <article className="card stat-card">
+          <span>Dias com movimento</span>
+          <strong>{summary.activeDays} / {summary.totalDays}</strong>
+        </article>
+      </section>
+
+      <div className="card cashflow-daily-chart-card">
+        <div className="chart-card-header">
+          <div>
+            <h3>Fluxo Diário</h3>
+            <p className="muted">Entradas em verde, saídas em vermelho e a linha mostra o saldo final de cada dia.</p>
+          </div>
+          <div className="chart-toolbar">
+            {[
+              ["daily", "Diario"],
+              ["weekly", "Semanal"],
+              ["monthly", "Mensal"],
+              ["yearly", "Anual"],
+              ["geral", "Geral"],
+            ].map(([value, label]) => (
+              <button
+                key={`cashflow-daily-chart-${value}`}
+                type="button"
+                className={`chart-period-btn${chartInterval === value ? " active" : ""}`}
+                onClick={() => setChartInterval(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="cashflow-daily-chart-wrap">
+          <ReactECharts option={cashflowDailyChartOption} style={{ height: "100%", width: "100%" }} opts={{ renderer: "svg" }} />
+        </div>
+      </div>
+
+      <div className="card cashflow-daily-table-card">
+        <div className="cashflow-daily-table-wrap">
+          <table className="cashflow-daily-table">
+            <thead>
+              <tr>
+                <th aria-label="Expandir" />
+                <th>Data</th>
+                <th>Lançamentos</th>
+                <th>Entradas</th>
+                <th>Saídas</th>
+                <th>Saldo inicial</th>
+                <th>Saldo final</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dayRows.map((row) => {
+                const isExpanded = expandedDays.has(row.dateKey);
+                return (
+                  <Fragment key={row.dateKey}>
+                    <tr className={`${row.launchCount ? "has-movement" : ""}${row.isToday ? " is-today" : ""}`.trim()}>
+                      <td>
+                        {row.launchCount ? (
+                          <button
+                            type="button"
+                            className="cashflow-daily-expand-btn"
+                            onClick={() => toggleDay(row.dateKey)}
+                            aria-expanded={isExpanded}
+                            aria-label={isExpanded ? `Recolher ${row.label}` : `Expandir ${row.label}`}
+                          >
+                            {isExpanded ? "−" : "+"}
+                          </button>
+                        ) : null}
+                      </td>
+                      <td>{row.label}</td>
+                      <td>{row.launchCount}</td>
+                      <td>
+                        <div className="cashflow-daily-balance-input-wrap">
+                          <span className="cashflow-daily-balance-prefix">R$</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="cashflow-daily-balance-input is-positive"
+                            value={row.totalInInput}
+                            onChange={(event) => handleEntriesChange(row.dateKey, event.target.value)}
+                            onBlur={() => handleEntriesBlur(row.dateKey, row.totalIn)}
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="cashflow-daily-balance-input-wrap">
+                          <span className="cashflow-daily-balance-prefix">R$</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="cashflow-daily-balance-input is-negative"
+                            value={row.totalOutInput}
+                            onChange={(event) => handleOutputsChange(row.dateKey, event.target.value)}
+                            onBlur={() => handleOutputsBlur(row.dateKey, row.totalOut)}
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <div className="cashflow-daily-balance-input-wrap">
+                          <span className="cashflow-daily-balance-prefix">R$</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className={`cashflow-daily-balance-input ${row.openingBalance >= 0 ? "is-positive" : "is-negative"}`}
+                            value={row.openingBalanceInput}
+                            onChange={(event) => handleOpeningBalanceChange(row.dateKey, event.target.value)}
+                            onBlur={() => handleOpeningBalanceBlur(row.dateKey, row.openingBalance)}
+                          />
+                        </div>
+                      </td>
+                      <td className={row.closingBalance >= 0 ? "is-positive" : "is-negative"}>
+                        {formatCashflowDailyCurrency(row.closingBalance)}
+                      </td>
+                    </tr>
+                    {isExpanded ? (
+                      <tr className="cashflow-daily-detail-row">
+                        <td colSpan={7}>
+                          {row.launchCount ? (
+                            <CashflowDailyLaunchList
+                              entries={row.launches}
+                              statusSavingByEntry={statusSavingByEntry}
+                              statusErrorByEntry={statusErrorByEntry}
+                              onStatusChange={handleInlineStatusChange}
+                              onEdit={(entry) =>
+                                openOperationForm({
+                                  recordId: entry.recordId,
+                                  resourceKey: entry.resourceKey,
+                                })}
+                            />
+                          ) : (
+                            <div className="cashflow-daily-empty">Nenhum lançamento neste dia.</div>
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <CashflowDailyEntriesModal
+        open={Boolean(summaryModal)}
+        title={summaryModal?.title}
+        entries={summaryModal?.entries || []}
+        totalAmount={summaryModal?.totalAmount || 0}
+        statusSavingByEntry={statusSavingByEntry}
+        statusErrorByEntry={statusErrorByEntry}
+        onStatusChange={handleInlineStatusChange}
+        onEdit={(entry) => {
+          setSummaryModal(null);
+          openOperationForm({
+            recordId: entry.recordId,
+            resourceKey: entry.resourceKey,
+          });
+        }}
+        onClose={() => setSummaryModal(null)}
+      />
+      {editorNode}
+      {entryPickerOpen ? (
+        <div className="component-popup-backdrop" onClick={() => setEntryPickerOpen(false)}>
+          <div className="component-popup cashflow-daily-entry-picker" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="component-popup-close" onClick={() => setEntryPickerOpen(false)}>
+              ×
+            </button>
+            <div className="component-popup-header">
+              <div>
+                <strong>Cadastrar entrada</strong>
+                <p className="muted">Escolha qual tipo de entrada você quer lançar no fluxo diário.</p>
+              </div>
+            </div>
+            <div className="cashflow-daily-entry-picker-actions">
+              <button
+                type="button"
+                className="chart-period-btn active"
+                onClick={() => openCreateModal(resourceDefinitions.physicalSales, "Cadastrar entrada - Venda Físico")}
+              >
+                Venda Físico
+              </button>
+              <button
+                type="button"
+                className="chart-period-btn"
+                onClick={() => openCreateModal(resourceDefinitions.otherEntries, "Cadastrar entrada - Outras entradas Caixa")}
+              >
+                Outras entradas Caixa
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {outputPickerOpen ? (
+        <div className="component-popup-backdrop" onClick={() => setOutputPickerOpen(false)}>
+          <div className="component-popup cashflow-daily-entry-picker" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="component-popup-close" onClick={() => setOutputPickerOpen(false)}>
+              ×
+            </button>
+            <div className="component-popup-header">
+              <div>
+                <strong>Cadastrar saída</strong>
+                <p className="muted">Escolha qual tipo de saída você quer lançar no fluxo diário.</p>
+              </div>
+            </div>
+            <div className="cashflow-daily-entry-picker-actions">
+              <button
+                type="button"
+                className="chart-period-btn active"
+                onClick={() => openCreateModal(resourceDefinitions.cashPayments, "Cadastrar saída - Novo empréstimo")}
+              >
+                Cadastrar novo empréstimo
+              </button>
+              <button
+                type="button"
+                className="chart-period-btn"
+                onClick={() => openCreateModal(resourceDefinitions.otherCashOutflows, "Cadastrar saída - Outras saídas Caixa")}
+              >
+                Outras saídas Caixa
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {createModal ? (
+        <ResourceForm
+          title={createModal.title}
+          fields={createFormFields}
+          initialValues={createInitialValues}
+          submitLabel="Salvar"
+          error={createFormError}
+          onClose={closeCreateModal}
+          onSubmit={async (payload, rawValues) => {
+            try {
+              const attachmentField = createFormFields.find((field) => field.type === "file-multi");
+              const files = attachmentField && Array.isArray(rawValues[attachmentField.name]) ? rawValues[attachmentField.name] : [];
+              let cleanPayload = attachmentField
+                ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== attachmentField.name))
+                : payload;
+
+              if (createModal.definition.resource === "physical-sales" && cleanPayload.cultura_produto) {
+                const crops = await resourceService.listAll("crops");
+                const selectedCrop = crops.find((item) => (item.ativo || item.cultura) === cleanPayload.cultura_produto);
+                if (selectedCrop) {
+                  cleanPayload = {
+                    ...cleanPayload,
+                    cultura: selectedCrop.id,
+                  };
+                }
+              }
+
+              const saved = await resourceService.create(createModal.definition.resource, cleanPayload);
+              if (files.length) {
+                await resourceService.uploadAttachments(createModal.definition.resource, saved.id, files);
+              }
+
+              if (createModal.definition.resource === "physical-sales") {
+                setSales((currentRows) => [...currentRows, saved]);
+              }
+              if (createModal.definition.resource === "cash-payments") {
+                setCashPayments((currentRows) => [...currentRows, saved]);
+              }
+              if (createModal.definition.resource === "other-cash-outflows") {
+                setOtherCashOutflows((currentRows) => [...currentRows, saved]);
+              }
+              if (createModal.definition.resource === "other-entries") {
+                setOtherEntries((currentRows) => [...currentRows, saved]);
+              }
+              closeCreateModal();
+            } catch (requestError) {
+              setCreateFormError(requestError?.response?.data?.detail || "Nao foi possivel salvar o lançamento.");
+            }
+          }}
         />
       ) : null}
     </section>
@@ -8731,12 +10086,12 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
   useEffect(() => {
     let isMounted = true;
     Promise.all([
-      resourceService.listAll("crop-boards"),
-      resourceService.listAll("physical-payments"),
-      resourceService.listAll("cash-payments"),
-      resourceService.listAll("physical-sales"),
-      resourceService.listAll("derivative-operations"),
-      resourceService.listAll("physical-quotes"),
+      resourceService.listAll("crop-boards").catch(() => []),
+      resourceService.listAll("physical-payments").catch(() => []),
+      resourceService.listAll("cash-payments").catch(() => []),
+      resourceService.listAll("physical-sales").catch(() => []),
+      resourceService.listAll("derivative-operations").catch(() => []),
+      resourceService.listAll("physical-quotes").catch(() => []),
     ]).then(([cropBoardResponse, physicalPaymentsResponse, cashPaymentsResponse, physicalSalesResponse, derivativesResponse, quotesResponse]) => {
       if (!isMounted) return;
       setCropBoards(cropBoardResponse || []);
@@ -8832,7 +10187,7 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
 
     const compromissosUsd = filteredCashPayments
       .filter((item) => isUsdCurrency(item.moeda))
-      .reduce((sum, item) => sum + Math.abs(Number(item.volume || 0)), 0);
+      .reduce((sum, item) => sum + Math.abs(Number(item.valor ?? item.volume ?? 0)), 0);
 
     const salesInBrl = filteredPhysicalSales.filter((item) => !isUsdCurrency(item.moeda_contrato));
     const salesInUsd = filteredPhysicalSales.filter((item) => isUsdCurrency(item.moeda_contrato));
@@ -14580,7 +15935,7 @@ function MtmDashboard({ dashboardFilter }) {
 
 const dashboardContent = {
   cashflow: {
-    title: "Fluxo de Caixa",
+    title: "Fluxo de Caixa - Hedge",
     description: "Visao consolidada de entradas, saidas, vencimentos e pressao financeira por grupo e subgrupo.",
     stats: [
       { label: "Entradas previstas", value: "R$ 18,6 mi" },
@@ -14623,6 +15978,10 @@ const dashboardContent = {
         />
       ),
     },
+  },
+  cashflowDaily: {
+    title: "Fluxo de Caixa - Diario",
+    description: "Tabela diária com saldo inicial, entradas de vendas físico e saídas de pagamentos de caixa.",
   },
   hedgePolicy: {
     title: "Politica de Hedge",
@@ -14769,7 +16128,7 @@ const dashboardContent = {
     },
   },
   mtm: {
-    title: "MTM",
+    title: "MTM Derivativos",
     description: "Mark-to-market consolidado das posicoes fisicas e derivativas, com leitura de ganho, perda e exposicao aberta.",
     stats: [
       { label: "MTM total", value: "R$ 12,4 mi" },
@@ -14830,6 +16189,15 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <CashflowDashboard dashboardFilter={cashflowFilter} compact />
+      </div>
+    );
+  }
+
+  if (kind === "cashflowDaily") {
+    return (
+      <div className="resource-page dashboard-page">
+        <PageHeader title={content.title} description={content.description} />
+        <CashflowDailyDashboard dashboardFilter={cashflowFilter} />
       </div>
     );
   }

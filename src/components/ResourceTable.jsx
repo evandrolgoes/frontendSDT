@@ -484,19 +484,19 @@ export function usePreparedResourceTable(definition, rows) {
       if (definition.resource === "cash-payments") {
         const cashPaymentColumns = tableColumns
           .filter((column) => column.key !== "id")
-          .filter((column) => !["fazer_frente_com", "safra", "moeda"].includes(column.key))
+          .filter((column) => !["contraparte", "fazer_frente_com", "safra"].includes(column.key))
           .map((column) =>
-            column.key === "volume"
+            column.key === "valor"
               ? {
                   ...column,
-                  render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda ? ` ${row.moeda}` : ""}`,
+                  render: (value, row) => `${formatBrazilianNumber(value, 2)}${row.moeda ? ` ${row.moeda}` : ""}`,
                 }
               : column,
           );
         return prioritizePrimaryDateColumns(
           reorderColumns(
             cashPaymentColumns,
-            ["descricao", "volume", "data_pagamento", "contraparte"],
+            ["descricao", "valor", "data_vencimento", "data_pagamento", "contraparte_texto"],
             ["grupo", "subgrupo"],
           ),
         );

@@ -1868,7 +1868,10 @@ export function ResourcePage({ definition }) {
                 >
                   <label>{field.label}</label>
                   <div className="detail-value">
-                    {definition.resource === "audit-logs" && field.name === "description" && Array.isArray(detailItem.alteracoes) && detailItem.alteracoes.length ? (
+                    {definition.resource === "audit-logs" &&
+                    field.name === "description" &&
+                    Array.isArray(detailItem.alteracoes || detailItem.changes_json?.changes) &&
+                    (detailItem.alteracoes || detailItem.changes_json?.changes).length ? (
                       <div className="table-wrapper audit-log-detail-table">
                         <table>
                           <thead>
@@ -1879,7 +1882,7 @@ export function ResourcePage({ definition }) {
                             </tr>
                           </thead>
                           <tbody>
-                            {detailItem.alteracoes.map((item, index) => (
+                            {(detailItem.alteracoes || detailItem.changes_json?.changes).map((item, index) => (
                               <tr key={`${item?.campo || "campo"}-${index}`}>
                                 <td>{formatAuditChangeValue(item?.campo)}</td>
                                 <td>{formatAuditChangeValue(item?.de)}</td>

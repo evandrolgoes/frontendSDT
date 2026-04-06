@@ -308,6 +308,16 @@ export const resourceService = {
       api.get("insights/commercialization/", { params: normalizedParams }).then((response) => response.data),
     );
   },
+  getMissingFieldsReport: (params = {}, options = {}) => {
+    const normalizedParams = normalizeRequestParams(params) || {};
+    const cacheKey = buildCacheKey("insights", "missing-fields", normalizedParams);
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("insights/missing-fields/", { params: normalizedParams }).then((response) => response.data),
+    );
+  },
   generateMarketSummary: (payload) =>
     api.post("market-summary/generate/", payload).then((response) => response.data),
   fetchJsonCached: (cacheKey, url, options = {}) =>

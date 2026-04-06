@@ -106,8 +106,8 @@ function DerivativeDeadlineAlertModal({ alertState, onClose, onOpenItem }) {
     },
     {
       key: "upcomingCashPayments",
-      title: "Pgtos Caixa nos próximos 7 dias",
-      description: "Pagamentos de caixa programados para a próxima semana.",
+      title: "Empréstimos nos próximos 7 dias",
+      description: "Empréstimos programados para a próxima semana.",
       rows: alertState.upcomingCashPayments,
       highlight: "",
     },
@@ -304,8 +304,8 @@ export function DerivativeOperationsPage() {
       kindLabel,
       grupoLabel: resolveLookupLabel(row.grupo, groupLookup),
       subgrupoLabel: resolveLookupLabel(row.subgrupo, subgroupLookup),
-      dateValue: parseBrazilianDate(row.data_pagamento, ""),
-      dateLabel: formatBrazilianDate(row.data_pagamento, "—"),
+      dateValue: parseBrazilianDate(row.data_pagamento || row.data_vencimento, ""),
+      dateLabel: formatBrazilianDate(row.data_pagamento || row.data_vencimento, "—"),
       description: resolveText(row.descricao, resolveText(row.classificacao, kindLabel)),
     });
 
@@ -354,10 +354,10 @@ export function DerivativeOperationsPage() {
 
       const upcomingCashPayments = (Array.isArray(cashPayments) ? cashPayments : [])
         .filter((row) => {
-          const paymentDate = parseBrazilianDate(row.data_pagamento, "");
+          const paymentDate = parseBrazilianDate(row.data_pagamento || row.data_vencimento, "");
           return Boolean(paymentDate) && paymentDate >= todayIsoDate && paymentDate <= nextSevenDaysIsoDate;
         })
-        .map((row) => buildPaymentAlertItem(row, "/pgtos-caixa", groupLookup, subgroupLookup, "Pgto Caixa"))
+        .map((row) => buildPaymentAlertItem(row, "/pgtos-caixa", groupLookup, subgroupLookup, "Empréstimos"))
         .sort(sortByDateAsc);
 
       if (!overdueDerivatives.length && !upcomingDerivatives.length && !upcomingPhysicalPayments.length && !upcomingCashPayments.length) {

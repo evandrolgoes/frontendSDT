@@ -699,6 +699,31 @@ export function ResourceForm({
     }));
   };
 
+  const handleSelectMultiAdd = (field, optionValue) => {
+    if (!optionValue) {
+      return;
+    }
+    setValues((current) => {
+      const currentValues = Array.isArray(current[field.name]) ? current[field.name].map(String) : [];
+      const normalizedValue = String(optionValue);
+      if (currentValues.includes(normalizedValue)) {
+        return current;
+      }
+      return {
+        ...current,
+        [field.name]: [...currentValues, normalizedValue],
+      };
+    });
+    setAccessSearch((current) => ({ ...current, [field.name]: "" }));
+  };
+
+  const handleSelectMultiRemove = (field, optionValue) => {
+    setValues((current) => ({
+      ...current,
+      [field.name]: (Array.isArray(current[field.name]) ? current[field.name] : []).filter((item) => String(item) !== String(optionValue)),
+    }));
+  };
+
   const syncLocalidadeValues = (entries) => {
     const normalized = entries.filter((entry) => entry.uf && entry.cidade).map((entry) => `${entry.uf}/${entry.cidade}`);
     setLocalidadeEntries(entries);
@@ -797,6 +822,79 @@ export function ResourceForm({
     if (field.type === "select-multi") {
       const options = getSelectOptions(field, lookupOptions, values);
       const selectedValues = Array.isArray(currentValue) ? currentValue.map(String) : [];
+      if (field.dualList) {
+        const searchValue = accessSearch[field.name] || "";
+        const normalizedSearch = searchValue.trim().toLowerCase();
+        const selectedOptions = selectedValues
+          .map((value) => options.find((option) => String(option.value) === value))
+          .filter(Boolean);
+        const availableOptions = options.filter((option) => !selectedValues.includes(String(option.value)));
+        const filteredAvailableOptions = !normalizedSearch
+          ? availableOptions
+          : availableOptions.filter((option) => String(option.label || "").toLowerCase().includes(normalizedSearch));
+
+        return (
+          <div className="dual-list-field">
+            <div className="dual-list-panel">
+              <div className="dual-list-panel-header">Disponiveis</div>
+              <input
+                className="form-control"
+                id={field.name}
+                type="text"
+                placeholder={field.searchPlaceholder || "Buscar modulo"}
+                value={searchValue}
+                disabled={field.readOnly}
+                onChange={(event) =>
+                  setAccessSearch((current) => ({
+                    ...current,
+                    [field.name]: event.target.value,
+                  }))
+                }
+              />
+              <div className="dual-list-options">
+                {filteredAvailableOptions.length ? (
+                  filteredAvailableOptions.map((option) => (
+                    <button
+                      className="dual-list-option"
+                      key={option.value}
+                      type="button"
+                      disabled={field.readOnly}
+                      onClick={() => handleSelectMultiAdd(field, option.value)}
+                    >
+                      <span>{option.label}</span>
+                      <strong>Adicionar</strong>
+                    </button>
+                  ))
+                ) : (
+                  <div className="field-help">Nenhum modulo disponivel.</div>
+                )}
+              </div>
+            </div>
+            <div className="dual-list-panel">
+              <div className="dual-list-panel-header">Selecionados</div>
+              <div className="dual-list-options dual-list-options-selected">
+                {selectedOptions.length ? (
+                  selectedOptions.map((option) => (
+                    <div className="dual-list-selected-item" key={option.value}>
+                      <span>{option.label}</span>
+                      <button
+                        className="dual-list-remove"
+                        type="button"
+                        disabled={field.readOnly}
+                        onClick={() => handleSelectMultiRemove(field, option.value)}
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="field-help">Nenhum modulo selecionado.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
       const orderedOptions = [
         ...options.filter((option) => selectedValues.includes(String(option.value))),
         ...options.filter((option) => !selectedValues.includes(String(option.value))),
@@ -1207,7 +1305,7 @@ export function ResourceForm({
                             : "Segure Command/Ctrl para selecionar mais de um item."}
                     </div>
                   ) : null}
-                  {field.type === "select-multi" ? (
+                  {field.type === "select-multi" && !field.dualList ? (
                     <div className="field-help">
                       {getSelectedSelectMultiLabels(field, lookupOptions, values).join(", ")}
                     </div>

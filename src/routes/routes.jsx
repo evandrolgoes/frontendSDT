@@ -16,6 +16,7 @@ const loadBasisPageModule = () => import("../pages/BasisPage");
 const loadFundPositionsPageModule = () => import("../pages/FundPositionsPage");
 const loadBlogStudioPageModule = () => import("../pages/BlogStudioPage");
 const loadMarketSummaryPageModule = () => import("../pages/MarketSummaryPage");
+const loadMissingFieldsPageModule = () => import("../pages/MissingFieldsPage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
 
@@ -44,6 +45,7 @@ const BasisPage = lazyNamedExport(loadBasisPageModule, "BasisPage");
 const FundPositionsPage = lazyNamedExport(loadFundPositionsPageModule, "FundPositionsPage");
 const BlogStudioPage = lazyNamedExport(loadBlogStudioPageModule, "BlogStudioPage");
 const MarketSummaryPage = lazyNamedExport(loadMarketSummaryPageModule, "MarketSummaryPage");
+const MissingFieldsPage = lazyNamedExport(loadMissingFieldsPageModule, "MissingFieldsPage");
 const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
 const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
 const warmBlogPosts = (params = {}) => resourceService.listAll("market-news-posts", params).catch(() => []);
@@ -59,7 +61,9 @@ function LegacyBlogNewsRedirect() {
 const warmDashboardKind = (kind) => {
   switch (kind) {
     case "cashflow":
-      return warmResources("physical-sales", "cash-payments", "derivative-operations", "counterparties");
+      return warmResources("physical-sales", "cash-payments", "other-cash-outflows", "derivative-operations", "counterparties");
+    case "cashflowDaily":
+      return warmResources("physical-sales", "cash-payments", "other-cash-outflows", "counterparties");
     case "componentSales":
       return warmResources("physical-sales", "derivative-operations", "counterparties");
     case "commercialRisk":
@@ -80,7 +84,7 @@ const warmDashboardKind = (kind) => {
         resourceService.fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL).catch(() => ({ planilha1: [] })),
       ]);
     case "currencyExposure":
-      return warmResources("crop-boards", "physical-payments", "cash-payments", "physical-sales", "derivative-operations", "physical-quotes");
+      return warmResources("crop-boards", "physical-payments", "cash-payments", "other-cash-outflows", "physical-sales", "derivative-operations", "physical-quotes");
     case "priceComposition":
       return warmResources("physical-sales", "derivative-operations", "crop-boards", "physical-quotes");
     default:
@@ -104,6 +108,8 @@ const resourceRoute = (path, definitionKey, resource, extra = {}) => {
   const ResourceComponent = lazyResourcePage(definitionKey);
   return {
     path,
+    resource,
+    editPattern: `${path}?open=:id`,
     element: <ResourceComponent />,
     preload: () => Promise.all([loadResourcePageModule(), loadResourceDefinitionsModule()]),
     warmup: resource ? () => resourceService.listAll(resource).catch(() => []) : undefined,
@@ -116,13 +122,14 @@ const baseNavigationSections = [
     label: "Dashboard",
     items: [
       { path: "/resumo", label: "Resumo", module: "dashboard_summary" },
-      { path: "/dashboard/fluxo-caixa", label: "Fluxo de Caixa", module: "dashboard_cashflow" },
       { path: "/dashboard/politica-hedge", label: "Politica de Hedge", module: "dashboard_hedge_policy" },
+      { path: "/dashboard/mtm", label: "MTM Derivativos", module: "dashboard_mtm" },
+      { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos", module: "dashboard_strategies_triggers" },
+      { path: "/dashboard/fluxo-caixa-diario", label: "Fluxo de Caixa - Diario", module: "dashboard_cashflow" },
+      { path: "/dashboard/fluxo-caixa", label: "Fluxo de Caixa - Hedge", module: "dashboard_cashflow" },
       { path: "/dashboard/composicao-precos", label: "Composicao de Precos", module: "dashboard_price_composition" },
       { path: "/dashboard/venda-componentes", label: "Venda de Componentes", module: "dashboard_component_sales" },
       { path: "/dashboard/exposicao-hedge-cambial", label: "Exposição e Hedge cambial", module: "dashboard_currency_exposure" },
-      { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos", module: "dashboard_strategies_triggers" },
-      { path: "/dashboard/mtm", label: "MTM", module: "dashboard_mtm" },
       { path: "/dashboard/simulacoes", label: "Simulacoes", module: "dashboard_simulations" },
     ],
   },
@@ -132,7 +139,9 @@ const baseNavigationSections = [
       { path: "/vendas-fisico", label: "Vendas Fisico", module: "ops_physical_sales" },
       { path: "/derivativos", label: "Derivativos", module: "ops_derivatives" },
       { path: "/pgtos-fisico", label: "Pgtos Fisico", module: "ops_physical_payments" },
-      { path: "/pgtos-caixa", label: "Pgtos Caixa", module: "ops_cash_payments" },
+      { path: "/pgtos-caixa", label: "Empréstimos", module: "ops_cash_payments" },
+      { path: "/outras-saidas-caixa", label: "Outras saídas Caixa", module: "ops_other_cash_outflows" },
+      { path: "/outras-entradas", label: "Outras entradas Caixa", module: "ops_other_entries" },
       { path: "/estrategias", label: "Estrategias", module: "ops_strategies" },
       { path: "/gatilhos", label: "Gatilhos", module: "ops_triggers" },
     ],
@@ -159,6 +168,15 @@ const baseNavigationSections = [
     ],
   },
   {
+    label: "Admin",
+    items: [
+      { path: "/clientes", label: "Clientes", module: "sys_receipt_clients" },
+      { path: "/entradas", label: "Entradas", module: "sys_receipt_entries" },
+      { path: "/contas-a-pagar", label: "Contas a Pagar", module: "sys_accounts_payable" },
+      { path: "/contratos", label: "Contratos", module: "sys_contracts" },
+    ],
+  },
+  {
     label: "Sistema",
     items: [
       { path: "/tenants", label: "Tenants", module: "sys_tenants", superuserOnly: true },
@@ -169,14 +187,13 @@ const baseNavigationSections = [
       { path: "/bolsas", label: "Bolsa", module: "sys_exchanges", superuserOnly: true },
       { path: "/nomes-operacoes-derivativos", label: "Nome Operacoes Derivativos", module: "sys_derivative_operation_names", superuserOnly: true },
       { path: "/safras", label: "Safra", module: "sys_seasons", superuserOnly: true },
-      { path: "/entradas-recebimentos", label: "Entradas recebimentos", module: "sys_receipt_entries", superuserOnly: true },
-      { path: "/contas-a-pagar", label: "Contas a Pagar", module: "sys_accounts_payable" },
     ],
   },
   {
     label: "Ferramentas",
     items: [
       { path: "/logs", label: "Log", module: "sys_logs" },
+      { path: "/pendencias-cadastrais", label: "Pendencias Cadastrais", module: "tool_missing_fields", superuserOnly: true },
       { path: "/criar-resumo-de-mercado", label: "Resumo Semanal de Mercado - 2", module: "tool_market_summary", superuserOnly: true },
       { path: "/importacao-em-massa", label: "Importacao em Massa", module: "sys_mass_update", superuserOnly: true },
       { path: "/alteracao-em-massa", label: "Alteracao em Massa", module: "sys_mass_update", superuserOnly: true },
@@ -201,6 +218,14 @@ const baseNavigationSections = [
 
 const navigationItems = baseNavigationSections.flatMap((section) => section.items);
 
+const humanizeModuleCode = (moduleCode) =>
+  String(moduleCode || "")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(": ")
+    .replace(": ", " - ");
+
 export const publicAppRoutes = [
   { path: "/blog", element: <BlogStudioPage basePath="/blog" />, title: "Blog", preload: loadBlogStudioPageModule, warmup: () => warmBlogPosts({ public: 1 }) },
   { path: "/blog/:postId", element: <BlogStudioPage basePath="/blog" />, title: "Blog", preload: loadBlogStudioPageModule, warmup: () => warmBlogPosts({ public: 1 }) },
@@ -217,7 +242,17 @@ export function getNavigationSections(user) {
           hasUserTypeAccess(user, item.allowedUserTypes),
       ),
     }))
-    .filter((section) => section.items.length > 0);
+    .filter((section) => section.items.length > 0)
+    .sort((left, right) => {
+      const leftIsAdmin = left.label === "Admin";
+      const rightIsAdmin = right.label === "Admin";
+
+      if (leftIsAdmin === rightIsAdmin) {
+        return 0;
+      }
+
+      return leftIsAdmin ? 1 : -1;
+    });
 }
 
 export const appRoutes = [
@@ -239,6 +274,7 @@ export const appRoutes = [
   },
   dashboardRoute("/resumo", "commercialRisk", "dashboard_summary"),
   dashboardRoute("/dashboard/fluxo-caixa", "cashflow", "dashboard_cashflow"),
+  dashboardRoute("/dashboard/fluxo-caixa-diario", "cashflowDaily", "dashboard_cashflow"),
   dashboardRoute("/dashboard/estrategias-gatilhos", "strategiesTriggers", "dashboard_strategies_triggers"),
   dashboardRoute("/dashboard/politica-hedge", "hedgePolicy", "dashboard_hedge_policy"),
   dashboardRoute("/dashboard/composicao-precos", "priceComposition", "dashboard_price_composition", {
@@ -254,8 +290,8 @@ export const appRoutes = [
     title: "Mercado",
   },
   { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes" },
-  { path: "/mercado/blog", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
-  { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
+  { path: "/mercado/blog", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
+  { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id", preload: loadBlogStudioPageModule, warmup: warmBlogPosts },
   { path: "/mercado/blog-news", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
   { path: "/mercado/blog-news/:postId", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
   { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", preload: loadMercadoPageModule },
@@ -291,20 +327,26 @@ export const appRoutes = [
   { ...resourceRoute("/bolsas", "exchanges", "exchanges"), module: "sys_exchanges", superuserOnly: true },
   { ...resourceRoute("/nomes-operacoes-derivativos", "derivativeOperationNames", "derivative-operation-names"), module: "sys_derivative_operation_names", superuserOnly: true },
   { ...resourceRoute("/safras", "seasons", "seasons"), module: "sys_seasons", superuserOnly: true },
-  { ...resourceRoute("/entradas-recebimentos", "receiptEntries", "receipt-entries"), module: "sys_receipt_entries", superuserOnly: true },
+  { ...resourceRoute("/clientes", "entryClients", "receipt-clients"), module: "sys_receipt_clients" },
+  { ...resourceRoute("/entradas", "receiptEntries", "receipt-entries"), module: "sys_receipt_entries" },
+  { path: "/entradas-recebimentos", element: <Navigate to="/entradas" replace />, module: "sys_receipt_entries" },
   { ...resourceRoute("/contrapartes", "counterparties", "counterparties"), module: "cad_counterparties" },
-  { path: "/anotacoes", element: <AnotacoesPage />, module: "cad_anotacoes", preload: loadAnotacoesPageModule },
-  { path: "/anotacoes/:postId", element: <AnotacoesPage />, module: "cad_anotacoes", title: "Anotacoes", preload: loadAnotacoesPageModule },
+  { path: "/anotacoes", element: <AnotacoesPage />, module: "cad_anotacoes", resource: "anotacoes", editPattern: "/anotacoes/:id", preload: loadAnotacoesPageModule },
+  { path: "/anotacoes/:postId", element: <AnotacoesPage />, module: "cad_anotacoes", title: "Anotacoes", resource: "anotacoes", editPattern: "/anotacoes/:id", preload: loadAnotacoesPageModule },
   { ...resourceRoute("/cotacoes-fisico", "physicalQuotes", "physical-quotes"), module: "ops_physical_quotes" },
   resourceRoute("/tradingview-experimental", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"),
   { ...resourceRoute("/custo-orcamento", "budgetCosts", "budget-costs"), module: "ops_budget_costs" },
   { ...resourceRoute("/custo-realizado", "actualCosts", "actual-costs"), module: "ops_actual_costs" },
   { ...resourceRoute("/pgtos-fisico", "physicalPayments", "physical-payments"), module: "ops_physical_payments" },
   { ...resourceRoute("/pgtos-caixa", "cashPayments", "cash-payments"), module: "ops_cash_payments" },
+  { ...resourceRoute("/outras-saidas-caixa", "otherCashOutflows", "other-cash-outflows"), module: "ops_other_cash_outflows" },
+  { ...resourceRoute("/outras-entradas", "otherEntries", "other-entries"), module: "ops_other_entries" },
   {
     path: "/derivativos",
     element: <DerivativeOperationsPage />,
     module: "ops_derivatives",
+    resource: "derivative-operations",
+    editPattern: "/derivativos?open=:id",
     preload: loadDerivativeOperationsPageModule,
     warmup: () => Promise.all([warmResources("derivative-operations", "groups", "subgroups"), warmTradingviewQuotes()]),
   },
@@ -327,13 +369,34 @@ export const appRoutes = [
     ...resourceRoute("/contas-a-pagar", "accountsPayable", "accounts-payable"),
     module: "sys_accounts_payable",
   },
-  { ...resourceRoute("/logs", "logs", "logs"), module: "sys_logs" },
+  {
+    ...resourceRoute("/contratos", "contracts", "contracts"),
+    module: "sys_contracts",
+  },
+  { ...resourceRoute("/logs", "logs", "audit-logs"), module: "sys_logs" },
+  { path: "/pendencias-cadastrais", element: <MissingFieldsPage />, module: "tool_missing_fields", superuserOnly: true, preload: loadMissingFieldsPageModule },
   { path: "/criar-resumo-de-mercado", element: <MarketSummaryPage />, module: "tool_market_summary", superuserOnly: true, preload: loadMarketSummaryPageModule },
   { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassImportPageModule },
   { path: "/alteracao-em-massa", element: <MassUpdatePage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassUpdatePageModule },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true, preload: loadJsonImportPageModule },
   { path: "/copy-base", element: <CopyBasePage />, module: "sys_copy_base", superuserOnly: true, preload: loadCopyBasePageModule },
 ];
+
+export const moduleOptions = Array.from(
+  [...navigationItems, ...appRoutes]
+    .filter((item) => String(item?.module || "").trim())
+    .reduce((map, item) => {
+      const code = String(item.module).trim();
+      if (!map.has(code)) {
+        map.set(code, {
+          value: code,
+          label: item.label || item.title || humanizeModuleCode(code),
+        });
+      }
+      return map;
+    }, new Map())
+    .values(),
+).sort((left, right) => left.label.localeCompare(right.label, "pt-BR"));
 
 export function getAccessibleRoutePath(user) {
   const firstSection = getNavigationSections(user)[0];
@@ -355,6 +418,17 @@ export function getRouteTitle(pathname) {
   }
 
   return navigationItems.find((item) => item.path === route.path)?.label || null;
+}
+
+export function buildResourceEditPath(resource, id) {
+  if (!resource || id === undefined || id === null || id === "") {
+    return null;
+  }
+  const route = appRoutes.find((item) => item.resource === resource && item.editPattern);
+  if (!route?.editPattern) {
+    return null;
+  }
+  return route.editPattern.replace(":id", String(id));
 }
 
 export function getSystemDocumentTitle(pathname) {

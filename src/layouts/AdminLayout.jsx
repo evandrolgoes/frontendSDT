@@ -185,7 +185,7 @@ function AdminLayoutShell({ children }) {
   const location = useLocation();
   const { filter, hasActiveFilter, options, panelOpen, setPanelOpen, saveFilter, isSaving } = useDashboardFilter();
   const { enabled: dashboardDebugEnabled, setEnabled: setDashboardDebugEnabled, activeEntry, showDebugEntry, clearDebugEntry, isSuperuser } = useDashboardDebug();
-  const isCashflowDashboard = location.pathname === "/dashboard/fluxo-caixa";
+  const isCashflowDashboard = ["/dashboard/fluxo-caixa", "/dashboard/fluxo-caixa-diario"].includes(location.pathname);
   const isDashboardRoute = location.pathname.startsWith("/dashboard/");
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
   const mainAreaRef = useRef(null);
