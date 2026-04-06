@@ -957,6 +957,80 @@ export function ResourceForm({
       }
       const selectedValues = Array.isArray(currentValue) ? currentValue.map(String) : [];
 
+      if (field.dualList) {
+        const searchValue = accessSearch[field.name] || "";
+        const normalizedSearch = searchValue.trim().toLowerCase();
+        const selectedOptions = selectedValues
+          .map((value) => options.find((option) => String(option.id) === value))
+          .filter(Boolean);
+        const availableOptions = options.filter((option) => !selectedValues.includes(String(option.id)));
+        const filteredAvailableOptions = !normalizedSearch
+          ? availableOptions
+          : availableOptions.filter((option) => String(getOptionLabel(field, option) || "").toLowerCase().includes(normalizedSearch));
+
+        return (
+          <div className="dual-list-field">
+            <div className="dual-list-panel">
+              <div className="dual-list-panel-header">Disponiveis</div>
+              <input
+                className="form-control"
+                id={field.name}
+                type="text"
+                placeholder={field.searchPlaceholder || "Buscar item"}
+                value={searchValue}
+                disabled={field.readOnly}
+                onChange={(event) =>
+                  setAccessSearch((current) => ({
+                    ...current,
+                    [field.name]: event.target.value,
+                  }))
+                }
+              />
+              <div className="dual-list-options">
+                {filteredAvailableOptions.length ? (
+                  filteredAvailableOptions.map((option) => (
+                    <button
+                      className="dual-list-option"
+                      key={option.id}
+                      type="button"
+                      disabled={field.readOnly}
+                      onClick={() => handleAccessUserAdd(field, option.id)}
+                    >
+                      <span>{getOptionLabel(field, option)}</span>
+                      <strong>Adicionar</strong>
+                    </button>
+                  ))
+                ) : (
+                  <div className="field-help">Nenhum item disponivel.</div>
+                )}
+              </div>
+            </div>
+            <div className="dual-list-panel">
+              <div className="dual-list-panel-header">Selecionados</div>
+              <div className="dual-list-options dual-list-options-selected">
+                {selectedOptions.length ? (
+                  selectedOptions.map((option) => (
+                    <div className="dual-list-selected-item" key={option.id}>
+                      <span>{getOptionLabel(field, option)}</span>
+                      <button
+                        className="dual-list-remove"
+                        type="button"
+                        disabled={field.readOnly}
+                        onClick={() => handleAccessUserRemove(field, option.id)}
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="field-help">Nenhum item selecionado.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       if (field.checkboxList) {
         return (
           <div className="checkbox-list-field">
@@ -1294,7 +1368,7 @@ export function ResourceForm({
                       </button>
                     </div>
                   ) : null}
-                  {field.type === "multirelation" && !field.accessManager ? (
+                  {field.type === "multirelation" && !field.accessManager && !field.dualList ? (
                     <div className="field-help">
                       {Array.isArray(values[field.name]) && values[field.name].length
                         ? values[field.name].map((item) => relationLabelMap[field.name]?.[String(item)] || item).join(", ")
