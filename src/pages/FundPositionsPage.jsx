@@ -343,24 +343,7 @@ function FundPositionChartCanvas({ rows, seriesLabel, expanded = false }) {
         interaction: { mode: "index", intersect: false },
         plugins: {
           datalabels: {
-            display(context) {
-              return context.dataset.type === "bar";
-            },
-            color(context) {
-              return context.dataset.label === "Long" ? "#eff6ff" : "#fef2f2";
-            },
-            anchor: "center",
-            align: "center",
-            clamp: true,
-            clip: true,
-            font: {
-              weight: 800,
-              size: expanded ? 11 : 10,
-            },
-            formatter(value) {
-              const numericValue = Math.abs(Number(value));
-              return numericValue >= 50000 ? formatInteger(numericValue) : "";
-            },
+            display: false,
           },
           legend: {
             display: expanded,

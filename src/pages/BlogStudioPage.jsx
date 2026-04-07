@@ -1507,11 +1507,11 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
   const backToListUrl = currentSearch ? `${basePath}?${currentSearch}` : basePath;
   const canManagePosts = !isPublicSurface && Boolean(user?.is_superuser || ["owner", "manager"].includes(user?.role));
 
-  const loadPosts = async () => {
+  const loadPosts = async ({ force = false } = {}) => {
     setLoading(true);
     setError("");
     try {
-      const items = await resourceService.listAll("market-news-posts", requestParams, { force: true });
+      const items = await resourceService.listAll("market-news-posts", requestParams, { force });
       setPosts(Array.isArray(items) ? items : []);
     } catch {
       setError("Não foi possível carregar os posts.");
@@ -1613,7 +1613,7 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
     }
     setSelectedPostLoading(true);
     resourceService
-      .getOne("market-news-posts", postId, { force: true, params: requestParams })
+      .getOne("market-news-posts", postId, { params: requestParams })
       .then((item) => setSelectedPostDetail(item || null))
       .catch(() => setSelectedPostDetail(null))
       .finally(() => setSelectedPostLoading(false));
@@ -1709,7 +1709,7 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
       resourceService.invalidateCache("attachments");
       setSelectedPostDetail(saved || null);
       setEditorState(null);
-      await loadPosts();
+      await loadPosts({ force: true });
 
       if (saved?.id) {
         navigate(`${basePath}/${saved.id}${currentSearch ? `?${currentSearch}` : ""}`, { replace: true });

@@ -1933,10 +1933,10 @@ textarea {
 }
 
 .fund-position-modal-card {
-  width: 95dvw;
-  height: 95dvh;
-  max-width: 95dvw;
-  max-height: 95dvh;
+  width: 95dvw !important;
+  height: 95dvh !important;
+  max-width: 95dvw !important;
+  max-height: 95dvh !important;
   border-radius: 22px;
   overflow: hidden;
 }
@@ -1967,10 +1967,10 @@ textarea {
   }
 
   .fund-position-modal-card {
-    width: 95dvw;
-    height: 95dvh;
-    max-width: 95dvw;
-    max-height: 95dvh;
+    width: 95dvw !important;
+    height: 95dvh !important;
+    max-width: 95dvw !important;
+    max-height: 95dvh !important;
     border-radius: 22px;
   }
 
