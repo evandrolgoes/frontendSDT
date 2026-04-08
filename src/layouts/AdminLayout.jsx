@@ -187,6 +187,7 @@ function AdminLayoutShell({ children }) {
   const { enabled: dashboardDebugEnabled, setEnabled: setDashboardDebugEnabled, activeEntry, showDebugEntry, clearDebugEntry, isSuperuser } = useDashboardDebug();
   const isCashflowDashboard = ["/dashboard/fluxo-caixa", "/dashboard/fluxo-caixa-diario"].includes(location.pathname);
   const isDashboardRoute = location.pathname.startsWith("/dashboard/");
+  const hideFilterButton = ["/agenda", "/agenda-config"].some(p => location.pathname === p || location.pathname.startsWith(p + "/"));
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);
   const mainAreaRef = useRef(null);
   const [isMobileSidebar, setIsMobileSidebar] = useState(() =>
@@ -374,7 +375,7 @@ function AdminLayoutShell({ children }) {
     <div
       className={`app-shell${!isMobileSidebar && sidebarCollapsed ? " sidebar-collapsed" : ""}${isMobileSidebar ? " mobile-shell" : ""}${
         mobileSidebarOpen ? " mobile-sidebar-open" : ""
-      }`}
+      }${hideFilterButton ? " fullscreen-page" : ""}`}
     >
       <button
         type="button"
@@ -504,9 +505,9 @@ function AdminLayoutShell({ children }) {
           </div>
         </div>
       ) : null}
-      <main className="main-area" ref={mainAreaRef} onClickCapture={handleDashboardDebugClick}>
+      <main className={`main-area${hideFilterButton ? " no-padding" : ""}`} ref={mainAreaRef} onClickCapture={handleDashboardDebugClick}>
         <div className="dashboard-floating-actions">
-          <button
+          {!hideFilterButton && <button
             type="button"
             className={`dashboard-floating-filter-trigger${hasActiveFilter ? "" : " is-empty"}`}
             onClick={handlePanelToggle}
@@ -527,7 +528,7 @@ function AdminLayoutShell({ children }) {
                 strokeLinecap="round"
               />
             </svg>
-          </button>
+          </button>}
           {isSuperuser && isDashboardRoute ? (
             <button
               type="button"
