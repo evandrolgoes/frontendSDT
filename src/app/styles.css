@@ -673,8 +673,9 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 23, 42, 0.28);
+  background: rgba(17, 24, 39, 0.48);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .sidebar-filter-modal {
@@ -5329,7 +5330,9 @@ textarea {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(15, 23, 42, 0.18);
+  background: rgba(17, 24, 39, 0.48);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6143,8 +6146,9 @@ tfoot td {
 .modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(2px);
+  background: rgba(17, 24, 39, 0.48);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .modal-card {
@@ -7443,7 +7447,9 @@ tfoot td {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(15, 23, 42, 0.52);
+  background: rgba(17, 24, 39, 0.48);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .info-popup-shell {
@@ -8869,7 +8875,9 @@ tfoot td {
 .currency-hedge-popup-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.42);
+  background: rgba(17, 24, 39, 0.48);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11379,7 +11387,9 @@ tfoot td {
   position: absolute;
   inset: 0;
   border: 0;
-  background: rgba(0, 0, 0, 0.86);
+  background: rgba(17, 24, 39, 0.56);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .mentoria-landing-modal-card {
