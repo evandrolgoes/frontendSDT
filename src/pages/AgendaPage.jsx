@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../services/api";
+import { formatLastEditedLabel } from "../utils/date";
 
 function emptyForm() {
   return {
@@ -300,6 +301,7 @@ export function AgendaPage() {
       dia_todo: isAD,
       com_meet: !!(ev.conferenceData),
       _meetUrl: ev.conferenceData?.entryPoints?.[0]?.uri || "",
+      _updatedAt: ev.updated || ev.created || "",
       convidados: (ev.attendees||[]).map(a=>a.email).filter(Boolean),
       config_ids: ev._configId ? [String(ev._configId)] : [],
       repeticao: recurrenceData.repeticao,
@@ -841,6 +843,9 @@ export function AgendaPage() {
               </div>
 
               {error&&showForm&&<div style={{color:"#c5221f",fontSize:13,marginBottom:10}}>{error}</div>}
+              {editingEvId && form._updatedAt ? (
+                <div style={S.modalRecordMeta}>{formatLastEditedLabel(form._updatedAt)}</div>
+              ) : null}
               <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
                 <button type="button" onClick={()=>setShowForm(false)} style={S.cancelBtn}>Cancelar</button>
                 <button type="submit" style={S.saveBtn} disabled={saving}>{saving?"Salvando...":editingEvId?"Atualizar":"Salvar"}</button>
@@ -1074,6 +1079,7 @@ const S = {
   formCheckboxRow:{display:"flex",alignItems:"center",gap:8,fontSize:14,color:"#3c4043"},
   cancelBtn:{border:"none",background:"transparent",color:"#1a73e8",padding:"8px 16px",borderRadius:4,cursor:"pointer",fontSize:14},
   saveBtn:{border:"none",background:"#1a73e8",color:"#fff",padding:"8px 24px",borderRadius:4,cursor:"pointer",fontSize:14,fontWeight:600},
+  modalRecordMeta:{marginTop:12,color:"#64748b",fontSize:12,lineHeight:1.4,background:"transparent"},
   editBtn:{border:"1px solid #dadce0",background:"#fff",color:"#3c4043",padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:13},
   addBtn:{border:"1px solid #dadce0",background:"#f8f9fa",color:"#3c4043",padding:"8px 12px",borderRadius:4,cursor:"pointer",fontSize:13,whiteSpace:"nowrap"},
   chip:{background:"#e8f0fe",color:"#1a73e8",borderRadius:12,padding:"3px 8px 3px 10px",fontSize:12,display:"flex",alignItems:"center",gap:4},

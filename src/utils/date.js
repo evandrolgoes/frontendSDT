@@ -35,6 +35,11 @@ export const formatBrazilianDateTime = (value, emptyValue = "") => {
   return `${day}/${month}/${year} ${hours}:${minutes}`;
 };
 
+export const formatLastEditedLabel = (value, emptyValue = "") => {
+  const formatted = formatBrazilianDateTime(value, "");
+  return formatted ? `Ultima edicao: ${formatted}.` : emptyValue;
+};
+
 export const parseBrazilianDate = (value, emptyValue = undefined) => {
   if (value === "" || value === undefined || value === null) {
     return emptyValue;

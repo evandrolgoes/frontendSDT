@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DatePickerField } from "./DatePickerField";
 import { InfoPopup } from "./InfoPopup";
 import { resourceService } from "../services/resourceService";
-import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
+import { formatBrazilianDate, formatLastEditedLabel, parseBrazilianDate } from "../utils/date";
 import { formatBrazilianNumber, inferExchangeFromBolsaLabel, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
 const TRADINGVIEW_REFRESH_MS = 60000;
@@ -125,6 +125,7 @@ export function DerivativeOperationForm({
     [tradingviewQuotes, values.contrato_derivativo],
   );
   const isMoedaMode = normalizeLookupValue(values.moeda_ou_cmdtye) === "moeda";
+  const lastEditedLabel = formatLastEditedLabel(initialValues?.updated_at || initialValues?.created_at, "");
 
   useEffect(() => {
     const sourceItems = Array.isArray(initialValues.siblingRows) && initialValues.siblingRows.length
@@ -891,6 +892,7 @@ export function DerivativeOperationForm({
           ))}
         </div>
 
+        {lastEditedLabel ? <div className="modal-record-meta">{lastEditedLabel}</div> : null}
         <div className="modal-actions">
           <button className="btn btn-secondary" type="button" onClick={onClose}>
             Cancelar

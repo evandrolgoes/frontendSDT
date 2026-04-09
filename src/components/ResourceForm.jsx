@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { DatePickerField } from "./DatePickerField";
+import { formatLastEditedLabel } from "../utils/date";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
 import { formatBrazilianNumber, inferExchangeFromBolsaLabel, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
@@ -1323,6 +1324,8 @@ export function ResourceForm({
     );
   };
 
+  const lastEditedLabel = formatLastEditedLabel(initialValues?.updated_at || initialValues?.created_at, "");
+
   return (
     <div className="modal-shell">
       <div className="modal-backdrop" onClick={onClose} />
@@ -1417,6 +1420,7 @@ export function ResourceForm({
             </div>
           ))}
         </div>
+        {lastEditedLabel ? <div className="modal-record-meta">{lastEditedLabel}</div> : null}
         <div className="modal-actions">
           <button className="btn btn-secondary" type="button" onClick={onClose}>
             Cancelar

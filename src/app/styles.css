@@ -6221,6 +6221,30 @@ tfoot td {
   border-top: 1px solid #e2e8f0;
 }
 
+.modal-actions .btn.btn-secondary {
+  background: #ffffff;
+  color: #111111;
+  border-color: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
+}
+
+.modal-actions .btn.btn-secondary:hover {
+  background: #f8fafc;
+  color: #000000;
+  border-color: #f8fafc;
+}
+
+.modal-actions .btn.btn-secondary:focus-visible {
+  outline-color: rgba(255, 255, 255, 0.7);
+}
+
+.modal-record-meta {
+  padding: 10px 22px 22px;
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
 .modal-busy-backdrop {
   position: fixed;
   inset: 0;
@@ -10677,6 +10701,19 @@ tfoot td {
 .btn-secondary {
   background: rgba(148, 163, 184, 0.14);
   color: var(--text);
+}
+
+.sidebar-user .btn.btn-secondary.sidebar-logout {
+  background: #ffffff;
+  color: #111111;
+  border: 1px solid #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
+}
+
+.sidebar-user .btn.btn-secondary.sidebar-logout:hover {
+  background: #f8fafc;
+  color: #000000;
+  border-color: #f8fafc;
 }
 
 .login-page {
