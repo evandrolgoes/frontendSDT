@@ -44,6 +44,9 @@ function parseStart(ev) { return ev.start?.dateTime ? new Date(ev.start.dateTime
 function parseEnd(ev)   { return ev.end?.dateTime   ? new Date(ev.end.dateTime)   : ev.end?.date   ? new Date(ev.end.date+"T00:00:00")   : null; }
 function isAllDay(ev)   { return !ev.start?.dateTime; }
 function getDaysInMonth(y,m) { return new Date(y,m+1,0).getDate(); }
+function toggleSelectedDay(currentDay, nextDay) {
+  return sameDay(currentDay, nextDay) ? null : new Date(nextDay);
+}
 // Monday-first index of first day of month
 function firstDowMonday(y,m) { return (new Date(y,m,1).getDay()+6)%7; }
 
@@ -147,7 +150,7 @@ export function AgendaClientsPage() {
   const [saving, setSaving]             = useState(false);
   const [successMsg, setSuccessMsg]     = useState("");
   const [selectedEv, setSelectedEv]     = useState(null);
-  const [selectedDay, setSelectedDay]   = useState(new Date(todayBase));
+  const [selectedDay, setSelectedDay]   = useState(null);
   const [dragState, setDragState]       = useState(null);
   const [groupOptions, setGroupOptions] = useState([]);
   const [subgroupOptions, setSubgroupOptions] = useState([]);
@@ -181,7 +184,7 @@ export function AgendaClientsPage() {
     }
   }, [selectedGroup, selectedSubgroup, subgroupOptions]);
 
-  useEffect(() => { loadEventos(); }, [cur, view]);
+  useEffect(() => { loadEventos(); }, []);
 
   // scroll to 7am on time views
   useEffect(() => {
@@ -240,18 +243,10 @@ export function AgendaClientsPage() {
     };
   }, [dragState, weekDays]);
 
-  const getRange = () => {
-    if (view==="day") { const d=new Date(cur); return {inicio:fmtDate(d),fim:fmtDate(d)}; }
-    if (view==="week") { const s=mondayOfWeek(cur); return {inicio:fmtDate(s),fim:fmtDate(addDays(s,6))}; }
-    const y=cur.getFullYear(), m=cur.getMonth();
-    return {inicio:fmtDate(new Date(y,m,1)),fim:fmtDate(new Date(y,m+1,0))};
-  };
-
   const loadEventos = async () => {
     setLoading(true); setError("");
-    const {inicio,fim} = getRange();
     try {
-      const { data } = await api.get(`/agenda/clientes/eventos/?data_inicio=${inicio}&data_fim=${fim}`);
+      const { data } = await api.get("/agenda/clientes/eventos/");
       setEventos((data.eventos || []).map((evento) => ({ ...evento, _uid: `cliente:${evento.id}` })));
     } catch(err) { setError(err?.response?.data?.detail||"Erro ao carregar eventos."); }
     finally { setLoading(false); }
@@ -547,8 +542,24 @@ export function AgendaClientsPage() {
 
       <div style={S.agendaToolbar}>
         <div style={S.agendaToolbarCard}>
-          <div style={S.agendaToolbarInlineLabel}>Agenda clientes</div>
-          <div style={S.agendaToolbarMeta}>Eventos salvos no banco do sistema</div>
+          <div style={S.agendaToolbarCardHead}>
+            <div style={S.agendaToolbarInlineLabel}>Agenda clientes</div>
+            <div style={S.agendaToolbarMeta}>Eventos salvos no banco do sistema</div>
+          </div>
+          <div style={S.agendaToolbarFilters}>
+            <select value={selectedGroup} onChange={(event) => setSelectedGroup(event.target.value)} style={S.toolbarSelect}>
+              <option value="">Todos os grupos</option>
+              {groupOptions.map((group) => (
+                <option key={group.id} value={String(group.id)}>{group.grupo}</option>
+              ))}
+            </select>
+            <select value={selectedSubgroup} onChange={(event) => setSelectedSubgroup(event.target.value)} style={S.toolbarSelect}>
+              <option value="">Todos os subgrupos</option>
+              {visibleSubgroups.map((subgroup) => (
+                <option key={subgroup.id} value={String(subgroup.id)}>{subgroup.subgrupo}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -561,7 +572,7 @@ export function AgendaClientsPage() {
               today={todayBase}
               eventos={eventos}
               selectedDay={selectedDay}
-              onDayClick={day=>setSelectedDay(new Date(day))}
+              onDayClick={(day) => setSelectedDay((current) => toggleSelectedDay(current, day))}
               onEventClick={setSelectedEv}
             />
           )}
@@ -581,7 +592,7 @@ export function AgendaClientsPage() {
                       style={{flex:1,textAlign:"center",padding:"6px 0",cursor:"pointer",userSelect:"none",background:isSelected?"#f1f3f4":"transparent"}}
                       onClick={()=>{
                         setCur(day);
-                        setSelectedDay(new Date(day));
+                        setSelectedDay((current) => toggleSelectedDay(current, day));
                         if (view==="week") setView("day");
                       }}
                     >
@@ -666,15 +677,10 @@ export function AgendaClientsPage() {
           events={filteredSidebarEvents}
           onEdit={openEditForm}
           onEventClick={setSelectedEv}
+          onClearSelectedDay={() => setSelectedDay(null)}
           title={sidebarTitle}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
-          groupOptions={groupOptions}
-          subgroupOptions={visibleSubgroups}
-          selectedGroup={selectedGroup}
-          selectedSubgroup={selectedSubgroup}
-          onGroupChange={setSelectedGroup}
-          onSubgroupChange={setSelectedSubgroup}
         />
       </div>
 
@@ -1026,20 +1032,22 @@ function AgendaSidebar({
   events,
   onEdit,
   onEventClick,
+  onClearSelectedDay,
   searchTerm,
   onSearchTermChange,
-  groupOptions,
-  subgroupOptions,
-  selectedGroup,
-  selectedSubgroup,
-  onGroupChange,
-  onSubgroupChange,
 }) {
   return (
     <aside style={S.sidebar}>
       <div style={S.sidebarHeader}>
         <div style={{fontSize:16,fontWeight:600,color:"#202124"}}>{title}</div>
-        {selectedDay && <div style={{fontSize:12,color:"#5f6368"}}>Selecione outro dia no calendario para filtrar.</div>}
+        {selectedDay ? (
+          <div style={S.sidebarHintRow}>
+            <div style={{fontSize:12,color:"#5f6368"}}>Selecione outro dia no calendario para filtrar.</div>
+            <button type="button" onClick={onClearSelectedDay} style={S.clearFilterBtn}>Mostrar todas</button>
+          </div>
+        ) : (
+          <div style={{fontSize:12,color:"#5f6368"}}>Clique em uma data no calendario para filtrar a lista.</div>
+        )}
         <div style={S.sidebarFilters}>
           <input
             type="text"
@@ -1048,18 +1056,6 @@ function AgendaSidebar({
             placeholder="Buscar atividade, local ou convidado"
             style={S.sidebarSearchInput}
           />
-          <select value={selectedGroup} onChange={(event) => onGroupChange(event.target.value)} style={S.sidebarSelect}>
-            <option value="">Todos os grupos</option>
-            {groupOptions.map((group) => (
-              <option key={group.id} value={String(group.id)}>{group.grupo}</option>
-            ))}
-          </select>
-          <select value={selectedSubgroup} onChange={(event) => onSubgroupChange(event.target.value)} style={S.sidebarSelect}>
-            <option value="">Todos os subgrupos</option>
-            {subgroupOptions.map((subgroup) => (
-              <option key={subgroup.id} value={String(subgroup.id)}>{subgroup.subgrupo}</option>
-            ))}
-          </select>
         </div>
       </div>
       <div style={S.sidebarBody}>
@@ -1097,9 +1093,12 @@ function AgendaSidebar({
 const S = {
   topBar:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 16px",borderBottom:"1px solid #dadce0",flexShrink:0,flexWrap:"wrap",gap:8},
   agendaToolbar:{padding:"8px 16px 0",background:"#fff",flexShrink:0},
-  agendaToolbarCard:{border:"1px solid #d7e3fc",background:"#f7faff",borderRadius:12,padding:"8px 12px",boxShadow:"0 1px 4px rgba(26,115,232,.06)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"},
+  agendaToolbarCard:{border:"1px solid #d7e3fc",background:"#f7faff",borderRadius:12,padding:"10px 12px",boxShadow:"0 1px 4px rgba(26,115,232,.06)",display:"flex",flexDirection:"column",alignItems:"stretch",gap:10},
+  agendaToolbarCardHead:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"},
   agendaToolbarInlineLabel:{fontSize:13,fontWeight:600,color:"#3c4043",whiteSpace:"nowrap"},
   agendaToolbarMeta:{fontSize:12,color:"#5f6368",marginLeft:"auto",whiteSpace:"nowrap"},
+  agendaToolbarFilters:{display:"flex",gap:10,flexWrap:"wrap"},
+  toolbarSelect:{minWidth:220,border:"1px solid #dadce0",borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff",color:"#202124",flex:"0 1 260px"},
   agendaToolbarChecklist:{display:"flex",gap:8,flexWrap:"wrap",flex:"1 1 auto",minWidth:0},
   agendaToolbarOption:{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:999,border:"1px solid #d2d7de",background:"#fff",fontSize:13,color:"#202124",cursor:"pointer",maxWidth:"100%"},
   agendaToolbarOptionActive:{border:"1px solid #1a73e8",background:"#e8f0fe",color:"#174ea6"},
@@ -1107,9 +1106,10 @@ const S = {
   calendarPanel:{flex:"0 1 42%",minWidth:260,maxWidth:"45%",display:"flex",flexDirection:"column",overflow:"hidden"},
   sidebar:{width:"clamp(420px, 54vw, 760px)",flex:"1 1 auto",borderLeft:"1px solid #dadce0",background:"#fbfbfb",display:"flex",flexDirection:"column",minWidth:420},
   sidebarHeader:{padding:"16px 16px 12px",borderBottom:"1px solid #dadce0",display:"flex",flexDirection:"column",gap:4},
+  sidebarHintRow:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"},
   sidebarFilters:{display:"flex",flexDirection:"column",gap:8,marginTop:10},
   sidebarSearchInput:{width:"100%",border:"1px solid #dadce0",borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff",color:"#202124"},
-  sidebarSelect:{width:"100%",border:"1px solid #dadce0",borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff",color:"#202124"},
+  clearFilterBtn:{border:"1px solid #dadce0",background:"#fff",color:"#1a73e8",padding:"6px 10px",borderRadius:999,cursor:"pointer",fontSize:12,fontWeight:600},
   sidebarBody:{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:10},
   emptySidebar:{margin:"20px 8px",padding:"18px 16px",border:"1px dashed #dadce0",borderRadius:10,color:"#5f6368",fontSize:13,textAlign:"center",background:"#fff"},
   sidebarCard:{background:"#fff",border:"1px solid #e0e3e7",borderRadius:12,padding:12,display:"flex",alignItems:"flex-start",gap:12,boxShadow:"0 1px 2px rgba(60,64,67,.08)"},
@@ -1128,7 +1128,7 @@ const S = {
   errorBar:{background:"#fce8e6",color:"#c5221f",padding:"7px 16px",fontSize:13},
   overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16},
   modal:{background:"#fff",borderRadius:12,padding:24,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 28px rgba(0,0,0,.2)"},
-  popup:{background:"#fff",borderRadius:8,padding:24,width:"100%",maxWidth:360,boxShadow:"0 8px 28px rgba(0,0,0,.2)"},
+  popup:{background:"#fff",borderRadius:8,padding:24,width:"100%",maxWidth:360,height:"90vh",maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 28px rgba(0,0,0,.2)"},
   closeBtn:{background:"transparent",border:"none",fontSize:22,cursor:"pointer",color:"#5f6368",padding:"0 4px"},
   titleInput:{width:"100%",border:"none",borderBottom:"2px solid #1a73e8",fontSize:22,fontWeight:300,color:"#3c4043",outline:"none",padding:"4px 0",marginBottom:20,boxSizing:"border-box"},
   checkRow:{display:"flex",alignItems:"center",gap:8,fontSize:14,color:"#5f6368",cursor:"pointer",marginBottom:16},
