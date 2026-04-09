@@ -19,6 +19,7 @@ const loadMarketSummaryPageModule = () => import("../pages/MarketSummaryPage");
 const loadMissingFieldsPageModule = () => import("../pages/MissingFieldsPage");
 const loadAgendaConfigPageModule = () => import("../pages/AgendaConfigPage");
 const loadAgendaPageModule = () => import("../pages/AgendaPage");
+const loadAgendaClientsPageModule = () => import("../pages/AgendaClientsPage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
 
@@ -49,7 +50,8 @@ const BlogStudioPage = lazyNamedExport(loadBlogStudioPageModule, "BlogStudioPage
 const MarketSummaryPage = lazyNamedExport(loadMarketSummaryPageModule, "MarketSummaryPage");
 const MissingFieldsPage = lazyNamedExport(loadMissingFieldsPageModule, "MissingFieldsPage");
 const AgendaConfigPage = lazyNamedExport(loadAgendaConfigPageModule, "AgendaConfigPage");
-const AgendaPage = lazyNamedExport(loadAgendaPageModule, "AgendaPage");
+const AgendaGooglePage = lazyNamedExport(loadAgendaPageModule, "AgendaPage");
+const AgendaClientsPage = lazyNamedExport(loadAgendaClientsPageModule, "AgendaClientsPage");
 const warmResources = (...resources) => Promise.all(resources.map((resource) => resourceService.listAll(resource).catch(() => [])));
 const warmTradingviewQuotes = () => resourceService.listTradingviewQuotes().catch(() => []);
 const warmBlogPosts = (params = {}) => resourceService.listAll("market-news-posts", params).catch(() => []);
@@ -178,8 +180,9 @@ const baseNavigationSections = [
       { path: "/entradas", label: "Entradas", module: "sys_receipt_entries" },
       { path: "/contas-a-pagar", label: "Contas a Pagar", module: "sys_accounts_payable" },
       { path: "/contratos", label: "Contratos", module: "sys_contracts" },
-      { path: "/agenda", label: "Agenda", module: "agenda" },
-      { path: "/agenda-config", label: "Agenda Google", module: "agenda_config" },
+      { path: "/agenda", label: "Agenda Clientes", module: "agenda" },
+      { path: "/agenda-google", label: "Agenda Google", module: "agenda" },
+      { path: "/agenda-config", label: "Config Agenda Google", module: "agenda_config" },
     ],
   },
   {
@@ -384,7 +387,9 @@ export const appRoutes = [
   { path: "/criar-resumo-de-mercado", element: <MarketSummaryPage />, module: "tool_market_summary", superuserOnly: true, preload: loadMarketSummaryPageModule },
   { path: "/importacao-em-massa", element: <MassImportPage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassImportPageModule },
   { path: "/alteracao-em-massa", element: <MassUpdatePage />, module: "sys_mass_update", superuserOnly: true, preload: loadMassUpdatePageModule },
-  { path: "/agenda", element: <AgendaPage />, module: "agenda", preload: loadAgendaPageModule },
+  { path: "/agenda", element: <Navigate to="/agenda-clientes" replace />, module: "agenda" },
+  { path: "/agenda-clientes", element: <AgendaClientsPage />, module: "agenda", preload: loadAgendaClientsPageModule },
+  { path: "/agenda-google", element: <AgendaGooglePage />, module: "agenda", preload: loadAgendaPageModule },
   { path: "/agenda-config", element: <AgendaConfigPage />, module: "agenda_config", preload: loadAgendaConfigPageModule },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true, preload: loadJsonImportPageModule },
   { path: "/copy-base", element: <CopyBasePage />, module: "sys_copy_base", superuserOnly: true, preload: loadCopyBasePageModule },

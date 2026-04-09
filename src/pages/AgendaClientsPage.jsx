@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../services/api";
+import { resourceService } from "../services/resourceService";
 
 function emptyForm() {
   return {
-    titulo:"", data_inicio:"", data_fim:"", hora_inicio:"09:00", hora_fim:"10:00", descricao:"", local:"",
-    dia_todo:false, com_meet:false, convidados:[], config_ids:[], repeticao:"", repetir_ate:"",
+    titulo:"", data_inicio:"", data_fim:"", hora_inicio:"09:00", hora_fim:"10:00", descricao:"", local:"", participantes:"",
+    dia_todo:false, convidados:[], repeticao:"", repetir_ate:"",
+    grupo_ids:[], subgrupo_ids:[],
   };
 }
 
@@ -90,6 +92,9 @@ function buildEventSearchText(ev) {
     ev?.summary,
     ev?.description,
     ev?.location,
+    ev?.participantes,
+    ...(Array.isArray(ev?.grupos_display) ? ev.grupos_display : []),
+    ...(Array.isArray(ev?.subgrupos_display) ? ev.subgrupos_display : []),
     ...(Array.isArray(ev?.attendees) ? ev.attendees.map((item) => item?.email) : []),
   ].filter(Boolean).join(" "));
 }
@@ -129,10 +134,8 @@ function getEventDateLabel(ev) {
 }
 
 // --- main component ---
-export function AgendaPage() {
+export function AgendaClientsPage() {
   const todayBase = new Date(); todayBase.setHours(0,0,0,0);
-  const [configs, setConfigs]           = useState([]);
-  const [selectedConfigIds, setSelectedConfigIds] = useState([]);
   const [eventos, setEventos]           = useState([]);
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState("");
@@ -141,15 +144,19 @@ export function AgendaPage() {
   const [showForm, setShowForm]         = useState(false);
   const [editingEvId, setEditingEvId]   = useState(null); // null = criar, string = editar
   const [form, setForm]                 = useState(emptyForm());
-  const [novoConvidado, setNovoConvidado] = useState("");
   const [saving, setSaving]             = useState(false);
-  const [showConviteConfirm, setShowConviteConfirm] = useState(false);
-  const [pendingSave, setPendingSave]   = useState(null);
   const [successMsg, setSuccessMsg]     = useState("");
   const [selectedEv, setSelectedEv]     = useState(null);
   const [selectedDay, setSelectedDay]   = useState(new Date(todayBase));
   const [dragState, setDragState]       = useState(null);
+  const [groupOptions, setGroupOptions] = useState([]);
+  const [subgroupOptions, setSubgroupOptions] = useState([]);
   const [searchTerm, setSearchTerm]     = useState("");
+  const [selectedGroup, setSelectedGroup] = useState("");
+  const [selectedSubgroup, setSelectedSubgroup] = useState("");
+  const [showAssociations, setShowAssociations] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState([]);
+  const [existingAttachments, setExistingAttachments] = useState([]);
   const timeGridRef                     = useRef(null);
   const timeGridBodyRef                 = useRef(null);
   const suppressClickRef                = useRef(false);
@@ -157,18 +164,24 @@ export function AgendaPage() {
     ? Array.from({length:7},(_,i)=>addDays(mondayOfWeek(cur),i))
     : [new Date(cur)];
 
-  // load configs
   useEffect(() => {
-    api.get("/agenda-configs/").then(({ data }) => {
-      const list = Array.isArray(data) ? data : (data.results||[]);
-      const conn = list.filter(c=>c.conectada);
-      setConfigs(conn);
-      setSelectedConfigIds(conn.map((item) => item.id));
-    }).catch(()=>{});
+    resourceService.listAll("groups")
+      .then((data) => setGroupOptions(Array.isArray(data) ? data : []))
+      .catch(() => setGroupOptions([]));
+    resourceService.listAll("subgroups")
+      .then((data) => setSubgroupOptions(Array.isArray(data) ? data : []))
+      .catch(() => setSubgroupOptions([]));
   }, []);
 
-  // load events on config/view/date change
-  useEffect(() => { if (selectedConfigIds.length) loadEventos(); else setEventos([]); }, [selectedConfigIds, cur, view]);
+  useEffect(() => {
+    if (!selectedGroup || !selectedSubgroup) return;
+    const subgroup = subgroupOptions.find((item) => String(item.id) === String(selectedSubgroup));
+    if (subgroup && String(subgroup.grupo) !== String(selectedGroup)) {
+      setSelectedSubgroup("");
+    }
+  }, [selectedGroup, selectedSubgroup, subgroupOptions]);
+
+  useEffect(() => { loadEventos(); }, [cur, view]);
 
   // scroll to 7am on time views
   useEffect(() => {
@@ -238,19 +251,8 @@ export function AgendaPage() {
     setLoading(true); setError("");
     const {inicio,fim} = getRange();
     try {
-      const responses = await Promise.all(
-        selectedConfigIds.map(async (configId) => {
-          const { data } = await api.get(`/agenda/eventos/?config_id=${configId}&data_inicio=${inicio}&data_fim=${fim}`);
-          const config = configs.find((item) => String(item.id) === String(configId));
-          return (data.eventos || []).map((evento) => ({
-            ...evento,
-            _configId: configId,
-            _configNome: config?.nome || data.config_nome || "Agenda",
-            _uid: `${configId}:${evento.id}`,
-          }));
-        }),
-      );
-      setEventos(responses.flat());
+      const { data } = await api.get(`/agenda/clientes/eventos/?data_inicio=${inicio}&data_fim=${fim}`);
+      setEventos((data.eventos || []).map((evento) => ({ ...evento, _uid: `cliente:${evento.id}` })));
     } catch(err) { setError(err?.response?.data?.detail||"Erro ao carregar eventos."); }
     finally { setLoading(false); }
   };
@@ -265,6 +267,15 @@ export function AgendaPage() {
 
   const goToday = () => setCur(new Date(todayBase));
 
+  const closeForm = () => {
+    setShowForm(false);
+    setShowAssociations(false);
+    setPendingAttachments([]);
+    setExistingAttachments([]);
+    setEditingEvId(null);
+    setForm(emptyForm());
+  };
+
   const getTitle = () => {
     if (view==="day") return cur.toLocaleDateString("pt-BR",{day:"numeric",month:"long",year:"numeric"});
     if (view==="week") {
@@ -277,8 +288,10 @@ export function AgendaPage() {
 
   const openNewForm = () => {
     setEditingEvId(null);
-    setForm({ ...emptyForm(), config_ids: selectedConfigIds.length ? selectedConfigIds.map(String) : (configs[0] ? [String(configs[0].id)] : []) });
-    setNovoConvidado("");
+    setForm(emptyForm());
+    setShowAssociations(false);
+    setPendingAttachments([]);
+    setExistingAttachments([]);
     setShowForm(true);
   };
 
@@ -297,48 +310,45 @@ export function AgendaPage() {
       hora_inicio: sTime, hora_fim: eTime,
       descricao: ev.description||"",
       local: ev.location||"",
+      participantes: ev.participantes||"",
       dia_todo: isAD,
-      com_meet: !!(ev.conferenceData),
-      _meetUrl: ev.conferenceData?.entryPoints?.[0]?.uri || "",
-      convidados: (ev.attendees||[]).map(a=>a.email).filter(Boolean),
-      config_ids: ev._configId ? [String(ev._configId)] : [],
+      convidados: [],
       repeticao: recurrenceData.repeticao,
       repetir_ate: recurrenceData.repetir_ate,
+      grupo_ids: Array.isArray(ev.grupo_ids) ? ev.grupo_ids.map(String) : [],
+      subgrupo_ids: Array.isArray(ev.subgrupo_ids) ? ev.subgrupo_ids.map(String) : [],
     });
-    setNovoConvidado("");
+    setShowAssociations(false);
+    setPendingAttachments([]);
     setShowForm(true);
   };
 
   const submitForm = e => {
     e.preventDefault();
-    // Se tem convidados ou meet, confirma envio
-    if (form.convidados.length > 0 || form.com_meet) {
-      setPendingSave({...form});
-      setShowConviteConfirm(true);
-    } else {
-      executeSave(form, false);
-    }
+    executeSave(form, false);
   };
 
-  const executeSave = async (payload, enviarConvites) => {
-    setSaving(true); setError(""); setShowConviteConfirm(false);
+  const executeSave = async (payload) => {
+    setSaving(true); setError("");
     try {
-      const targetConfigIds = Array.from(new Set((payload.config_ids || []).map((item) => Number(item)).filter(Boolean)));
-      if (targetConfigIds.length === 0) {
-        throw new Error("Selecione pelo menos uma agenda.");
-      }
-      const bodyBase = { ...payload, enviar_convites: enviarConvites };
+      const bodyBase = { ...payload };
+      let savedEventId = editingEvId;
       if (editingEvId) {
-        await api.put("/agenda/eventos/", { ...bodyBase, config_id: targetConfigIds[0], event_id: editingEvId });
+        const { data } = await api.put("/agenda/clientes/eventos/", { ...bodyBase, event_id: editingEvId });
+        savedEventId = data?.evento?.id || editingEvId;
       } else {
-        await Promise.all(
-          targetConfigIds.map((configId) => api.post("/agenda/eventos/", { ...bodyBase, config_id: configId })),
-        );
+        const { data } = await api.post("/agenda/clientes/eventos/", bodyBase);
+        savedEventId = data?.evento?.id || null;
+      }
+      if (savedEventId && pendingAttachments.length) {
+        await resourceService.uploadAttachments("agenda/clientes/eventos", savedEventId, pendingAttachments);
       }
       setShowForm(false);
       setForm(emptyForm());
+      setShowAssociations(false);
+      setPendingAttachments([]);
+      setExistingAttachments([]);
       setEditingEvId(null);
-      setPendingSave(null);
       setSuccessMsg(editingEvId ? "Evento atualizado!" : "Evento criado!");
       setTimeout(()=>setSuccessMsg(""),3000);
       loadEventos();
@@ -346,25 +356,49 @@ export function AgendaPage() {
     finally { setSaving(false); }
   };
 
-  const toggleFormConfig = (configId) => {
+  useEffect(() => {
+    if (!showForm || !editingEvId) {
+      if (!showForm) {
+        setPendingAttachments([]);
+        setExistingAttachments([]);
+      }
+      return;
+    }
+    resourceService
+      .listAttachments("agenda/clientes/eventos", editingEvId, { force: true })
+      .then((items) => setExistingAttachments(Array.isArray(items) ? items : []))
+      .catch(() => setExistingAttachments([]));
+  }, [showForm, editingEvId]);
+
+  const toggleFormGroup = (groupId) => {
     setForm((current) => {
-      const key = String(configId);
-      const currentIds = Array.isArray(current.config_ids) ? current.config_ids : [];
-      return currentIds.includes(key)
-        ? { ...current, config_ids: currentIds.filter((item) => item !== key) }
-        : { ...current, config_ids: [...currentIds, key] };
+      const key = String(groupId);
+      const currentIds = Array.isArray(current.grupo_ids) ? current.grupo_ids : [];
+      const nextGroupIds = currentIds.includes(key)
+        ? currentIds.filter((item) => item !== key)
+        : [...currentIds, key];
+      const nextSubgroupIds = (Array.isArray(current.subgrupo_ids) ? current.subgrupo_ids : []).filter((subgroupId) => {
+        const subgroup = subgroupOptions.find((item) => String(item.id) === String(subgroupId));
+        return subgroup ? nextGroupIds.includes(String(subgroup.grupo)) : true;
+      });
+      return { ...current, grupo_ids: nextGroupIds, subgrupo_ids: nextSubgroupIds };
     });
   };
 
-  const adicionarConvidado = () => {
-    const email = novoConvidado.trim();
-    if (!email || form.convidados.includes(email)) return;
-    setForm(f=>({...f, convidados:[...f.convidados, email]}));
-    setNovoConvidado("");
-  };
-
-  const removerConvidado = email => {
-    setForm(f=>({...f, convidados:f.convidados.filter(e=>e!==email)}));
+  const toggleFormSubgroup = (subgroupId) => {
+    setForm((current) => {
+      const key = String(subgroupId);
+      const currentIds = Array.isArray(current.subgrupo_ids) ? current.subgrupo_ids : [];
+      const subgroup = subgroupOptions.find((item) => String(item.id) === key);
+      const currentGroupIds = Array.isArray(current.grupo_ids) ? current.grupo_ids : [];
+      const nextSubgroupIds = currentIds.includes(key)
+        ? currentIds.filter((item) => item !== key)
+        : [...currentIds, key];
+      const nextGroupIds = subgroup && !currentIds.includes(key) && !currentGroupIds.includes(String(subgroup.grupo))
+        ? [...currentGroupIds, String(subgroup.grupo)]
+        : currentGroupIds;
+      return { ...current, subgrupo_ids: nextSubgroupIds, grupo_ids: nextGroupIds };
+    });
   };
 
   const getEventDurationMinutes = (ev) => {
@@ -382,11 +416,12 @@ export function AgendaPage() {
     hora_fim: minutesToTime(endDate.getHours()*60 + endDate.getMinutes()),
     descricao: ev.description || "",
     local: ev.location || "",
+    participantes: ev.participantes || "",
     dia_todo: false,
-    com_meet: !!ev.conferenceData,
-    convidados: (ev.attendees || []).map((a)=>a.email).filter(Boolean),
     repeticao: "",
     repetir_ate: "",
+    grupo_ids: Array.isArray(ev.grupo_ids) ? ev.grupo_ids : [],
+    subgrupo_ids: Array.isArray(ev.subgrupo_ids) ? ev.subgrupo_ids : [],
   });
 
   const saveDraggedEvent = async (dragged) => {
@@ -400,7 +435,7 @@ export function AgendaPage() {
     setLoading(true);
     setError("");
     try {
-      await api.put("/agenda/eventos/", { ...body, config_id: dragged.ev._configId, event_id: dragged.ev.id, enviar_convites: false });
+      await api.put("/agenda/clientes/eventos/", { ...body, event_id: dragged.ev.id });
       setSuccessMsg("Evento atualizado!");
       setTimeout(()=>setSuccessMsg(""),3000);
       await loadEventos();
@@ -409,15 +444,6 @@ export function AgendaPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const toggleConfigVisibility = (configId) => {
-    setSelectedConfigIds((current) => {
-      if (current.includes(configId)) {
-        return current.filter((item) => item !== configId);
-      }
-      return [...current, configId];
-    });
   };
 
   const startDragEvent = (ev, day, dayIndex, event) => {
@@ -444,11 +470,29 @@ export function AgendaPage() {
   };
 
   const hasActiveSearch = normalizeText(searchTerm).length > 0;
+  const formVisibleSubgroups = useMemo(() => {
+    const selectedGroups = Array.isArray(form.grupo_ids) ? form.grupo_ids : [];
+    if (!selectedGroups.length) return subgroupOptions;
+    return subgroupOptions.filter((item) => selectedGroups.includes(String(item.grupo)));
+  }, [form.grupo_ids, subgroupOptions]);
+
+  const selectedGroupNames = useMemo(
+    () => groupOptions.filter((item) => (form.grupo_ids || []).includes(String(item.id))).map((item) => item.grupo),
+    [form.grupo_ids, groupOptions],
+  );
+  const selectedSubgroupNames = useMemo(
+    () => subgroupOptions.filter((item) => (form.subgrupo_ids || []).includes(String(item.id))).map((item) => item.subgrupo),
+    [form.subgrupo_ids, subgroupOptions],
+  );
   const sidebarEvents = hasActiveSearch
     ? eventos.slice().sort(compareEvents)
     : selectedDay
       ? eventsForDay(eventos, selectedDay)
       : eventos.slice().sort(compareEvents);
+  const visibleSubgroups = useMemo(() => {
+    if (!selectedGroup) return subgroupOptions;
+    return subgroupOptions.filter((item) => String(item.grupo) === String(selectedGroup));
+  }, [selectedGroup, subgroupOptions]);
   const filteredSidebarEvents = useMemo(() => {
     const normalizedSearch = normalizeText(searchTerm);
     return sidebarEvents.filter((ev) => {
@@ -456,22 +500,20 @@ export function AgendaPage() {
       if (normalizedSearch && !haystack.includes(normalizedSearch)) {
         return false;
       }
+      if (selectedGroup && !(Array.isArray(ev.grupo_ids) && ev.grupo_ids.map(String).includes(String(selectedGroup)))) {
+        return false;
+      }
+      if (selectedSubgroup && !(Array.isArray(ev.subgrupo_ids) && ev.subgrupo_ids.map(String).includes(String(selectedSubgroup)))) {
+        return false;
+      }
       return true;
     });
-  }, [searchTerm, sidebarEvents]);
+  }, [searchTerm, selectedGroup, selectedSubgroup, sidebarEvents]);
   const sidebarTitle = hasActiveSearch
     ? "Resultados da busca na agenda"
     : selectedDay
       ? `Atividades de ${fmtDateLong(selectedDay)}`
       : "Atividades da agenda";
-
-  if (configs.length===0) return (
-    <div style={{maxWidth:480,margin:"80px auto",textAlign:"center",color:"#5f6368"}}>
-      <div style={{fontSize:52,marginBottom:16}}>📅</div>
-      <h2 style={{fontWeight:400,color:"#3c4043"}}>Nenhuma agenda conectada</h2>
-      <p>Configure em <a href="/agenda-config" style={{color:"#1a73e8"}}>Ferramentas → Agenda Google</a></p>
-    </div>
-  );
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100%",width:"100%",minWidth:0,flex:1,alignSelf:"stretch",fontFamily:"Arial,sans-serif",background:"#fff",overflow:"hidden"}}>
@@ -480,10 +522,7 @@ export function AgendaPage() {
       <div style={S.topBar}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           <button onClick={openNewForm} style={S.fab} title="Novo evento">+</button>
-          <div style={{display:"flex",flexDirection:"column",gap:2}}>
-            <span style={{fontSize:20,fontWeight:400,color:"#3c4043",letterSpacing:-.5}}>Agenda Google</span>
-            <span style={{fontSize:12,color:"#5f6368"}}>Eventos salvos diretamente no Google Calendar</span>
-          </div>
+          <span style={{fontSize:20,fontWeight:400,color:"#3c4043",letterSpacing:-.5}}>Agenda Clientes</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={goToday} style={S.todayBtn}>Hoje</button>
@@ -499,13 +538,19 @@ export function AgendaPage() {
               </button>
             ))}
           </div>
-          <a href="/agenda-config" style={{color:"#5f6368",fontSize:18,textDecoration:"none"}} title="Configurações">⚙</a>
         </div>
       </div>
 
       {successMsg && <div style={S.successBar}>{successMsg}</div>}
       {error && <div style={S.errorBar}>{error}</div>}
       {loading && <div style={{height:3,background:"#1a73e8"}} />}
+
+      <div style={S.agendaToolbar}>
+        <div style={S.agendaToolbarCard}>
+          <div style={S.agendaToolbarInlineLabel}>Agenda clientes</div>
+          <div style={S.agendaToolbarMeta}>Eventos salvos no banco do sistema</div>
+        </div>
+      </div>
 
       <div style={S.contentWrap}>
         <div style={S.calendarPanel}>
@@ -617,9 +662,6 @@ export function AgendaPage() {
         </div>
 
         <AgendaSidebar
-          configs={configs}
-          selectedConfigIds={selectedConfigIds}
-          onToggleConfig={toggleConfigVisibility}
           selectedDay={selectedDay}
           events={filteredSidebarEvents}
           onEdit={openEditForm}
@@ -627,6 +669,12 @@ export function AgendaPage() {
           title={sidebarTitle}
           searchTerm={searchTerm}
           onSearchTermChange={setSearchTerm}
+          groupOptions={groupOptions}
+          subgroupOptions={visibleSubgroups}
+          selectedGroup={selectedGroup}
+          selectedSubgroup={selectedSubgroup}
+          onGroupChange={setSelectedGroup}
+          onSubgroupChange={setSelectedSubgroup}
         />
       </div>
 
@@ -654,28 +702,15 @@ export function AgendaPage() {
               </div>
             )}
             {selectedEv.location && <div style={{fontSize:14,color:"#5f6368",marginBottom:8}}>📍 {selectedEv.location}</div>}
-            {selectedEv.conferenceData?.entryPoints?.[0]?.uri && (
-              <div style={{marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
-                <a href={selectedEv.conferenceData.entryPoints[0].uri} target="_blank" rel="noopener noreferrer"
-                  style={{fontSize:14,color:"#1a73e8",display:"flex",alignItems:"center",gap:6,flex:1}}>
-                  🎥 Entrar no Google Meet
-                </a>
-                <button
-                  onClick={()=>{navigator.clipboard.writeText(selectedEv.conferenceData.entryPoints[0].uri);}}
-                  title="Copiar link"
-                  style={{border:"1px solid #dadce0",background:"#f8f9fa",borderRadius:4,padding:"3px 8px",fontSize:12,cursor:"pointer",color:"#3c4043"}}>
-                  📋 Copiar
-                </button>
+            {selectedEv.participantes && <div style={{fontSize:14,color:"#5f6368",whiteSpace:"pre-line",marginBottom:8}}>Participantes: {selectedEv.participantes}</div>}
+            {Array.isArray(selectedEv.grupos_display) && selectedEv.grupos_display.length > 0 && (
+              <div style={{fontSize:13,color:"#5f6368",marginBottom:8}}>
+                Grupos: {selectedEv.grupos_display.join(", ")}
               </div>
             )}
-            {selectedEv.attendees?.length>0 && (
+            {Array.isArray(selectedEv.subgrupos_display) && selectedEv.subgrupos_display.length > 0 && (
               <div style={{fontSize:13,color:"#5f6368",marginBottom:8}}>
-                👥 {selectedEv.attendees.map(a=>a.email).join(", ")}
-              </div>
-            )}
-            {selectedEv._configNome && (
-              <div style={{fontSize:13,color:"#5f6368",marginBottom:8}}>
-                Agenda: {selectedEv._configNome}
+                Subgrupos: {selectedEv.subgrupos_display.join(", ")}
               </div>
             )}
             {getEventRecurrenceLabel(selectedEv) && (
@@ -694,7 +729,7 @@ export function AgendaPage() {
           <div style={S.modal} onClick={e=>e.stopPropagation()}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
               <span style={{fontSize:18,fontWeight:400,color:"#3c4043"}}>{editingEvId?"Editar evento":"Novo evento"}</span>
-              <button onClick={()=>setShowForm(false)} style={S.closeBtn}>×</button>
+              <button onClick={closeForm} style={S.closeBtn}>×</button>
             </div>
             <form onSubmit={submitForm}>
               <input style={S.titleInput} placeholder="Adicionar título" required
@@ -705,20 +740,64 @@ export function AgendaPage() {
                 Dia todo
               </label>
 
-              <div style={{marginBottom:12}}>
-                <label style={S.lbl}>Agendas</label>
-                <div style={S.formChecklist}>
-                  {configs.map((config) => (
-                    <label key={config.id} style={S.formCheckboxRow}>
-                      <input
-                        type="checkbox"
-                        checked={(form.config_ids || []).includes(String(config.id))}
-                        onChange={() => toggleFormConfig(config.id)}
-                      />
-                      <span>{config.nome}</span>
-                    </label>
-                  ))}
+              <div style={S.associationBlock}>
+                <div style={S.associationHeader}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAssociations((current) => !current)}
+                    style={S.associationToggleBtn}
+                  >
+                    {showAssociations ? "Ocultar grupos e subgrupos" : "Associar grupo e subgrupo"}
+                  </button>
+                  {(selectedGroupNames.length || selectedSubgroupNames.length) ? (
+                    <div style={S.associationSummary}>
+                      {selectedGroupNames.length ? <span>{selectedGroupNames.length} grupo(s)</span> : null}
+                      {selectedSubgroupNames.length ? <span>{selectedSubgroupNames.length} subgrupo(s)</span> : null}
+                    </div>
+                  ) : (
+                    <div style={S.associationSummaryMuted}>Nenhuma associação definida</div>
+                  )}
                 </div>
+                {(selectedGroupNames.length || selectedSubgroupNames.length) ? (
+                  <div style={S.associationTags}>
+                    {selectedGroupNames.map((name) => <span key={`group:${name}`} style={S.associationChip}>{name}</span>)}
+                    {selectedSubgroupNames.map((name) => <span key={`subgroup:${name}`} style={S.associationChipMuted}>{name}</span>)}
+                  </div>
+                ) : null}
+                {showAssociations && (
+                  <div style={{display:"flex",gap:12,marginTop:12,flexWrap:"wrap"}}>
+                    <div style={{flex:"1 1 220px"}}>
+                      <label style={S.lbl}>Grupos</label>
+                      <div style={S.formChecklistCompact}>
+                        {groupOptions.map((group) => (
+                          <label key={group.id} style={S.formCheckboxRow}>
+                            <input
+                              type="checkbox"
+                              checked={(form.grupo_ids || []).includes(String(group.id))}
+                              onChange={() => toggleFormGroup(group.id)}
+                            />
+                            <span>{group.grupo}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{flex:"1 1 220px"}}>
+                      <label style={S.lbl}>Subgrupos</label>
+                      <div style={S.formChecklistCompact}>
+                        {formVisibleSubgroups.map((subgroup) => (
+                          <label key={subgroup.id} style={S.formCheckboxRow}>
+                            <input
+                              type="checkbox"
+                              checked={(form.subgrupo_ids || []).includes(String(subgroup.id))}
+                              onChange={() => toggleFormSubgroup(subgroup.id)}
+                            />
+                            <span>{subgroup.subgrupo}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* datas / horas */}
@@ -788,23 +867,6 @@ export function AgendaPage() {
                 )}
               </div>
 
-              {/* Google Meet */}
-              <div style={{marginBottom:12}}>
-                <label style={{...S.checkRow,marginBottom:4}}>
-                  <input type="checkbox" checked={form.com_meet} onChange={e=>setForm(f=>({...f,com_meet:e.target.checked}))} />
-                  <span style={{display:"flex",alignItems:"center",gap:5}}>🎥 Criar link do Google Meet</span>
-                </label>
-                {editingEvId && form._meetUrl && (
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,padding:"6px 10px",background:"#f0f8ff",borderRadius:4,border:"1px solid #c6e0ff"}}>
-                    <a href={form._meetUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:13,color:"#1a73e8",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{form._meetUrl}</a>
-                    <button type="button" onClick={()=>navigator.clipboard.writeText(form._meetUrl)}
-                      style={{border:"1px solid #dadce0",background:"#fff",borderRadius:4,padding:"3px 8px",fontSize:12,cursor:"pointer",flexShrink:0}}>
-                      📋 Copiar
-                    </button>
-                  </div>
-                )}
-              </div>
-
               {/* Local */}
               <div style={{marginBottom:12}}>
                 <label style={S.lbl}>📍 Local</label>
@@ -812,22 +874,48 @@ export function AgendaPage() {
                   onChange={e=>setForm(f=>({...f,local:e.target.value}))} />
               </div>
 
-              {/* Convidados */}
               <div style={{marginBottom:12}}>
-                <label style={S.lbl}>👥 Convidados</label>
-                <div style={{display:"flex",gap:6}}>
-                  <input style={{...S.inp,flex:1}} placeholder="email@exemplo.com" value={novoConvidado}
-                    onChange={e=>setNovoConvidado(e.target.value)}
-                    onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();adicionarConvidado();}}} />
-                  <button type="button" onClick={adicionarConvidado} style={S.addBtn}>+ Add</button>
-                </div>
-                {form.convidados.length>0&&(
-                  <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
-                    {form.convidados.map(email=>(
-                      <span key={email} style={S.chip}>
-                        {email}
-                        <button type="button" onClick={()=>removerConvidado(email)} style={S.chipX}>×</button>
-                      </span>
+                <label style={S.lbl}>Participantes</label>
+                <input style={S.inp} placeholder="Adicionar participantes" value={form.participantes}
+                  onChange={e=>setForm(f=>({...f,participantes:e.target.value}))} />
+              </div>
+
+              <div style={{marginBottom:12}}>
+                <label style={S.lbl}>Anexos</label>
+                <input
+                  style={S.inp}
+                  type="file"
+                  multiple
+                  onChange={(e) => setPendingAttachments(Array.from(e.target.files || []))}
+                />
+                {pendingAttachments.length > 0 && (
+                  <div style={S.attachmentList}>
+                    {pendingAttachments.map((file) => (
+                      <div key={`${file.name}-${file.size}-${file.lastModified}`} style={S.attachmentRow}>
+                        <span style={S.attachmentLink}>{file.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {existingAttachments.length > 0 && (
+                  <div style={S.attachmentList}>
+                    {existingAttachments.map((attachment) => (
+                      <div key={attachment.id} style={S.attachmentRow}>
+                        <a style={S.attachmentLink} href={attachment.file_url || attachment.file} target="_blank" rel="noreferrer">
+                          {attachment.original_name}
+                        </a>
+                        <button
+                          type="button"
+                          style={S.attachmentDeleteBtn}
+                          onClick={async () => {
+                            await resourceService.remove("attachments", attachment.id);
+                            const items = await resourceService.listAttachments("agenda/clientes/eventos", editingEvId, { force: true });
+                            setExistingAttachments(Array.isArray(items) ? items : []);
+                          }}
+                        >
+                          Excluir
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -836,13 +924,13 @@ export function AgendaPage() {
               {/* Descrição */}
               <div style={{marginBottom:16}}>
                 <label style={S.lbl}>Descrição</label>
-                <textarea style={{...S.inp,minHeight:60,resize:"vertical"}} placeholder="Adicionar descrição"
+                <textarea style={{...S.inp,minHeight:180,resize:"vertical"}} placeholder="Adicionar descrição"
                   value={form.descricao} onChange={e=>setForm(f=>({...f,descricao:e.target.value}))} />
               </div>
 
               {error&&showForm&&<div style={{color:"#c5221f",fontSize:13,marginBottom:10}}>{error}</div>}
               <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
-                <button type="button" onClick={()=>setShowForm(false)} style={S.cancelBtn}>Cancelar</button>
+                <button type="button" onClick={closeForm} style={S.cancelBtn}>Cancelar</button>
                 <button type="submit" style={S.saveBtn} disabled={saving}>{saving?"Salvando...":editingEvId?"Atualizar":"Salvar"}</button>
               </div>
             </form>
@@ -850,26 +938,6 @@ export function AgendaPage() {
         </div>
       )}
 
-      {/* ── CONFIRMAÇÃO DE CONVITE ── */}
-      {showConviteConfirm && pendingSave && (
-        <div style={S.overlay} onClick={()=>setShowConviteConfirm(false)}>
-          <div style={{...S.popup,maxWidth:400}} onClick={e=>e.stopPropagation()}>
-            <h3 style={{margin:"0 0 12px",fontWeight:400,fontSize:17,color:"#3c4043"}}>Enviar convites?</h3>
-            {pendingSave.com_meet&&<p style={{fontSize:14,color:"#5f6368",margin:"0 0 8px"}}>🎥 Um link do Google Meet será gerado.</p>}
-            {pendingSave.convidados.length>0&&(
-              <p style={{fontSize:14,color:"#5f6368",margin:"0 0 16px"}}>
-                👥 Notificar por e-mail:<br/>
-                <strong>{pendingSave.convidados.join(", ")}</strong>
-              </p>
-            )}
-            <div style={{display:"flex",justifyContent:"flex-end",gap:8}}>
-              <button onClick={()=>{setShowConviteConfirm(false);setPendingSave(null);}} style={S.cancelBtn}>Cancelar</button>
-              <button onClick={()=>executeSave(pendingSave,false)} style={S.cancelBtn} disabled={saving}>Não enviar</button>
-              <button onClick={()=>executeSave(pendingSave,true)}  style={S.saveBtn}   disabled={saving}>{saving?"Salvando...":"Enviar convites"}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -953,9 +1021,6 @@ function MonthView({ cur, today, eventos, selectedDay, onDayClick, onEventClick 
 }
 
 function AgendaSidebar({
-  configs,
-  selectedConfigIds,
-  onToggleConfig,
   title,
   selectedDay,
   events,
@@ -963,34 +1028,16 @@ function AgendaSidebar({
   onEventClick,
   searchTerm,
   onSearchTermChange,
+  groupOptions,
+  subgroupOptions,
+  selectedGroup,
+  selectedSubgroup,
+  onGroupChange,
+  onSubgroupChange,
 }) {
   return (
     <aside style={S.sidebar}>
       <div style={S.sidebarHeader}>
-        <div style={S.sidebarCalendarSection}>
-          <div style={S.sidebarSectionHeader}>
-            <span style={S.sidebarSectionTitle}>Minhas agendas</span>
-            <span style={S.sidebarSectionMeta}>{selectedConfigIds.length}/{configs.length}</span>
-          </div>
-          <div style={S.sidebarCalendarList}>
-            {configs.map((config) => (
-              <label
-                key={config.id}
-                style={{
-                  ...S.sidebarCalendarItem,
-                  ...(selectedConfigIds.includes(config.id) ? S.sidebarCalendarItemActive : {}),
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedConfigIds.includes(config.id)}
-                  onChange={() => onToggleConfig(config.id)}
-                />
-                <span style={S.sidebarCalendarName}>{config.nome}</span>
-              </label>
-            ))}
-          </div>
-        </div>
         <div style={{fontSize:16,fontWeight:600,color:"#202124"}}>{title}</div>
         {selectedDay && <div style={{fontSize:12,color:"#5f6368"}}>Selecione outro dia no calendario para filtrar.</div>}
         <div style={S.sidebarFilters}>
@@ -1001,6 +1048,18 @@ function AgendaSidebar({
             placeholder="Buscar atividade, local ou convidado"
             style={S.sidebarSearchInput}
           />
+          <select value={selectedGroup} onChange={(event) => onGroupChange(event.target.value)} style={S.sidebarSelect}>
+            <option value="">Todos os grupos</option>
+            {groupOptions.map((group) => (
+              <option key={group.id} value={String(group.id)}>{group.grupo}</option>
+            ))}
+          </select>
+          <select value={selectedSubgroup} onChange={(event) => onSubgroupChange(event.target.value)} style={S.sidebarSelect}>
+            <option value="">Todos os subgrupos</option>
+            {subgroupOptions.map((subgroup) => (
+              <option key={subgroup.id} value={String(subgroup.id)}>{subgroup.subgrupo}</option>
+            ))}
+          </select>
         </div>
       </div>
       <div style={S.sidebarBody}>
@@ -1015,8 +1074,13 @@ function AgendaSidebar({
                   <span style={{fontSize:14,fontWeight:600,color:"#202124",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
                     {ev.summary || "(sem título)"}
                   </span>
+                  {Array.isArray(ev.grupos_display) && ev.grupos_display.length > 0 && (
+                    <span style={S.sidebarMetaText}>Grupos: {ev.grupos_display.join(", ")}</span>
+                  )}
+                  {Array.isArray(ev.subgrupos_display) && ev.subgrupos_display.length > 0 && (
+                    <span style={S.sidebarMetaText}>Subgrupos: {ev.subgrupos_display.join(", ")}</span>
+                  )}
                   <span style={{fontSize:12,color:"#5f6368"}}>{getEventDateLabel(ev)}</span>
-                  {ev._configNome && <span style={{fontSize:12,color:"#5f6368"}}>{ev._configNome}</span>}
                   {ev.location && <span style={{fontSize:12,color:"#5f6368",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{ev.location}</span>}
                 </span>
               </button>
@@ -1032,26 +1096,26 @@ function AgendaSidebar({
 // ── Styles ──
 const S = {
   topBar:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 16px",borderBottom:"1px solid #dadce0",flexShrink:0,flexWrap:"wrap",gap:8},
+  agendaToolbar:{padding:"8px 16px 0",background:"#fff",flexShrink:0},
+  agendaToolbarCard:{border:"1px solid #d7e3fc",background:"#f7faff",borderRadius:12,padding:"8px 12px",boxShadow:"0 1px 4px rgba(26,115,232,.06)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"},
+  agendaToolbarInlineLabel:{fontSize:13,fontWeight:600,color:"#3c4043",whiteSpace:"nowrap"},
+  agendaToolbarMeta:{fontSize:12,color:"#5f6368",marginLeft:"auto",whiteSpace:"nowrap"},
+  agendaToolbarChecklist:{display:"flex",gap:8,flexWrap:"wrap",flex:"1 1 auto",minWidth:0},
+  agendaToolbarOption:{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderRadius:999,border:"1px solid #d2d7de",background:"#fff",fontSize:13,color:"#202124",cursor:"pointer",maxWidth:"100%"},
+  agendaToolbarOptionActive:{border:"1px solid #1a73e8",background:"#e8f0fe",color:"#174ea6"},
   contentWrap:{flex:1,display:"flex",width:"100%",minWidth:0,overflow:"hidden"},
-  calendarPanel:{flex:"1 1 auto",minWidth:0,display:"flex",flexDirection:"column",overflow:"hidden"},
-  sidebar:{width:"clamp(300px, 25vw, 360px)",flexShrink:0,borderLeft:"1px solid #dadce0",background:"#fff",display:"flex",flexDirection:"column",minWidth:280},
-  sidebarHeader:{padding:"14px 16px 12px",borderBottom:"1px solid #dadce0",display:"flex",flexDirection:"column",gap:10},
-  sidebarCalendarSection:{display:"flex",flexDirection:"column",gap:8,paddingBottom:10,borderBottom:"1px solid #eef0f1"},
-  sidebarSectionHeader:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8},
-  sidebarSectionTitle:{fontSize:12,fontWeight:700,color:"#5f6368",textTransform:"uppercase",letterSpacing:".04em"},
-  sidebarSectionMeta:{fontSize:12,color:"#5f6368"},
-  sidebarCalendarList:{display:"flex",flexDirection:"column",gap:2},
-  sidebarCalendarItem:{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",borderRadius:8,fontSize:13,color:"#202124",cursor:"pointer"},
-  sidebarCalendarItemActive:{background:"#e8f0fe",color:"#174ea6"},
-  sidebarCalendarName:{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"},
+  calendarPanel:{flex:"0 1 42%",minWidth:260,maxWidth:"45%",display:"flex",flexDirection:"column",overflow:"hidden"},
+  sidebar:{width:"clamp(420px, 54vw, 760px)",flex:"1 1 auto",borderLeft:"1px solid #dadce0",background:"#fbfbfb",display:"flex",flexDirection:"column",minWidth:420},
+  sidebarHeader:{padding:"16px 16px 12px",borderBottom:"1px solid #dadce0",display:"flex",flexDirection:"column",gap:4},
   sidebarFilters:{display:"flex",flexDirection:"column",gap:8,marginTop:10},
-  sidebarSearchInput:{width:"100%",border:"1px solid #dadce0",borderRadius:24,padding:"10px 14px",fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff",color:"#202124"},
+  sidebarSearchInput:{width:"100%",border:"1px solid #dadce0",borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff",color:"#202124"},
   sidebarSelect:{width:"100%",border:"1px solid #dadce0",borderRadius:8,padding:"10px 12px",fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff",color:"#202124"},
-  sidebarBody:{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:8,background:"#fafafb"},
+  sidebarBody:{flex:1,overflowY:"auto",padding:12,display:"flex",flexDirection:"column",gap:10},
   emptySidebar:{margin:"20px 8px",padding:"18px 16px",border:"1px dashed #dadce0",borderRadius:10,color:"#5f6368",fontSize:13,textAlign:"center",background:"#fff"},
-  sidebarCard:{background:"#fff",border:"1px solid #e0e3e7",borderRadius:12,padding:"10px 12px",display:"flex",alignItems:"flex-start",gap:12,boxShadow:"0 1px 2px rgba(60,64,67,.08)"},
+  sidebarCard:{background:"#fff",border:"1px solid #e0e3e7",borderRadius:12,padding:12,display:"flex",alignItems:"flex-start",gap:12,boxShadow:"0 1px 2px rgba(60,64,67,.08)"},
   sidebarEventBtn:{flex:1,minWidth:0,border:"none",background:"transparent",padding:0,cursor:"pointer",display:"flex",alignItems:"flex-start",gap:10,textAlign:"left"},
   sidebarDot:{width:10,height:10,borderRadius:"50%",marginTop:4,flexShrink:0},
+  sidebarMetaText:{fontSize:12,color:"#5f6368",lineHeight:1.35,whiteSpace:"normal",overflowWrap:"anywhere"},
   sidebarEditBtn:{border:"1px solid #dadce0",background:"#fff",color:"#1a73e8",padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,fontWeight:600,flexShrink:0},
   fab:{width:40,height:40,borderRadius:"50%",border:"none",background:"#1a73e8",color:"#fff",fontSize:24,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 2px 6px rgba(26,115,232,.4)",lineHeight:1},
   todayBtn:{border:"1px solid #dadce0",borderRadius:4,background:"#fff",padding:"6px 14px",fontSize:14,cursor:"pointer",color:"#3c4043"},
@@ -1063,15 +1127,28 @@ const S = {
   successBar:{background:"#e6f4ea",color:"#137333",padding:"7px 16px",fontSize:13},
   errorBar:{background:"#fce8e6",color:"#c5221f",padding:"7px 16px",fontSize:13},
   overlay:{position:"fixed",inset:0,background:"rgba(0,0,0,.35)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16},
-  modal:{background:"#fff",borderRadius:8,padding:24,width:"100%",maxWidth:480,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 28px rgba(0,0,0,.2)"},
+  modal:{background:"#fff",borderRadius:12,padding:24,width:"100%",maxWidth:560,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 8px 28px rgba(0,0,0,.2)"},
   popup:{background:"#fff",borderRadius:8,padding:24,width:"100%",maxWidth:360,boxShadow:"0 8px 28px rgba(0,0,0,.2)"},
   closeBtn:{background:"transparent",border:"none",fontSize:22,cursor:"pointer",color:"#5f6368",padding:"0 4px"},
   titleInput:{width:"100%",border:"none",borderBottom:"2px solid #1a73e8",fontSize:22,fontWeight:300,color:"#3c4043",outline:"none",padding:"4px 0",marginBottom:20,boxSizing:"border-box"},
   checkRow:{display:"flex",alignItems:"center",gap:8,fontSize:14,color:"#5f6368",cursor:"pointer",marginBottom:16},
   lbl:{fontSize:12,color:"#5f6368",display:"block",marginBottom:4},
   inp:{width:"100%",border:"1px solid #dadce0",borderRadius:4,padding:"8px 10px",fontSize:14,outline:"none",boxSizing:"border-box",color:"#3c4043"},
+  associationBlock:{marginBottom:14,padding:"12px 14px",border:"1px solid #e3e7eb",borderRadius:12,background:"#fafbfd"},
+  associationHeader:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,flexWrap:"wrap"},
+  associationToggleBtn:{border:"1px solid #d2d7de",background:"#fff",color:"#174ea6",padding:"8px 12px",borderRadius:999,cursor:"pointer",fontSize:13,fontWeight:600},
+  associationSummary:{display:"flex",gap:10,flexWrap:"wrap",fontSize:12,color:"#5f6368"},
+  associationSummaryMuted:{fontSize:12,color:"#80868b"},
+  associationTags:{display:"flex",gap:8,flexWrap:"wrap",marginTop:10},
+  associationChip:{background:"#e8f0fe",color:"#174ea6",borderRadius:999,padding:"4px 10px",fontSize:12},
+  associationChipMuted:{background:"#f1f3f4",color:"#5f6368",borderRadius:999,padding:"4px 10px",fontSize:12},
   formChecklist:{display:"flex",flexDirection:"column",gap:8,padding:"10px 12px",border:"1px solid #dadce0",borderRadius:8,background:"#fff"},
+  formChecklistCompact:{display:"flex",flexDirection:"column",gap:8,padding:"10px 12px",border:"1px solid #dadce0",borderRadius:8,background:"#fff",maxHeight:180,overflowY:"auto"},
   formCheckboxRow:{display:"flex",alignItems:"center",gap:8,fontSize:14,color:"#3c4043"},
+  attachmentList:{display:"flex",flexDirection:"column",gap:8,marginTop:10},
+  attachmentRow:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"8px 10px",border:"1px solid #e3e7eb",borderRadius:8,background:"#fff"},
+  attachmentLink:{fontSize:13,color:"#174ea6",textDecoration:"none",overflowWrap:"anywhere"},
+  attachmentDeleteBtn:{border:"1px solid #dadce0",background:"#fff",color:"#c5221f",padding:"6px 10px",borderRadius:8,cursor:"pointer",fontSize:12,flexShrink:0},
   cancelBtn:{border:"none",background:"transparent",color:"#1a73e8",padding:"8px 16px",borderRadius:4,cursor:"pointer",fontSize:14},
   saveBtn:{border:"none",background:"#1a73e8",color:"#fff",padding:"8px 24px",borderRadius:4,cursor:"pointer",fontSize:14,fontWeight:600},
   editBtn:{border:"1px solid #dadce0",background:"#fff",color:"#3c4043",padding:"5px 12px",borderRadius:4,cursor:"pointer",fontSize:13},

@@ -13236,6 +13236,9 @@ function MtmDashboard({ dashboardFilter }) {
   const [resourceTableModal, setResourceTableModal] = useState(null);
   const [mtmScope, setMtmScope] = useState("all");
   const [mtmFacet, setMtmFacet] = useState("all");
+  const [operationFilterOpen, setOperationFilterOpen] = useState(false);
+  const [selectedOperationNames, setSelectedOperationNames] = useState([]);
+  const operationFilterRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -13390,6 +13393,40 @@ function MtmDashboard({ dashboardFilter }) {
       return true;
     });
   }, [allNormalizedRows, mtmFacet, mtmScope]);
+
+  const operationOptions = useMemo(
+    () =>
+      [...new Set(normalizedRows.map((item) => String(item.operationName || "").trim()).filter(Boolean))].sort((left, right) =>
+        left.localeCompare(right, "pt-BR"),
+      ),
+    [normalizedRows],
+  );
+
+  useEffect(() => {
+    setSelectedOperationNames((current) => {
+      if (!operationOptions.length) {
+        return [];
+      }
+      if (!current.length) {
+        return operationOptions;
+      }
+      const next = current.filter((item) => operationOptions.includes(item));
+      return next.length ? next : operationOptions;
+    });
+  }, [operationOptions]);
+
+  useEffect(() => {
+    if (!operationFilterOpen) {
+      return undefined;
+    }
+    const handlePointerDown = (event) => {
+      if (!operationFilterRef.current?.contains(event.target)) {
+        setOperationFilterOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [operationFilterOpen]);
 
   const summarizeMtmRows = useCallback((rows) => {
     const totals = rows.reduce(
@@ -13552,6 +13589,76 @@ function MtmDashboard({ dashboardFilter }) {
       }))
       .sort((left, right) => Math.abs(right.netBrl) - Math.abs(left.netBrl));
   }, [normalizedRows]);
+
+  const cardFilteredRows = useMemo(() => {
+    if (!selectedOperationNames.length) {
+      return normalizedRows;
+    }
+    return normalizedRows.filter((item) => selectedOperationNames.includes(String(item.operationName || "").trim()));
+  }, [normalizedRows, selectedOperationNames]);
+
+  const exchangeCardRows = useMemo(() => {
+    const exchangeMap = new Map();
+    cardFilteredRows.forEach((item) => {
+      const current = exchangeMap.get(item.exchangeLabel) || {
+        label: item.exchangeLabel,
+        total: 0,
+        open: 0,
+        closed: 0,
+        positive: 0,
+        negative: 0,
+        neutral: 0,
+        netBrl: 0,
+        positiveBrl: 0,
+        negativeBrl: 0,
+        volume: 0,
+        lots: 0,
+        strikeWeighted: 0,
+        strikeWeight: 0,
+        rows: [],
+      };
+      current.total += 1;
+      current.netBrl += item.mtmBrl;
+      current.volume += item.standardVolume || item.rawVolume || 0;
+      current.lots += item.lots || 0;
+      current.strikeWeighted += (item.rawVolume || 0) * (item.strike || 0);
+      current.strikeWeight += item.rawVolume || 0;
+      current.rows.push(item);
+      if (item.statusLabel === "Em aberto") current.open += 1;
+      else current.closed += 1;
+      if (item.direction === "positive") {
+        current.positive += 1;
+        current.positiveBrl += item.mtmBrl;
+      } else if (item.direction === "negative") {
+        current.negative += 1;
+        current.negativeBrl += Math.abs(item.mtmBrl);
+      } else {
+        current.neutral += 1;
+      }
+      exchangeMap.set(item.exchangeLabel, current);
+    });
+
+    return Array.from(exchangeMap.values())
+      .map((item, index) => ({
+        ...item,
+        avgStrike: item.strikeWeight > 0 ? item.strikeWeighted / item.strikeWeight : 0,
+        avgMtm: item.total ? item.netBrl / item.total : 0,
+        best: [...item.rows].sort((left, right) => right.mtmBrl - left.mtmBrl)[0] || null,
+        worst: [...item.rows].sort((left, right) => left.mtmBrl - right.mtmBrl)[0] || null,
+        color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+      }))
+      .sort((left, right) => Math.abs(right.netBrl) - Math.abs(left.netBrl));
+  }, [cardFilteredRows]);
+
+  const operationFilterLabel = useMemo(() => {
+    if (!operationOptions.length) {
+      return "Operações";
+    }
+    if (selectedOperationNames.length === operationOptions.length) {
+      return "Operações: todas";
+    }
+    return `Operações: ${selectedOperationNames.length}`;
+  }, [operationOptions, selectedOperationNames]);
 
   const exchangeRowsWithTotal = useMemo(() => {
     const baseRows = [...exchangeRows]
@@ -15140,9 +15247,9 @@ function MtmDashboard({ dashboardFilter }) {
   };
 
   const openExchangeModal = useCallback((exchangeLabel) => {
-    const rows = normalizedRows.filter((item) => item.exchangeLabel === exchangeLabel);
+    const rows = cardFilteredRows.filter((item) => item.exchangeLabel === exchangeLabel);
     openMtmRowsModal(`${exchangeLabel} · Operações de derivativos`, rows);
-  }, [normalizedRows, openMtmRowsModal]);
+  }, [cardFilteredRows, openMtmRowsModal]);
 
   const heroCards = useMemo(
     () => {
@@ -15603,11 +15710,52 @@ function MtmDashboard({ dashboardFilter }) {
         </section>
         <section className="mtm-exchange-section">
           <div className="mtm-section-head">
-            <h3>Cards por bolsa</h3>
-            <p>Um bloco para cada bolsa, sem filtro por cultura e com leitura rápida de quantidade, ganho, perda e operação extrema.</p>
+            <div>
+              <h3>Cards por bolsa</h3>
+              <p>Um bloco para cada bolsa, sem filtro por cultura e com leitura rápida de quantidade, ganho, perda e operação extrema.</p>
+            </div>
+            <div className="mtm-operation-filter" ref={operationFilterRef}>
+              <button
+                type="button"
+                className={`mtm-operation-filter-toggle${operationFilterOpen ? " is-open" : ""}`}
+                onClick={() => setOperationFilterOpen((current) => !current)}
+              >
+                <span>{operationFilterLabel}</span>
+                <strong>{selectedOperationNames.length || 0}</strong>
+              </button>
+              {operationFilterOpen ? (
+                <div className="mtm-operation-filter-panel">
+                  <div className="mtm-operation-filter-actions">
+                    <button type="button" onClick={() => setSelectedOperationNames(operationOptions)}>Selecionar todas</button>
+                    <button type="button" onClick={() => setSelectedOperationNames([])}>Limpar</button>
+                  </div>
+                  <div className="mtm-operation-filter-list">
+                    {operationOptions.map((operationName) => {
+                      const checked = selectedOperationNames.includes(operationName);
+                      return (
+                        <label key={operationName} className="mtm-operation-filter-option">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setSelectedOperationNames((current) =>
+                                current.includes(operationName)
+                                  ? current.filter((item) => item !== operationName)
+                                  : [...current, operationName],
+                              );
+                            }}
+                          />
+                          <span>{operationName}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="mtm-exchange-grid">
-            {exchangeRows.map((exchange) => {
+            {exchangeCardRows.map((exchange) => {
               const exchangeBarBase = Math.max(Math.abs(exchange.netBrl), exchange.positiveBrl, exchange.negativeBrl, 1);
 
               return (
@@ -15670,6 +15818,12 @@ function MtmDashboard({ dashboardFilter }) {
                 </button>
               );
             })}
+            {!exchangeCardRows.length ? (
+              <article className="card mtm-empty-card">
+                <strong>Sem operações para os cards selecionados.</strong>
+                <p>Ajuste o filtro de `Nome da operação` para voltar a exibir os cards por bolsa.</p>
+              </article>
+            ) : null}
           </div>
         </section>
         <section className="mtm-extra-section">

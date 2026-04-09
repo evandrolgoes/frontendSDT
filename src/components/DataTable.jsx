@@ -14,6 +14,23 @@ import { formatBrazilianDate, formatBrazilianDateTime, isBrazilianDate, isIsoDat
 const DEFAULT_FILTER = { values: [], min: "", max: "", query: "" };
 const isBrDate = (value) => isBrazilianDate(value);
 
+const normalizeFilterConfig = (config) => ({
+  values: Array.isArray(config?.values) ? config.values.map((item) => String(item)) : [],
+  min: config?.min ?? "",
+  max: config?.max ?? "",
+  query: config?.query ?? "",
+});
+
+const serializeColumnFilters = (filters = {}) =>
+  JSON.stringify(
+    Object.keys(filters)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = normalizeFilterConfig(filters[key]);
+        return acc;
+      }, {}),
+  );
+
 const FILTER_ICON = (
   <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
     <path
@@ -248,7 +265,12 @@ const shouldUseSum = (key) => {
 };
 
 const getUniqueValues = (rows, key) =>
-  [...new Set(rows.map((row) => (Array.isArray(row[key]) ? row[key].join(", ") : String(row[key] ?? ""))))].sort((left, right) =>
+  [...new Set(rows.flatMap((row) => {
+    if (Array.isArray(row[key])) {
+      return row[key].map((item) => String(item ?? ""));
+    }
+    return [String(row[key] ?? "")];
+  }))].sort((left, right) =>
     left.localeCompare(right, "pt-BR"),
   );
 
@@ -357,6 +379,7 @@ export function DataTable({
   toolbarActions = [],
   showClearButton = true,
   tableHeight = null,
+  inheritedColumnFilters = null,
 }) {
   const canCreate = typeof onCreate === "function";
   const canEdit = typeof onEdit === "function";
@@ -381,6 +404,49 @@ export function DataTable({
     return Math.max(280, Math.floor(window.innerHeight - 220));
   });
   const shellRef = useRef(null);
+  const inheritedFiltersSignatureRef = useRef("");
+
+  useEffect(() => {
+    const normalizedInheritedFilters =
+      inheritedColumnFilters && typeof inheritedColumnFilters === "object"
+        ? Object.entries(inheritedColumnFilters).reduce((acc, [key, config]) => {
+            const normalizedConfig = normalizeFilterConfig(config);
+            const hasActiveFilter =
+              normalizedConfig.values.length > 0 ||
+              normalizedConfig.min !== "" ||
+              normalizedConfig.max !== "" ||
+              String(normalizedConfig.query || "").trim() !== "";
+            if (hasActiveFilter) {
+              acc[key] = normalizedConfig;
+            }
+            return acc;
+          }, {})
+        : {};
+
+    const nextSignature = serializeColumnFilters(normalizedInheritedFilters);
+    if (inheritedFiltersSignatureRef.current === nextSignature) {
+      return;
+    }
+
+    inheritedFiltersSignatureRef.current = nextSignature;
+    setColumnFilters((current) => {
+      const next = { ...current };
+      const managedKeys = new Set([
+        ...Object.keys(current).filter((key) => String(key).startsWith("__inherited__:")),
+        ...Object.keys(normalizedInheritedFilters),
+      ]);
+
+      managedKeys.forEach((key) => {
+        delete next[key];
+      });
+
+      Object.entries(normalizedInheritedFilters).forEach(([key, config]) => {
+        next[key] = config;
+      });
+
+      return next;
+    });
+  }, [inheritedColumnFilters]);
 
   useEffect(() => {
     setSelectedIds((current) => {
@@ -535,7 +601,7 @@ export function DataTable({
         if (!column) {
           return true;
         }
-        const rawValue = Array.isArray(row[key]) ? row[key].join(", ") : row[key];
+        const rawValue = row[key];
         const type = column.detectedType;
 
         if (type === "number" || type === "date" || type === "datetime") {
@@ -545,10 +611,18 @@ export function DataTable({
           return current >= min && current <= max;
         }
 
-        const normalizedValue = String(rawValue ?? "").toLowerCase();
+        const normalizedItems = Array.isArray(rawValue)
+          ? rawValue.map((item) => String(item ?? "").toLowerCase())
+          : [String(rawValue ?? "").toLowerCase()];
+        const normalizedValue = normalizedItems.join(", ");
         const query = String(config.query ?? "").trim().toLowerCase();
         const matchesQuery = !query || normalizedValue.includes(query);
-        const matchesSelection = !config.values?.length || config.values.includes(String(rawValue ?? ""));
+        const matchesSelection =
+          !config.values?.length ||
+          normalizedItems.some((item) => config.values.includes(String(item ?? "").toLowerCase())) ||
+          (Array.isArray(rawValue)
+            ? rawValue.some((item) => config.values.includes(String(item ?? "")))
+            : config.values.includes(String(rawValue ?? "")));
         return matchesQuery && matchesSelection;
       });
     });
@@ -592,6 +666,17 @@ export function DataTable({
     return preparedColumns.reduce(
       (acc, column) => {
         if (column.detectedType !== "number") {
+          return acc;
+        }
+
+        if (typeof column.summary === "function") {
+          const customSummary = column.summary(sourceRows, {
+            toNumberLoose,
+            weightKey,
+          });
+          if (customSummary) {
+            acc[column.key] = customSummary;
+          }
           return acc;
         }
 

@@ -10306,6 +10306,88 @@ tfoot td {
   gap: 14px;
 }
 
+.mtm-operation-filter {
+  position: relative;
+  justify-self: end;
+}
+
+.mtm-operation-filter-toggle {
+  min-width: 220px;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid rgba(251, 146, 60, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #0f172a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
+}
+
+.mtm-operation-filter-toggle strong {
+  color: #ea580c;
+  font-size: 0.86rem;
+}
+
+.mtm-operation-filter-toggle.is-open {
+  border-color: rgba(37, 99, 235, 0.34);
+}
+
+.mtm-operation-filter-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(360px, 80vw);
+  max-height: 360px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 22px 52px rgba(15, 23, 42, 0.16);
+  z-index: 12;
+  display: grid;
+  gap: 10px;
+}
+
+.mtm-operation-filter-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mtm-operation-filter-actions button {
+  border: none;
+  background: transparent;
+  color: #ea580c;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mtm-operation-filter-list {
+  display: grid;
+  gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.mtm-operation-filter-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.78);
+  color: #334155;
+  font-size: 0.92rem;
+}
+
+.mtm-operation-filter-option input {
+  margin-top: 2px;
+}
+
 .mtm-extra-section {
   display: grid;
   gap: 14px;
@@ -10541,6 +10623,20 @@ tfoot td {
   .mtm-phase-head {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .mtm-operation-filter {
+    justify-self: stretch;
+  }
+
+  .mtm-operation-filter-toggle {
+    width: 100%;
+  }
+
+  .mtm-operation-filter-panel {
+    left: 0;
+    right: auto;
+    width: min(100%, 360px);
   }
 
   .mtm-exchange-bar-row {

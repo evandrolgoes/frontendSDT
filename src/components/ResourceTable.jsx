@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { DataTable } from "./DataTable";
+import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { resourceService } from "../services/resourceService";
 import { parseBrazilianDate } from "../utils/date";
 import { formatBrazilianNumber, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
@@ -14,6 +15,16 @@ const relationResourceLabels = {
   seasons: "safra",
   counterparties: "contraparte",
   strategies: "descricao_estrategia",
+};
+
+const normalizeValues = (value) => {
+  if (Array.isArray(value)) {
+    return value.filter((item) => item != null && item !== "").map((item) => String(item));
+  }
+  if (value == null || value === "") {
+    return [];
+  }
+  return [String(value)];
 };
 
 const resolveRelationLikeLabel = (value, preferredKey = "") => {
@@ -191,6 +202,15 @@ const prioritizePrimaryDateColumns = (columns) => {
   }
 
   return reorderColumns(columns, orderedKeys);
+};
+
+const buildWeightedAverageSummary = (key) => (sourceRows, { toNumberLoose }) => {
+  const totalWeight = sourceRows.reduce((sum, row) => sum + toNumberLoose(row.volume), 0);
+  if (!totalWeight) {
+    return { type: "Media", value: 0 };
+  }
+  const weightedValue = sourceRows.reduce((sum, row) => sum + toNumberLoose(row[key]) * toNumberLoose(row.volume), 0);
+  return { type: "Media", value: weightedValue / totalWeight };
 };
 
 const useLookupRows = (columns, rows) => {
@@ -408,19 +428,29 @@ export function usePreparedResourceTable(definition, rows) {
     }
     const openUsdBrlQuote = resolveUsdBrlQuote(derivativeQuotes);
     return rows.map((row) => {
+      const status = String(row.status_operacao || "").trim().toLowerCase();
+      const normalizedVolume = resolveDerivativeVolume(row);
+      const normalizedStrikeMontagem = parseLocalizedNumber(row.strike_montagem);
+      const normalizedStrikeLiquidacao = parseLocalizedNumber(row.strike_liquidacao);
       const strikeLiquidMtm =
         editingDerivativeStrike[row.id] !== undefined
           ? editingDerivativeStrike[row.id]
-          : (derivativeQuotes[row.contrato_derivativo] ?? 0);
+          : status === "em aberto"
+            ? (derivativeQuotes[row.contrato_derivativo] ?? 0)
+            : normalizedStrikeLiquidacao;
       const mtm = calculateDerivativeMtm(row, strikeLiquidMtm, openUsdBrlQuote);
       const siblingRows = derivativeSiblingRowsByCode.get(row.cod_operacao_mae ?? "") || [row];
 
       return {
         ...row,
-        volume: row.volume ?? row.volume_fisico_valor,
+        volume: normalizedVolume,
         unidade: row.unidade ?? row.volume_fisico_unidade,
+        strike_montagem: normalizedStrikeMontagem,
+        strike_liquidacao: normalizedStrikeLiquidacao,
         moeda_unidade: row.moeda_unidade ?? row.strike_moeda_unidade,
-        volume_financeiro_valor_moeda_original: row.volume_financeiro_valor_moeda_original ?? row.volume_financeiro_valor,
+        volume_financeiro_valor_moeda_original: parseLocalizedNumber(
+          row.volume_financeiro_valor_moeda_original ?? row.volume_financeiro_valor,
+        ),
         siblingRows,
         quantidade_derivativos: siblingRows.length,
         strike_liquid_mtm: strikeLiquidMtm,
@@ -518,12 +548,14 @@ export function usePreparedResourceTable(definition, rows) {
         key: "strike_montagem",
         label: "Strike montagem",
         type: "number",
+        summary: buildWeightedAverageSummary("strike_montagem"),
         render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda_unidade ? ` ${row.moeda_unidade}` : ""}`,
       },
       {
         key: "strike_liquid_mtm",
         label: "Strike liquid (MTM)",
         type: "number",
+        summary: buildWeightedAverageSummary("strike_liquid_mtm"),
         render: (value, row) =>
           String(row.status_operacao || "").trim().toLowerCase() === "em aberto" ? (
             <input
@@ -656,8 +688,47 @@ export function ResourceTable({
   toolbarActions = [],
   showClearButton = true,
   tableHeight = null,
+  inheritDashboardGroupFilters = true,
 }) {
   const { effectiveTableColumns, displayRows, getRowClassName } = usePreparedResourceTable(definition, rows);
+  const { filter: dashboardFilter, options } = useDashboardFilter();
+
+  const inheritedColumnFilters = useMemo(() => {
+    if (!inheritDashboardGroupFilters) {
+      return {};
+    }
+
+    const groupNames = (options.groups || [])
+      .filter((item) => normalizeValues(dashboardFilter?.grupo).includes(String(item.id)))
+      .map((item) => item.grupo)
+      .filter(Boolean);
+    const subgroupNames = (options.subgroups || [])
+      .filter((item) => normalizeValues(dashboardFilter?.subgrupo).includes(String(item.id)))
+      .map((item) => item.subgrupo)
+      .filter(Boolean);
+
+    const availableKeys = new Set((effectiveTableColumns || []).map((column) => column.key));
+    const nextFilters = {};
+
+    const groupKey = availableKeys.has("grupo") ? "grupo" : availableKeys.has("grupos") ? "grupos" : "";
+    const subgroupKey = availableKeys.has("subgrupo") ? "subgrupo" : availableKeys.has("subgrupos") ? "subgrupos" : "";
+
+    if (groupKey && groupNames.length) {
+      nextFilters[groupKey] = { values: groupNames };
+    }
+    if (subgroupKey && subgroupNames.length) {
+      nextFilters[subgroupKey] = { values: subgroupNames };
+    }
+
+    return nextFilters;
+  }, [
+    dashboardFilter?.grupo,
+    dashboardFilter?.subgrupo,
+    effectiveTableColumns,
+    inheritDashboardGroupFilters,
+    options.groups,
+    options.subgroups,
+  ]);
 
   return (
     <DataTable
@@ -680,6 +751,7 @@ export function ResourceTable({
       showClearButton={showClearButton}
       tableHeight={tableHeight}
       getRowClassName={getRowClassName}
+      inheritedColumnFilters={inheritedColumnFilters}
     />
   );
 }
