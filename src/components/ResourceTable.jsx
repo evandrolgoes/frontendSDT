@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DataTable } from "./DataTable";
 import { useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { resourceService } from "../services/resourceService";
+import { applyTableColumnPreference, useTableColumnPreference } from "../services/tableColumnConfig";
 import { parseBrazilianDate } from "../utils/date";
 import { formatBrazilianNumber, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
@@ -295,11 +296,13 @@ const useLookupRows = (columns, rows) => {
   );
 };
 
-export function usePreparedResourceTable(definition, rows) {
+export function usePreparedResourceTable(definition, rows, options = {}) {
+  const { applyColumnConfig = true } = options;
   const [derivativeQuotes, setDerivativeQuotes] = useState({});
   const [editingDerivativeStrike, setEditingDerivativeStrike] = useState({});
   const [editingDerivativeStrikeInput, setEditingDerivativeStrikeInput] = useState({});
   const tableColumns = useMemo(() => buildTableColumns(definition), [definition]);
+  const tableColumnPreference = useTableColumnPreference(applyColumnConfig ? definition.resource : "");
 
   useEffect(() => {
     setDerivativeQuotes({});
@@ -313,7 +316,7 @@ export function usePreparedResourceTable(definition, rows) {
     let fallbackTimeoutId = null;
 
     const loadDerivativeQuotes = async (force = false) => {
-      if (definition.customForm !== "derivative-operation") {
+      if (definition.customForm !== "derivative-operation" || !rows.length) {
         return;
       }
 
@@ -355,6 +358,12 @@ export function usePreparedResourceTable(definition, rows) {
       }, 0);
     };
 
+    if (!rows.length) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
     scheduleInitialDerivativeLoad();
     const intervalId = window.setInterval(() => loadDerivativeQuotes(true), TRADINGVIEW_REFRESH_MS);
     const handleVisibilityOrFocus = () => {
@@ -378,7 +387,7 @@ export function usePreparedResourceTable(definition, rows) {
       window.removeEventListener("focus", handleVisibilityOrFocus);
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
-  }, [definition.customForm]);
+  }, [definition.customForm, rows.length]);
 
   const derivativeSiblingRowsByCode = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
@@ -460,7 +469,7 @@ export function usePreparedResourceTable(definition, rows) {
     });
   }, [definition.customForm, derivativeQuotes, derivativeSiblingRowsByCode, editingDerivativeStrike, rows]);
 
-  const effectiveTableColumns = useMemo(() => {
+  const defaultTableColumns = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
       if (definition.resource === "physical-sales") {
         const physicalSalesColumns = tableColumns
@@ -654,6 +663,14 @@ export function usePreparedResourceTable(definition, rows) {
     editingDerivativeStrikeInput,
     tableColumns,
   ]);
+
+  const effectiveTableColumns = useMemo(
+    () =>
+      applyColumnConfig
+        ? applyTableColumnPreference(defaultTableColumns, tableColumnPreference)
+        : defaultTableColumns,
+    [applyColumnConfig, defaultTableColumns, tableColumnPreference],
+  );
 
   const displayRows = useLookupRows(effectiveTableColumns, normalizedRows);
   const getRowClassName =

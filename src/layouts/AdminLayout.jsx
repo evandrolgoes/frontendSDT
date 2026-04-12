@@ -187,7 +187,7 @@ function AdminLayoutShell({ children }) {
   const { enabled: dashboardDebugEnabled, setEnabled: setDashboardDebugEnabled, activeEntry, showDebugEntry, clearDebugEntry, isSuperuser } = useDashboardDebug();
   const isCashflowDashboard = ["/dashboard/fluxo-caixa", "/dashboard/fluxo-caixa-diario"].includes(location.pathname);
   const isDashboardRoute = location.pathname.startsWith("/dashboard/");
-  const hideFilterButton = ["/agenda", "/agenda-clientes", "/agenda-google", "/agenda-config"].some(
+  const hideFilterButton = ["/agenda", "/agenda-clientes", "/agenda-google", "/agenda-config", "/dashboard/ranking-clientes"].some(
     (p) => location.pathname === p || location.pathname.startsWith(`${p}/`),
   );
   const navigationSections = useMemo(() => getNavigationSections(user), [user]);

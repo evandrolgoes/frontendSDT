@@ -529,7 +529,7 @@ export function DataTable({
       window.removeEventListener("resize", scheduleSync);
       observers.forEach((observer) => observer.disconnect());
     };
-  }, [columnFilters, rows.length, searchValue, selectedIds.size, tableHeight, toolbarActions.length]);
+  }, [tableHeight]);
 
   const preparedColumns = useMemo(
     () =>

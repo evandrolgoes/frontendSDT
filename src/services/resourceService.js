@@ -318,6 +318,25 @@ export const resourceService = {
       api.get("insights/missing-fields/", { params: normalizedParams }).then((response) => response.data),
     );
   },
+  getMissingFieldsIgnoredConfig: (options = {}) => {
+    const cacheKey = buildCacheKey("insights", "missing-fields-ignored-config", {});
+    if (options.force) {
+      responseCache.delete(cacheKey);
+    }
+    return remember(cacheKey, () =>
+      api.get("insights/missing-fields/ignored-config/").then((response) => response.data),
+    );
+  },
+  saveMissingFieldsIgnoredConfig: (payload) =>
+    api.post("insights/missing-fields/ignored-config/", payload).then((response) => {
+      invalidateCache("insights");
+      return response.data;
+    }),
+  removeMissingFieldsIgnoredConfig: (payload) =>
+    api.delete("insights/missing-fields/ignored-config/", { data: payload }).then((response) => {
+      invalidateCache("insights");
+      return response.data;
+    }),
   generateMarketSummary: (payload) =>
     api.post("market-summary/generate/", payload).then((response) => response.data),
   fetchJsonCached: (cacheKey, url, options = {}) =>

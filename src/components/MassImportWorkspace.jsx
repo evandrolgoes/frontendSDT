@@ -3,11 +3,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { api } from "../services/api";
 import { resourceService } from "../services/resourceService";
-import { isBrazilianDate, parseBrazilianDate } from "../utils/date";
+import { formatBrazilianDate, isBrazilianDate, parseBrazilianDate } from "../utils/date";
 import { inferExchangeFromBolsaLabel, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
 const DEFAULT_VISIBLE_ROWS = 10;
 const ROW_COUNT_OPTIONS = [10, 50, 100, 150, 200];
+const FORMULA_LIBRARY = [
+  { key: "SUM", label: "SOMA", template: "=SUM(A1:A2)", description: "Soma um intervalo ou uma lista de numeros." },
+  { key: "AVERAGE", label: "MEDIA", template: "=AVERAGE(A1:A2)", description: "Retorna a media aritmetica dos valores." },
+  { key: "MIN", label: "MINIMO", template: "=MIN(A1:A2)", description: "Retorna o menor valor do intervalo." },
+  { key: "MAX", label: "MAXIMO", template: "=MAX(A1:A2)", description: "Retorna o maior valor do intervalo." },
+  { key: "ABS", label: "ABS", template: "=ABS(A1)", description: "Retorna o valor absoluto do numero." },
+];
 
 const getQuoteSectionName = (item) =>
   String(item?.section_name || item?.secao || item?.seção || "")
@@ -181,6 +188,200 @@ const formatCellDisplayValue = (field, row, lookupOptions, tradingviewQuotes) =>
 
 const buildCellKey = (rowIndex, columnIndex) => `${rowIndex}:${columnIndex}`;
 
+const cellReferencePattern = /\b([A-Z]+)(\d+)\b/gi;
+const formulaFunctionPattern = /(SUM|AVERAGE|AVG|MIN|MAX)\(([^()]*)\)/gi;
+
+const columnLettersToIndex = (letters) =>
+  String(letters || "")
+    .toUpperCase()
+    .split("")
+    .reduce((acc, char) => (acc * 26) + (char.charCodeAt(0) - 64), 0) - 1;
+
+const columnIndexToLetters = (columnIndex) => {
+  let value = Number(columnIndex) + 1;
+  let result = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result || "A";
+};
+
+const parseCellKey = (cellKey) => {
+  const [rowPart, columnPart] = String(cellKey || "").split(":");
+  return {
+    rowIndex: Number(rowPart),
+    columnIndex: Number(columnPart),
+  };
+};
+
+const shiftFormulaReferences = (formula, rowOffset = 0, columnOffset = 0) =>
+  String(formula || "").replace(cellReferencePattern, (_match, columnLetters, rowNumber) => {
+    const nextColumnIndex = Math.max(0, columnLettersToIndex(columnLetters) + columnOffset);
+    const nextRowIndex = Math.max(0, Number(rowNumber) - 1 + rowOffset);
+    return `${columnIndexToLetters(nextColumnIndex)}${nextRowIndex + 1}`;
+  });
+
+const isFormulaInput = (value) => String(value || "").trim().startsWith("=");
+
+const formatFormulaResult = (result) => {
+  if (typeof result !== "number" || !Number.isFinite(result)) {
+    return "#ERRO!";
+  }
+  return String(result);
+};
+
+const splitFormulaArguments = (argsString) => {
+  const args = [];
+  let current = "";
+  let depth = 0;
+
+  for (const char of String(argsString || "")) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth = Math.max(0, depth - 1);
+
+    if ((char === "," || char === ";") && depth === 0) {
+      args.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    args.push(current.trim());
+  }
+
+  return args;
+};
+
+const getCellNumericValue = (rows, fields, formulaMap, rowIndex, columnIndex, stack = new Set()) => {
+  const field = fields[columnIndex];
+  if (!field || rowIndex < 0 || rowIndex >= rows.length) {
+    return 0;
+  }
+
+  const cellKey = buildCellKey(rowIndex, columnIndex);
+  if (stack.has(cellKey)) {
+    throw new Error("Circular reference");
+  }
+
+  const formula = formulaMap[cellKey];
+  if (formula) {
+    const nextStack = new Set(stack);
+    nextStack.add(cellKey);
+    return evaluateFormulaExpression(formula, rows, fields, formulaMap, nextStack);
+  }
+
+  const parsedValue = parseLocalizedNumber(rows[rowIndex]?.[field.name]);
+  return Number.isFinite(parsedValue) ? parsedValue : 0;
+};
+
+const expandRangeValues = (rangeExpression, rows, fields, formulaMap, stack = new Set()) => {
+  const match = String(rangeExpression || "").trim().match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/i);
+  if (!match) return [];
+
+  const startColumnIndex = columnLettersToIndex(match[1]);
+  const startRowIndex = Number(match[2]) - 1;
+  const endColumnIndex = columnLettersToIndex(match[3]);
+  const endRowIndex = Number(match[4]) - 1;
+
+  const rowStart = Math.min(startRowIndex, endRowIndex);
+  const rowEnd = Math.max(startRowIndex, endRowIndex);
+  const columnStart = Math.min(startColumnIndex, endColumnIndex);
+  const columnEnd = Math.max(startColumnIndex, endColumnIndex);
+
+  const values = [];
+  for (let rowIndex = rowStart; rowIndex <= rowEnd; rowIndex += 1) {
+    for (let columnIndex = columnStart; columnIndex <= columnEnd; columnIndex += 1) {
+      values.push(getCellNumericValue(rows, fields, formulaMap, rowIndex, columnIndex, stack));
+    }
+  }
+  return values;
+};
+
+function evaluateFormulaExpression(rawFormula, rows, fields, formulaMap, stack = new Set()) {
+  let expression = String(rawFormula || "").trim();
+  if (!expression) return 0;
+  if (expression.startsWith("=")) {
+    expression = expression.slice(1).trim();
+  }
+
+  let previousExpression = null;
+  while (previousExpression !== expression) {
+    previousExpression = expression;
+    expression = expression.replace(formulaFunctionPattern, (match, functionName, argsString) => {
+      const argumentsList = splitFormulaArguments(argsString);
+      const values = argumentsList.flatMap((argument) => {
+        if (!argument) return [];
+        if (/^[A-Z]+\d+:[A-Z]+\d+$/i.test(argument)) {
+          return expandRangeValues(argument, rows, fields, formulaMap, stack);
+        }
+
+        if (/^[A-Z]+\d+$/i.test(argument)) {
+          const refMatch = argument.match(/^([A-Z]+)(\d+)$/i);
+          return [getCellNumericValue(rows, fields, formulaMap, Number(refMatch[2]) - 1, columnLettersToIndex(refMatch[1]), stack)];
+        }
+
+        const nestedValue = evaluateFormulaExpression(argument, rows, fields, formulaMap, stack);
+        return [nestedValue];
+      });
+
+      const normalizedName = String(functionName || "").toUpperCase();
+      if (!values.length) {
+        return "0";
+      }
+      if (normalizedName === "SUM") {
+        return String(values.reduce((acc, value) => acc + value, 0));
+      }
+      if (normalizedName === "AVERAGE" || normalizedName === "AVG") {
+        return String(values.reduce((acc, value) => acc + value, 0) / values.length);
+      }
+      if (normalizedName === "MIN") {
+        return String(Math.min(...values));
+      }
+      if (normalizedName === "MAX") {
+        return String(Math.max(...values));
+      }
+      return match;
+    });
+  }
+
+  expression = expression.replace(cellReferencePattern, (_match, columnLetters, rowNumber) => {
+    const value = getCellNumericValue(rows, fields, formulaMap, Number(rowNumber) - 1, columnLettersToIndex(columnLetters), stack);
+    return String(value);
+  });
+
+  if (!/^[0-9+\-*/().,\s]+$/.test(expression)) {
+    throw new Error("Invalid formula");
+  }
+
+  const result = Function(`"use strict"; return (${expression.replace(/,/g, ".")});`)();
+  if (typeof result !== "number" || !Number.isFinite(result)) {
+    throw new Error("Invalid formula result");
+  }
+  return result;
+}
+
+const recalculateFormulaRows = (rows, fields, formulaMap) => {
+  const nextRows = rows.map((row) => ({ ...row }));
+  Object.entries(formulaMap || {}).forEach(([cellKey, formula]) => {
+    const { rowIndex, columnIndex } = parseCellKey(cellKey);
+    const field = fields[columnIndex];
+    if (!field || rowIndex < 0 || rowIndex >= nextRows.length) {
+      return;
+    }
+    try {
+      nextRows[rowIndex][field.name] = formatFormulaResult(evaluateFormulaExpression(formula, nextRows, fields, formulaMap));
+    } catch {
+      nextRows[rowIndex][field.name] = "#ERRO!";
+    }
+  });
+  return nextRows;
+};
+
 const generateUniqueOperationCode = (rows, currentRowIndex) => {
   const usedCodes = new Set(
     rows
@@ -195,6 +396,9 @@ const generateUniqueOperationCode = (rows, currentRowIndex) => {
 
 export function MassImportWorkspace() {
   const tableWrapRef = useRef(null);
+  const cellFormulasRef = useRef({});
+  const cellInputRefs = useRef({});
+  const formulaBarRef = useRef(null);
   const [resources, setResources] = useState([]);
   const [resource, setResource] = useState("");
   const [resourceLabel, setResourceLabel] = useState("");
@@ -214,6 +418,16 @@ export function MassImportWorkspace() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [openDropdownCell, setOpenDropdownCell] = useState(null);
   const [fillDrag, setFillDrag] = useState(null);
+  const [editingCell, setEditingCell] = useState(null);
+  const [cellFormulas, setCellFormulas] = useState({});
+  const [formulaSelection, setFormulaSelection] = useState({ start: null, end: null });
+  const [showFormulaPicker, setShowFormulaPicker] = useState(false);
+  const [formulaSearch, setFormulaSearch] = useState("");
+  const [selectedFormulaKey, setSelectedFormulaKey] = useState(FORMULA_LIBRARY[0].key);
+
+  useEffect(() => {
+    cellFormulasRef.current = cellFormulas;
+  }, [cellFormulas]);
 
   useEffect(() => {
     let active = true;
@@ -261,6 +475,8 @@ export function MassImportWorkspace() {
         setTradingviewQuotes(Array.isArray(quoteItems) ? quoteItems : []);
         setRows(createDefaultRows(metadataFields, resource, defaults, rowCount));
         setRowMeta(createDefaultRowMeta(rowCount));
+        setCellFormulas({});
+        setEditingCell(null);
         setSelectedCell({ rowIndex: 0, columnIndex: 0 });
         setSelectionRange({ startRowIndex: 0, startColumnIndex: 0, endRowIndex: 0, endColumnIndex: 0 });
         setOpenDropdownCell(null);
@@ -279,7 +495,17 @@ export function MassImportWorkspace() {
     return () => {
       active = false;
     };
-  }, [resource, resources, rowCount]);
+  }, [resource, resources]);
+
+  useEffect(() => {
+    if (!resource || !fields.length) {
+      return;
+    }
+
+    const defaults = buildRowDefaults(resource);
+    setRows((currentRows) => resizeRows(currentRows, fields, resource, rowCount, defaults));
+    setRowMeta((currentMeta) => resizeRowMeta(currentMeta, rowCount));
+  }, [fields, resource, rowCount]);
 
   useEffect(() => {
     if (!fillDrag) return undefined;
@@ -290,13 +516,26 @@ export function MassImportWorkspace() {
         if (!field) return currentRows;
         const startRow = Math.min(fillDrag.sourceRowIndex, fillDrag.targetRowIndex);
         const endRow = Math.max(fillDrag.sourceRowIndex, fillDrag.targetRowIndex);
-        const sourceValue = currentRows[fillDrag.sourceRowIndex]?.[field.name] || "";
         const nextRows = [...currentRows];
+        const nextFormulaMap = { ...cellFormulasRef.current };
+        const sourceCellKey = buildCellKey(fillDrag.sourceRowIndex, fillDrag.columnIndex);
+        const sourceFormula = nextFormulaMap[sourceCellKey];
+        const sourceValue = currentRows[fillDrag.sourceRowIndex]?.[field.name] || "";
         for (let rowIndex = startRow; rowIndex <= endRow; rowIndex += 1) {
           if (rowIndex === fillDrag.sourceRowIndex) continue;
-          nextRows[rowIndex] = applyResourceDefaults(resource, { ...nextRows[rowIndex], [field.name]: sourceValue }, fields, lookupOptions);
+          const targetCellKey = buildCellKey(rowIndex, fillDrag.columnIndex);
+          if (sourceFormula) {
+            nextFormulaMap[targetCellKey] = shiftFormulaReferences(sourceFormula, rowIndex - fillDrag.sourceRowIndex, 0);
+          } else {
+            delete nextFormulaMap[targetCellKey];
+            nextRows[rowIndex] = { ...nextRows[rowIndex], [field.name]: sourceValue };
+          }
+          nextRows[rowIndex] = applyResourceDefaults(resource, nextRows[rowIndex], fields, lookupOptions);
         }
-        return nextRows;
+        const recalculatedRows = recalculateFormulaRows(nextRows, fields, nextFormulaMap);
+        cellFormulasRef.current = nextFormulaMap;
+        setCellFormulas(nextFormulaMap);
+        return recalculatedRows;
       });
       setRowMeta((currentMeta) =>
         currentMeta.map((meta, index) => {
@@ -327,38 +566,7 @@ export function MassImportWorkspace() {
 
   const updateRow = (rowIndex, fieldName, value) => {
     setOpenDropdownCell(null);
-    setRows((currentRows) =>
-      currentRows.map((row, index) => {
-        if (index !== rowIndex) return row;
-        let nextRow = { ...row, [fieldName]: value };
-        if (resource === "derivative-operations") {
-          if (fieldName !== "cod_operacao_mae") {
-            const hasAnyMeaningfulValue = fields.some((field) => field.name !== "cod_operacao_mae" && String(nextRow?.[field.name] || "").trim() !== "");
-            if (hasAnyMeaningfulValue && !String(nextRow.cod_operacao_mae || "").trim()) {
-              nextRow.cod_operacao_mae = generateUniqueOperationCode(currentRows, rowIndex);
-            }
-          }
-        }
-        nextRow = applyResourceDefaults(resource, nextRow, fields, lookupOptions);
-        if (resource === "derivative-operations" && fieldName === "bolsa_ref" && nextRow.contrato_derivativo) {
-          const contractField = fields.find((field) => field.name === "contrato_derivativo");
-          const contractOptions = contractField ? getFieldOptions(contractField, lookupOptions, tradingviewQuotes, nextRow) : [];
-          if (!contractOptions.some((option) => option.value === nextRow.contrato_derivativo)) {
-            nextRow.contrato_derivativo = "";
-          }
-        }
-        return nextRow;
-      }),
-    );
-    setRowMeta((currentMeta) =>
-      currentMeta.map((meta, index) => {
-        if (index !== rowIndex) return meta;
-        if (fieldName === "cod_operacao_mae") {
-          return { ...meta, touched: true, manualCode: String(value || "").trim() !== "", autoCode: false };
-        }
-        return { ...meta, touched: true, autoCode: resource === "derivative-operations" };
-      }),
-    );
+    applyCellValue(rowIndex, fieldName, value);
   };
 
   const applyPastedText = (clipboard, rowIndex, columnIndex) => {
@@ -371,6 +579,7 @@ export function MassImportWorkspace() {
     if (!parsedRows.length) return;
     setRows((currentRows) => {
       const nextRows = [...currentRows];
+      const nextFormulaMap = { ...cellFormulasRef.current };
       const missingRows = Math.max(0, rowIndex + parsedRows.length - nextRows.length);
       for (let extraIndex = 0; extraIndex < missingRows; extraIndex += 1) {
         nextRows.push(createEmptyRow(fields, resource, buildRowDefaults(resource)));
@@ -383,12 +592,16 @@ export function MassImportWorkspace() {
           values.forEach((rawValue, pasteColumnOffset) => {
             const field = fields[columnIndex + pasteColumnOffset];
             if (!field) return;
+            const cellKey = buildCellKey(absoluteRowIndex, columnIndex + pasteColumnOffset);
+            const normalizedRawValue = String(rawValue || "").trim();
             if (isSelectLikeField(field)) {
               nextRow[field.name] = findSelectValue(field, rawValue, lookupOptions, tradingviewQuotes, nextRow);
-            } else if (field.type === "date") {
-              nextRow[field.name] = normalizeDateValue(rawValue);
+              delete nextFormulaMap[cellKey];
+            } else if (isFormulaInput(normalizedRawValue) && field.type !== "date") {
+              nextFormulaMap[cellKey] = normalizedRawValue;
             } else {
-              nextRow[field.name] = String(rawValue || "").trim();
+              nextRow[field.name] = normalizedRawValue;
+              delete nextFormulaMap[cellKey];
             }
             nextMeta[absoluteRowIndex] = {
               ...nextMeta[absoluteRowIndex],
@@ -405,9 +618,11 @@ export function MassImportWorkspace() {
           }
           nextRows[absoluteRowIndex] = applyResourceDefaults(resource, nextRow, fields, lookupOptions);
         });
+        cellFormulasRef.current = nextFormulaMap;
+        setCellFormulas(nextFormulaMap);
         return nextMeta;
       });
-      return nextRows;
+      return recalculateFormulaRows(nextRows, fields, nextFormulaMap);
     });
   };
 
@@ -499,6 +714,8 @@ export function MassImportWorkspace() {
       setNotice(`Importacao concluida. ${data.createdCount || 0} registro(s) criados em ${data.label || resourceLabel}.`);
       setRows(createDefaultRows(fields, resource, buildRowDefaults(resource), rowCount));
       setRowMeta(createDefaultRowMeta(rowCount));
+      setCellFormulas({});
+      setEditingCell(null);
     } catch (requestError) {
       setError(requestError.response?.data?.detail || "Nao foi possivel importar os dados.");
     } finally {
@@ -524,7 +741,9 @@ export function MassImportWorkspace() {
     return rowIndex >= startRow && rowIndex <= endRow;
   };
 
-  const focusCell = (rowIndex, columnIndex) => {
+  const getCellReferenceLabel = (rowIndex, columnIndex) => `${columnIndexToLetters(columnIndex)}${rowIndex + 1}`;
+
+  const selectCell = (rowIndex, columnIndex) => {
     const safeRowIndex = Math.max(0, Math.min(rowIndex, rows.length - 1));
     const safeColumnIndex = Math.max(0, Math.min(columnIndex, fields.length - 1));
     setSelectedCell({ rowIndex: safeRowIndex, columnIndex: safeColumnIndex });
@@ -536,13 +755,132 @@ export function MassImportWorkspace() {
     });
 
     window.requestAnimationFrame(() => {
-      const element = tableWrapRef.current?.querySelector(`[data-cell="${buildCellKey(safeRowIndex, safeColumnIndex)}"]`);
+      const cellKey = buildCellKey(safeRowIndex, safeColumnIndex);
+      const element = tableWrapRef.current?.querySelector(`[data-cell="${cellKey}"]`);
       element?.focus();
     });
   };
 
+  const startEditingCell = (rowIndex, columnIndex) => {
+    const safeRowIndex = Math.max(0, Math.min(rowIndex, rows.length - 1));
+    const safeColumnIndex = Math.max(0, Math.min(columnIndex, fields.length - 1));
+    const field = fields[safeColumnIndex];
+    const cellKey = buildCellKey(safeRowIndex, safeColumnIndex);
+
+    selectCell(safeRowIndex, safeColumnIndex);
+    if (isSelectLikeField(field)) {
+      return;
+    }
+
+    setEditingCell(cellKey);
+    window.requestAnimationFrame(() => {
+      const input = cellInputRefs.current[cellKey];
+      if (input) {
+        input.focus();
+      }
+    });
+  };
+
+  const overwriteCellValue = (rowIndex, columnIndex, nextValue = "") => {
+    const safeRowIndex = Math.max(0, Math.min(rowIndex, rows.length - 1));
+    const safeColumnIndex = Math.max(0, Math.min(columnIndex, fields.length - 1));
+    const field = fields[safeColumnIndex];
+    const cellKey = buildCellKey(safeRowIndex, safeColumnIndex);
+
+    if (!field || isSelectLikeField(field)) {
+      return false;
+    }
+
+    setEditingCell(cellKey);
+    applyCellValue(safeRowIndex, field.name, nextValue);
+    window.requestAnimationFrame(() => {
+      const input = cellInputRefs.current[cellKey];
+      if (input) {
+        input.focus();
+        if (typeof input.setSelectionRange === "function") {
+          const caret = String(nextValue || "").length;
+          input.setSelectionRange(caret, caret);
+        }
+      }
+    });
+    return true;
+  };
+
+  const updateFormulaSelection = (target) => {
+    if (!target) return;
+    setFormulaSelection({
+      start: typeof target.selectionStart === "number" ? target.selectionStart : null,
+      end: typeof target.selectionEnd === "number" ? target.selectionEnd : null,
+    });
+  };
+
+  const applyCellValue = (rowIndex, fieldName, value) => {
+    const columnIndex = fields.findIndex((item) => item.name === fieldName);
+    const field = fields[columnIndex];
+    const cellKey = buildCellKey(rowIndex, columnIndex);
+
+    setRows((currentRows) => {
+      const nextRows = currentRows.map((row) => ({ ...row }));
+      const nextFormulaMap = { ...cellFormulasRef.current };
+      const normalizedValue = String(value ?? "");
+
+      if (field && !isSelectLikeField(field) && field.type !== "date" && isFormulaInput(normalizedValue)) {
+        nextFormulaMap[cellKey] = normalizedValue;
+      } else {
+        delete nextFormulaMap[cellKey];
+        nextRows[rowIndex][fieldName] = value;
+      }
+
+      let recalculatedRows = recalculateFormulaRows(nextRows, fields, nextFormulaMap);
+      let nextRow = { ...recalculatedRows[rowIndex] };
+
+      if (resource === "derivative-operations" && fieldName !== "cod_operacao_mae") {
+        const hasAnyMeaningfulValue = fields.some((item) => item.name !== "cod_operacao_mae" && String(nextRow?.[item.name] || "").trim() !== "");
+        if (hasAnyMeaningfulValue && !String(nextRow.cod_operacao_mae || "").trim()) {
+          nextRow.cod_operacao_mae = generateUniqueOperationCode(recalculatedRows, rowIndex);
+        }
+      }
+
+      nextRow = applyResourceDefaults(resource, nextRow, fields, lookupOptions);
+      if (resource === "derivative-operations" && fieldName === "bolsa_ref" && nextRow.contrato_derivativo) {
+        const contractField = fields.find((item) => item.name === "contrato_derivativo");
+        const contractOptions = contractField ? getFieldOptions(contractField, lookupOptions, tradingviewQuotes, nextRow) : [];
+        if (!contractOptions.some((option) => option.value === nextRow.contrato_derivativo)) {
+          nextRow.contrato_derivativo = "";
+        }
+      }
+
+      recalculatedRows[rowIndex] = nextRow;
+      recalculatedRows = recalculateFormulaRows(recalculatedRows, fields, nextFormulaMap);
+      cellFormulasRef.current = nextFormulaMap;
+      setCellFormulas(nextFormulaMap);
+      return recalculatedRows;
+    });
+
+    setRowMeta((currentMeta) =>
+      currentMeta.map((meta, index) => {
+        if (index !== rowIndex) return meta;
+        if (fieldName === "cod_operacao_mae") {
+          return { ...meta, touched: true, manualCode: String(value || "").trim() !== "", autoCode: false };
+        }
+        return { ...meta, touched: true, autoCode: resource === "derivative-operations" };
+      }),
+    );
+  };
+
+  const focusCell = (rowIndex, columnIndex) => {
+    const safeRowIndex = Math.max(0, Math.min(rowIndex, rows.length - 1));
+    const safeColumnIndex = Math.max(0, Math.min(columnIndex, fields.length - 1));
+    selectCell(safeRowIndex, safeColumnIndex);
+  };
+
   const handleKeyboardNavigation = (event, rowIndex, columnIndex) => {
     const isInputActive = event.target.tagName === "INPUT";
+    const cellKey = buildCellKey(rowIndex, columnIndex);
+    const isEditingCurrentCell = editingCell === cellKey;
+    const field = fields[columnIndex];
+    const isTextLikeCell = field && !isSelectLikeField(field);
+    const isPrintableKey = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey;
 
     // Ctrl/Cmd+A: select all cells
     if ((event.ctrlKey || event.metaKey) && event.key === "a") {
@@ -556,6 +894,18 @@ export function MassImportWorkspace() {
       return;
     }
 
+    if ((event.key === "Delete" || event.key === "Backspace") && isTextLikeCell && !isEditingCurrentCell) {
+      event.preventDefault();
+      overwriteCellValue(rowIndex, columnIndex, "");
+      return;
+    }
+
+    if (isPrintableKey && isTextLikeCell && !isEditingCurrentCell) {
+      event.preventDefault();
+      overwriteCellValue(rowIndex, columnIndex, event.key);
+      return;
+    }
+
     // Delete/Backspace on non-input element: clear selection range
     if ((event.key === "Delete" || event.key === "Backspace") && !isInputActive) {
       event.preventDefault();
@@ -565,16 +915,22 @@ export function MassImportWorkspace() {
 
     // Escape: close dropdown, clear fill drag
     if (event.key === "Escape") {
+      event.preventDefault();
       setOpenDropdownCell(null);
       setFillDrag(null);
+      setEditingCell(null);
+      setFormulaSelection({ start: null, end: null });
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
       return;
     }
 
     // Tab / Shift+Tab: move right / left
     if (event.key === "Tab") {
       event.preventDefault();
-      if (event.shiftKey) focusCell(rowIndex, columnIndex - 1);
-      else focusCell(rowIndex, columnIndex + 1);
+      if (event.shiftKey) selectCell(rowIndex, columnIndex - 1);
+      else selectCell(rowIndex, columnIndex + 1);
       return;
     }
 
@@ -595,27 +951,33 @@ export function MassImportWorkspace() {
     // Arrow key navigation
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      focusCell(rowIndex - 1, columnIndex);
+      selectCell(rowIndex - 1, columnIndex);
       return;
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      focusCell(rowIndex + 1, columnIndex);
+      selectCell(rowIndex + 1, columnIndex);
       return;
     }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      focusCell(rowIndex, columnIndex - 1);
+      selectCell(rowIndex, columnIndex - 1);
       return;
     }
     if (event.key === "ArrowRight") {
       event.preventDefault();
-      focusCell(rowIndex, columnIndex + 1);
+      selectCell(rowIndex, columnIndex + 1);
       return;
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      focusCell(rowIndex + 1, columnIndex);
+      selectCell(rowIndex + 1, columnIndex);
+      return;
+    }
+
+    if (event.key === "F2") {
+      event.preventDefault();
+      startEditingCell(rowIndex, columnIndex);
     }
   };
 
@@ -649,6 +1011,37 @@ export function MassImportWorkspace() {
       startColumnIndex: 0,
       endRowIndex: rows.length - 1,
       endColumnIndex: fields.length - 1,
+    });
+  };
+
+  const activeField = fields[selectedCell.columnIndex];
+  const activeCellKey = buildCellKey(selectedCell.rowIndex, selectedCell.columnIndex);
+  const activeFormulaValue = cellFormulas[activeCellKey];
+  const activeCellDisplayValue = activeField ? rows[selectedCell.rowIndex]?.[activeField.name] || "" : "";
+  const activeFormulaBarValue = activeFormulaValue || activeCellDisplayValue;
+  const filteredFormulaLibrary = FORMULA_LIBRARY.filter((item) => {
+    const query = normalizeLookupValue(formulaSearch);
+    if (!query) return true;
+    return normalizeLookupValue(item.label).includes(query) || normalizeLookupValue(item.key).includes(query) || normalizeLookupValue(item.description).includes(query);
+  });
+  const selectedFormula = filteredFormulaLibrary.find((item) => item.key === selectedFormulaKey)
+    || FORMULA_LIBRARY.find((item) => item.key === selectedFormulaKey)
+    || filteredFormulaLibrary[0]
+    || FORMULA_LIBRARY[0];
+
+  const insertFormulaTemplate = (formulaItem) => {
+    if (!activeField || isSelectLikeField(activeField) || activeField.type === "date") {
+      return;
+    }
+    setShowFormulaPicker(false);
+    setEditingCell(activeCellKey);
+    updateRow(selectedCell.rowIndex, activeField.name, formulaItem.template);
+    window.requestAnimationFrame(() => {
+      const input = formulaBarRef.current;
+      if (input) {
+        input.focus();
+        updateFormulaSelection(input);
+      }
     });
   };
 
@@ -717,6 +1110,77 @@ export function MassImportWorkspace() {
           <span>Enter próxima linha</span>
         </div>
 
+        <div className="derivative-sheet-formula-bar">
+          <div className="derivative-sheet-name-box">{getCellReferenceLabel(selectedCell.rowIndex, selectedCell.columnIndex)}</div>
+          <button
+            type="button"
+            className="derivative-sheet-formula-symbol derivative-sheet-formula-button"
+            onClick={() => setShowFormulaPicker((current) => !current)}
+            disabled={!activeField || isSelectLikeField(activeField) || activeField.type === "date"}
+          >
+            fx
+          </button>
+          <input
+            ref={formulaBarRef}
+            className="derivative-sheet-formula-input"
+            type="text"
+            value={activeFormulaBarValue}
+            disabled={!activeField || isSelectLikeField(activeField) || activeField.type === "date"}
+            onFocus={(event) => {
+              setEditingCell(activeCellKey);
+              updateFormulaSelection(event.target);
+            }}
+            onClick={(event) => updateFormulaSelection(event.target)}
+            onKeyUp={(event) => updateFormulaSelection(event.target)}
+            onSelect={(event) => updateFormulaSelection(event.target)}
+            onChange={(event) => {
+              if (!activeField) return;
+              setEditingCell(activeCellKey);
+              updateFormulaSelection(event.target);
+              updateRow(selectedCell.rowIndex, activeField.name, event.target.value);
+            }}
+            onKeyDown={(event) => handleKeyboardNavigation(event, selectedCell.rowIndex, selectedCell.columnIndex)}
+          />
+        </div>
+        {showFormulaPicker ? (
+          <div className="derivative-sheet-formula-picker-overlay" onClick={() => setShowFormulaPicker(false)}>
+            <div className="derivative-sheet-formula-picker" onClick={(event) => event.stopPropagation()}>
+              <div className="derivative-sheet-formula-picker-header">
+                <strong>Construtor de Formula</strong>
+                <button type="button" className="derivative-sheet-formula-picker-close" onClick={() => setShowFormulaPicker(false)}>x</button>
+              </div>
+              <input
+                className="derivative-sheet-formula-picker-search"
+                type="text"
+                placeholder="Pesquisar"
+                value={formulaSearch}
+                onChange={(event) => setFormulaSearch(event.target.value)}
+              />
+              <div className="derivative-sheet-formula-picker-body">
+                <div className="derivative-sheet-formula-picker-list">
+                  {filteredFormulaLibrary.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`derivative-sheet-formula-picker-item${selectedFormula?.key === item.key ? " is-selected" : ""}`}
+                      onClick={() => setSelectedFormulaKey(item.key)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="derivative-sheet-formula-picker-details">
+                  <div className="derivative-sheet-formula-picker-preview">{selectedFormula?.template}</div>
+                  <p>{selectedFormula?.description}</p>
+                  <button type="button" className="bubble-btn bubble-btn-primary" onClick={() => insertFormulaTemplate(selectedFormula)}>
+                    Inserir Funcao
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div
           ref={tableWrapRef}
           className="derivative-bulk-import-table-wrap custom-scrollbar"
@@ -741,7 +1205,8 @@ export function MassImportWorkspace() {
                     title={`Selecionar coluna "${field.label}"`}
                     onClick={() => handleColumnHeaderClick(columnIndex)}
                   >
-                    {field.label}
+                    <span className="derivative-sheet-col-letter">{columnIndexToLetters(columnIndex)}</span>
+                    <span className="derivative-sheet-col-name">{field.label}</span>
                   </th>
                 ))}
               </tr>
@@ -761,7 +1226,10 @@ export function MassImportWorkspace() {
                     const cellInRange = isCellInSelectionRange(rowIndex, columnIndex);
                     const fillPreview = isCellInFillPreview(rowIndex, columnIndex);
                     const options = getFieldOptions(field, lookupOptions, tradingviewQuotes, row);
-                    const dropdownOpen = openDropdownCell === buildCellKey(rowIndex, columnIndex);
+                    const cellKey = buildCellKey(rowIndex, columnIndex);
+                    const dropdownOpen = openDropdownCell === cellKey;
+                    const formulaValue = cellFormulas[cellKey];
+                    const isEditingCurrentCell = editingCell === cellKey;
 
                     const tdClass = [
                       "derivative-bulk-import-td",
@@ -792,6 +1260,7 @@ export function MassImportWorkspace() {
                             }));
                             setIsSelecting(true);
                           } else {
+                            setEditingCell(null);
                             setSelectedCell({ rowIndex, columnIndex });
                             setSelectionRange({
                               startRowIndex: rowIndex,
@@ -803,14 +1272,11 @@ export function MassImportWorkspace() {
                           }
                         }}
                         onClick={() => {
-                          setSelectedCell({ rowIndex, columnIndex });
+                          selectCell(rowIndex, columnIndex);
+                        }}
+                        onDoubleClick={() => {
                           if (!isSelectLikeField(field)) setOpenDropdownCell(null);
-                          if (isSelectLikeField(field)) {
-                            window.requestAnimationFrame(() => {
-                              const element = tableWrapRef.current?.querySelector(`[data-cell="${buildCellKey(rowIndex, columnIndex)}"]`);
-                              element?.focus();
-                            });
-                          }
+                          startEditingCell(rowIndex, columnIndex);
                         }}
                         onMouseEnter={() => {
                           if (fillDrag && fillDrag.columnIndex === columnIndex) {
@@ -848,20 +1314,29 @@ export function MassImportWorkspace() {
                               <button
                                 className="derivative-sheet-dropdown-toggle"
                                 type="button"
+                                onMouseDown={(event) => {
+                                  event.stopPropagation();
+                                }}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setSelectedCell({ rowIndex, columnIndex });
-                                  setOpenDropdownCell((current) => (current === buildCellKey(rowIndex, columnIndex) ? null : buildCellKey(rowIndex, columnIndex)));
+                                  setOpenDropdownCell((current) => (current === cellKey ? null : cellKey));
                                 }}
                               >
                                 ▾
                               </button>
                               {dropdownOpen ? (
-                                <div className="derivative-sheet-dropdown-panel" onClick={(event) => event.stopPropagation()}>
+                                <div
+                                  className="derivative-sheet-dropdown-panel"
+                                  onMouseDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => event.stopPropagation()}
+                                >
                                   <select
                                     className="derivative-sheet-dropdown-select"
                                     size={Math.min(Math.max(options.length, 2), 8)}
                                     value={row[field.name] || ""}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => event.stopPropagation()}
                                     onChange={(event) => updateRow(rowIndex, field.name, event.target.value)}
                                   >
                                     <option value="">Selecione</option>
@@ -876,11 +1351,30 @@ export function MassImportWorkspace() {
                             </>
                           ) : (
                             <input
+                              ref={(element) => {
+                                if (element) cellInputRefs.current[cellKey] = element;
+                                else delete cellInputRefs.current[cellKey];
+                              }}
                               className="derivative-sheet-input"
-                              type={field.type === "date" ? "date" : "text"}
+                              type="text"
                               inputMode={field.type === "number" ? "decimal" : undefined}
-                              value={field.type === "date" ? normalizeDateValue(row[field.name]) : row[field.name] || ""}
-                              onChange={(event) => updateRow(rowIndex, field.name, event.target.value)}
+                              readOnly={!isEditingCurrentCell}
+                              value={
+                                field.type === "date"
+                                  ? (
+                                    isEditingCurrentCell
+                                      ? (row[field.name] || "")
+                                      : (row[field.name] ? formatBrazilianDate(row[field.name], "") : "")
+                                  )
+                                  : isEditingCurrentCell
+                                    ? (formulaValue || row[field.name] || "")
+                                    : (row[field.name] || "")
+                              }
+                              onChange={(event) => updateRow(
+                                rowIndex,
+                                field.name,
+                                event.target.value,
+                              )}
                               onFocus={() => {
                                 setSelectedCell({ rowIndex, columnIndex });
                                 setSelectionRange({
@@ -889,6 +1383,13 @@ export function MassImportWorkspace() {
                                   endRowIndex: rowIndex,
                                   endColumnIndex: columnIndex,
                                 });
+                              }}
+                              onDoubleClick={() => startEditingCell(rowIndex, columnIndex)}
+                              onClick={(event) => updateFormulaSelection(event.target)}
+                              onKeyUp={(event) => updateFormulaSelection(event.target)}
+                              onSelect={(event) => updateFormulaSelection(event.target)}
+                              onBlur={() => {
+                                setEditingCell((current) => (current === cellKey ? null : current));
                               }}
                               onKeyDown={(event) => handleKeyboardNavigation(event, rowIndex, columnIndex)}
                               onPaste={(event) => handlePaste(event, rowIndex, columnIndex)}

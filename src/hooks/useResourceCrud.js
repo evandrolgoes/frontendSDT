@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { resourceService } from "../services/resourceService";
 
-const RESOURCE_VIEW_CACHE_TTL_MS = 60000;
 const RESOURCE_VIEW_CACHE_MAX_SIZE = 50;
 const resourceViewStateCache = new Map();
 
@@ -234,10 +233,6 @@ export function useResourceCrud(resource, initialFilters = {}, options = {}) {
         setPagination(cachedView.pagination || { count: 0, next: null, previous: null, page: 1 });
         setQueryParams(cachedView.queryParams || {});
         setLoading(false);
-
-        if (Date.now() - (cachedView.updatedAt || 0) > RESOURCE_VIEW_CACHE_TTL_MS) {
-          load({ params: cachedView.queryParams || {}, force: true, silent: true });
-        }
         return;
       }
 

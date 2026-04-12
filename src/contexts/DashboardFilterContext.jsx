@@ -143,7 +143,7 @@ export function DashboardFilterProvider({ children }) {
     return () => {
       isMounted = false;
     };
-  }, [filter?.grupo, filter?.subgrupo, filter?.cultura, filter?.safra, isAuthenticated]);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     setFilter((current) => {
