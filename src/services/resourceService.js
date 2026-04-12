@@ -2,6 +2,65 @@ import { api } from "./api";
 
 // Session-scoped cache: survives route changes and is cleared on full page refresh.
 const responseCache = new Map();
+const SESSION_CACHE_PREFIX = "sdt:resource-cache:";
+const DASHBOARD_SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const getSessionStorage = () => {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+};
+
+const buildSessionCacheKey = (key) => `${SESSION_CACHE_PREFIX}${key}`;
+
+const readSessionCache = (key, maxAgeMs = DASHBOARD_SESSION_CACHE_TTL_MS) => {
+  const storage = getSessionStorage();
+  if (!storage) return null;
+  const storageKey = buildSessionCacheKey(key);
+  try {
+    const raw = storage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.savedAt !== "number") {
+      storage.removeItem(storageKey);
+      return null;
+    }
+    if (Date.now() - parsed.savedAt > maxAgeMs) {
+      storage.removeItem(storageKey);
+      return null;
+    }
+    return parsed.data ?? null;
+  } catch {
+    storage.removeItem(storageKey);
+    return null;
+  }
+};
+
+const writeSessionCache = (key, data) => {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(buildSessionCacheKey(key), JSON.stringify({ savedAt: Date.now(), data }));
+  } catch {
+    // Browser quota/privacy settings can block storage; in-memory cache still works.
+  }
+};
+
+const removeSessionCache = (predicate = () => true) => {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  for (let index = storage.length - 1; index >= 0; index -= 1) {
+    const storageKey = storage.key(index);
+    if (!storageKey?.startsWith(SESSION_CACHE_PREFIX)) continue;
+    const cacheKey = storageKey.slice(SESSION_CACHE_PREFIX.length);
+    if (predicate(cacheKey, storageKey)) {
+      storage.removeItem(storageKey);
+    }
+  }
+};
 
 const isFile = (value) => typeof File !== "undefined" && value instanceof File;
 
@@ -90,17 +149,20 @@ const remember = (key, loader) => {
 const invalidateCache = (resource = null) => {
   if (!resource) {
     responseCache.clear();
+    removeSessionCache();
     return;
   }
   [...responseCache.keys()].forEach((key) => {
-    if (key.startsWith(`${resource}:`) || key.includes(`:${resource}:`)) {
+    if (key.startsWith(`${resource}:`) || key.includes(`:${resource}:`) || key.startsWith("dashboard:")) {
       responseCache.delete(key);
     }
   });
+  removeSessionCache((key) => key.startsWith("dashboard:"));
 };
 
 export const clearResourceServiceCache = () => {
   responseCache.clear();
+  removeSessionCache();
 };
 
 export const resourceService = {
@@ -295,8 +357,16 @@ export const resourceService = {
       responseCache.delete(cacheKey);
     }
     return remember(cacheKey, () =>
-      api.get("dashboard/commercial-risk-summary/", { params: normalizedParams }).then((response) => response.data),
+      api.get("dashboard/commercial-risk-summary/", { params: normalizedParams }).then((response) => {
+        writeSessionCache(cacheKey, response.data);
+        return response.data;
+      }),
     );
+  },
+  getCachedCommercialRiskSummary: (params = {}, maxAgeMs = DASHBOARD_SESSION_CACHE_TTL_MS) => {
+    const normalizedParams = normalizeRequestParams(params) || {};
+    const cacheKey = buildCacheKey("dashboard", "commercial-risk-summary", normalizedParams);
+    return readSessionCache(cacheKey, maxAgeMs);
   },
   getCommercialInsights: (params = {}, options = {}) => {
     const normalizedParams = normalizeRequestParams(params) || {};

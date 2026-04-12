@@ -1,9 +1,11 @@
 import { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 
 import { resourceService } from "../services/resourceService";
 
 // Module-level flag: ensures prefetch runs at most once per browser session.
 let prefetchStarted = false;
+const SUMMARY_READY_EVENT = "sdt:summary-ready";
 
 // JS bundles to pre-download (runs in parallel — browser fetches silently).
 const BUNDLE_LOADERS = [
@@ -61,24 +63,62 @@ async function prefetchData() {
   }
 }
 
+function scheduleIdleTask(callback, timeout = 2500) {
+  if (typeof window === "undefined") return () => {};
+  if (typeof window.requestIdleCallback === "function") {
+    const idleId = window.requestIdleCallback(callback, { timeout });
+    return () => window.cancelIdleCallback(idleId);
+  }
+  const timeoutId = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(timeoutId);
+}
+
 /**
  * Silently pre-loads JS bundles and API data for all app pages
- * after the dashboard finishes its initial render.
+ * after the opening dashboard has finished the expensive summary work.
  *
- * Phase 1 (t+1s): parallel download of all lazy page chunks
- * Phase 2 (t+3s): sequential API pre-fetch → populates resourceService cache
+ * Phase 1: idle download of lazy page chunks
+ * Phase 2: sequential API pre-fetch → populates resourceService cache
  */
 export function useBackgroundPrefetch() {
+  const location = useLocation();
+
   useEffect(() => {
     if (prefetchStarted) return;
-    prefetchStarted = true;
 
-    const bundleTimer = setTimeout(prefetchBundles, 1000);
-    const dataTimer = setTimeout(prefetchData, 3000);
+    let cleanupIdleTask = () => {};
+    let dataTimer = 0;
+    let fallbackTimer = 0;
+    let prefetchScheduled = false;
+    const isSummaryRoute = ["/", "/dashboard", "/resumo"].includes(location.pathname);
+
+    const startPrefetch = () => {
+      if (prefetchStarted || prefetchScheduled) return;
+      prefetchScheduled = true;
+      cleanupIdleTask = scheduleIdleTask(() => {
+        if (prefetchStarted) return;
+        prefetchStarted = true;
+        prefetchBundles();
+        dataTimer = window.setTimeout(prefetchData, 2500);
+      });
+    };
+
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    if (isSummaryRoute) {
+      window.addEventListener(SUMMARY_READY_EVENT, startPrefetch, { once: true });
+      fallbackTimer = window.setTimeout(startPrefetch, 9000);
+    } else {
+      fallbackTimer = window.setTimeout(startPrefetch, 2500);
+    }
 
     return () => {
-      clearTimeout(bundleTimer);
-      clearTimeout(dataTimer);
+      window.removeEventListener(SUMMARY_READY_EVENT, startPrefetch);
+      window.clearTimeout(fallbackTimer);
+      window.clearTimeout(dataTimer);
+      cleanupIdleTask();
     };
-  }, []);
+  }, [location.pathname]);
 }

@@ -1,20 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  BarController,
-  BarElement,
-  CategoryScale,
-  Chart,
-  Filler,
-  Legend,
-  LineController,
-  LineElement,
-  LinearScale,
-  PointElement,
-  Title,
-  Tooltip,
-} from "chart.js";
-import ChartDataLabels from "chartjs-plugin-datalabels";
-import ReactECharts from "echarts-for-react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { DatePickerField } from "../components/DatePickerField";
@@ -23,25 +7,21 @@ import { InfoPopup } from "../components/InfoPopup";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceTable } from "../components/ResourceTable";
 import { ResourceForm } from "../components/ResourceForm";
+import { useAuth } from "../contexts/AuthContext";
 import { filterSubgroupsByGroups, rowMatchesDashboardFilter, useDashboardFilter } from "../contexts/DashboardFilterContext";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
 import { formatBrazilianDate } from "../utils/date";
 
-Chart.register(
-  BarController,
-  BarElement,
-  CategoryScale,
-  LineController,
-  LineElement,
-  LinearScale,
-  PointElement,
-  Filler,
-  Tooltip,
-  Legend,
-  Title,
-  ChartDataLabels,
-);
+const LazyReactECharts = lazy(() => import("echarts-for-react"));
+
+function ReactECharts(props) {
+  return (
+    <Suspense fallback={<div className="dashboard-chart-lazy-placeholder" style={props.style} aria-hidden="true" />}>
+      <LazyReactECharts {...props} />
+    </Suspense>
+  );
+}
 
 const formatNumber = (value, suffix = "") => `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}${suffix}`;
 const COMMERCIAL_RISK_DERIVATIVE_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c3aed", "#dc2626", "#0891b2", "#65a30d", "#d97706"];
@@ -49,6 +29,71 @@ const CHART_BAR_RADIUS = 2;
 const CASHFLOW_DEFAULT_PAST_DAYS = 30;
 const CASHFLOW_DEFAULT_FUTURE_DAYS = 365;
 const CASHFLOW_DAILY_DEFAULT_FUTURE_DAYS = 180;
+const EMPTY_DASHBOARD_FILTER_ARRAY = [];
+const DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA = {
+  productionSummary: {
+    productionTotal: 0,
+    totalArea: 0,
+    physicalPaymentVolume: 0,
+    netProductionVolume: 0,
+  },
+  marketQuotes: [],
+  marketNewsPosts: [],
+  upcomingMaturityRows: [],
+  formCompletionRows: [],
+  formCompletionSummary: {
+    totalForms: 0,
+    filledForms: 0,
+    pendingForms: 0,
+    totalRecords: 0,
+  },
+};
+const commercialRiskDashboardCache = new Map();
+const dashboardPageStateCache = new Map();
+
+const normalizeCommercialRiskFilter = (filter = {}) =>
+  ["grupo", "subgrupo", "cultura", "safra"].reduce((acc, key) => {
+    acc[key] = [...(filter?.[key] || [])].map(String).sort();
+    return acc;
+  }, {});
+
+const resolveCommercialRiskTenantKey = (user) => {
+  if (user?.tenant_id != null) return user.tenant_id;
+  if (user?.tenant?.id != null) return user.tenant.id;
+  if (typeof user?.tenant === "string" || typeof user?.tenant === "number") return user.tenant;
+  return "tenant";
+};
+
+const buildCommercialRiskDashboardCacheKey = (filter, user) =>
+  JSON.stringify({
+    user: user?.id ?? user?.email ?? user?.username ?? "anon",
+    tenant: resolveCommercialRiskTenantKey(user),
+    filter: normalizeCommercialRiskFilter(filter),
+  });
+
+const getCommercialRiskDashboardCache = (cacheKey) => commercialRiskDashboardCache.get(cacheKey) || null;
+
+const setCommercialRiskDashboardCache = (cacheKey, patch) => {
+  if (!cacheKey) return;
+  const current = commercialRiskDashboardCache.get(cacheKey) || {};
+  commercialRiskDashboardCache.set(cacheKey, { ...current, ...patch, savedAt: Date.now() });
+};
+
+const buildDashboardPageCacheKey = (scope, filter, user) =>
+  JSON.stringify({
+    scope,
+    user: user?.id ?? user?.email ?? user?.username ?? "anon",
+    tenant: resolveCommercialRiskTenantKey(user),
+    filter: normalizeCommercialRiskFilter(filter),
+  });
+
+const getDashboardPageCache = (cacheKey) => dashboardPageStateCache.get(cacheKey) || null;
+
+const setDashboardPageCache = (cacheKey, patch) => {
+  if (!cacheKey) return;
+  const current = dashboardPageStateCache.get(cacheKey) || {};
+  dashboardPageStateCache.set(cacheKey, { ...current, ...patch, savedAt: Date.now() });
+};
 
 const shiftDateByDays = (value, days) => {
   const date = new Date(value);
@@ -256,91 +301,96 @@ const parseSeason = (badge) => {
 function HedgeByCultureChart({ rows, insightTitle, insightMessage }) {
   const cultures = useMemo(() => [...new Set(rows.map((r) => r.label))], [rows]);
   const seasons = useMemo(
-    () => [...new Set(rows.map((r) => r.badge).filter(Boolean))].sort((a, b) => parseSeason(a) - parseSeason(b)),
+    () => {
+      const seasonItems = [...new Set(rows.map((r) => r.badge).filter(Boolean))].sort((a, b) => parseSeason(a) - parseSeason(b));
+      return seasonItems.length ? seasonItems : ["Hedge"];
+    },
     [rows],
   );
 
-  const onChartClick = useCallback((params) => {
-    const season = params.name;      // x-axis = safras
-    const culture = params.seriesName; // series = culturas
-    const row = rows.find((r) => r.label === culture && (r.badge === season || (!r.badge && season === "Hedge")));
-    if (row?.onClick) row.onClick();
-  }, [rows]);
-
-  const makeDataPoint = (row, baseColor) => {
-    if (!row) return null;
-    const value = Number(row.progress.toFixed(1));
-    if (row.isActive) {
-      return {
-        value,
-        itemStyle: {
-          color: baseColor,
-          borderRadius: [4, 4, 0, 0],
-          shadowColor: "rgba(234, 88, 12, 0.55)",
-          shadowBlur: 14,
-          shadowOffsetY: -2,
-          borderColor: "#ea580c",
-          borderWidth: 2,
-        },
-      };
-    }
-    return value;
-  };
-
-  // X = safras, séries = culturas
-  const series = useMemo(() =>
-    cultures.map((culture, ci) => {
-      const baseColor = HEDGE_CULTURE_SERIES_COLORS[ci % HEDGE_CULTURE_SERIES_COLORS.length];
-      return {
-        name: culture,
-        type: "bar",
-        barMaxWidth: 36,
-        cursor: "pointer",
-        itemStyle: { color: baseColor, borderRadius: [4, 4, 0, 0] },
-        label: {
-          show: true,
-          position: "top",
-          color: "#0f172a",
-          fontWeight: 700,
-          fontSize: 10,
-          formatter: ({ value }) => (value != null ? `${Math.round(value)}%` : ""),
-        },
-        data: seasons.map((season) => {
-          const row = rows.find((r) => r.label === culture && r.badge === season);
-          return makeDataPoint(row, baseColor);
-        }),
-      };
-    }),
-  [cultures, rows, seasons]);
-
-  const option = useMemo(() => ({
-    animationDuration: 220,
-    color: HEDGE_CULTURE_SERIES_COLORS,
-    grid: { left: 12, right: 12, top: cultures.length > 1 ? 48 : 24, bottom: 8, containLabel: true },
-    legend: cultures.length > 1 ? { top: 0, left: 0, textStyle: { color: "#475569", fontWeight: 700 } } : { show: false },
-    tooltip: {
-      trigger: "item",
-      formatter: ({ marker, name, seriesName, value }) =>
-        `${marker}<b>${seriesName}</b> · ${name}<br/>${value != null ? `${value}%` : "—"}`,
-    },
-    xAxis: {
-      type: "category",
-      data: seasons,
-      axisTick: { show: false },
-      axisLabel: { color: "#334155", fontWeight: 700, interval: 0, overflow: "truncate", width: 80 },
-      axisLine: { lineStyle: { color: "rgba(148,163,184,0.2)" } },
-    },
-    yAxis: {
-      type: "value",
-      min: 0,
-      max: 100,
-      axisLabel: { show: false },
-      splitLine: { lineStyle: { color: "rgba(148,163,184,0.16)" } },
-    },
-    series,
-  }), [cultures, seasons, series]);
-
   const [expanded, setExpanded] = useState(false);
+  const findCultureRow = useCallback(
+    (culture, season) => rows.find((r) => r.label === culture && (r.badge === season || (!r.badge && season === "Hedge"))),
+    [rows],
+  );
+  const renderChart = (large = false) => {
+    const width = large ? 980 : 640;
+    const height = large ? 520 : 260;
+    const plot = { left: 42, right: 18, top: large ? 54 : 34, bottom: large ? 56 : 34 };
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const groupWidth = plotWidth / Math.max(seasons.length, 1);
+    const barGap = large ? 7 : 4;
+    const barWidth = Math.max(8, Math.min(large ? 38 : 28, (groupWidth - 18) / Math.max(cultures.length, 1) - barGap));
+    const yFor = (value) => plot.top + plotHeight - (Math.max(0, Math.min(value, 100)) / 100) * plotHeight;
+
+    return (
+      <div className="hedge-culture-native-chart">
+        {cultures.length > 1 ? (
+          <div className="hedge-culture-native-legend">
+            {cultures.map((culture, index) => (
+              <span key={culture} className="hedge-culture-native-legend-item">
+                <span style={{ background: HEDGE_CULTURE_SERIES_COLORS[index % HEDGE_CULTURE_SERIES_COLORS.length] }} />
+                {culture}
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <svg className="hedge-culture-chart-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Hedge por cultura">
+          {[0, 25, 50, 75, 100].map((tick) => {
+            const y = yFor(tick);
+            return (
+              <g key={tick}>
+                <line x1={plot.left} x2={width - plot.right} y1={y} y2={y} className="hedge-culture-grid-line" />
+                <text x={plot.left - 10} y={y + 4} textAnchor="end" className="hedge-culture-axis-label">{tick}%</text>
+              </g>
+            );
+          })}
+          {seasons.map((season, seasonIndex) => {
+            const groupStart = plot.left + seasonIndex * groupWidth;
+            const groupCenter = groupStart + groupWidth / 2;
+            return (
+              <g key={season}>
+                {cultures.map((culture, cultureIndex) => {
+                  const row = findCultureRow(culture, season);
+                  if (!row) return null;
+                  const value = Math.max(0, Math.min(Number(row.progress || 0), 100));
+                  const x =
+                    groupCenter -
+                    ((cultures.length * barWidth + Math.max(cultures.length - 1, 0) * barGap) / 2) +
+                    cultureIndex * (barWidth + barGap);
+                  const y = yFor(value);
+                  const color = HEDGE_CULTURE_SERIES_COLORS[cultureIndex % HEDGE_CULTURE_SERIES_COLORS.length];
+                  return (
+                    <g key={`${season}-${culture}`}>
+                      <rect
+                        x={x}
+                        y={y}
+                        width={barWidth}
+                        height={Math.max(2, plot.top + plotHeight - y)}
+                        rx="4"
+                        className={`hedge-culture-bar${row.isActive ? " is-active" : ""}${row.onClick ? " is-clickable" : ""}`}
+                        fill={color}
+                        onClick={row.onClick}
+                      >
+                        <title>{`${culture} · ${season}: ${Math.round(value)}%`}</title>
+                      </rect>
+                      <text x={x + barWidth / 2} y={Math.max(plot.top + 12, y - 6)} textAnchor="middle" className="hedge-culture-value-label">
+                        {Math.round(value)}%
+                      </text>
+                    </g>
+                  );
+                })}
+                <text x={groupCenter} y={height - 10} textAnchor="middle" className="hedge-culture-axis-label hedge-culture-season-label">
+                  {season}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -356,12 +406,7 @@ function HedgeByCultureChart({ rows, insightTitle, insightMessage }) {
         </button>
         {rows.length ? (
           <div className="hedge-culture-chart-wrap">
-            <ReactECharts
-              option={option}
-              style={{ height: "100%", width: "100%" }}
-              opts={{ renderer: "svg" }}
-              onEvents={{ click: onChartClick }}
-            />
+            {renderChart(false)}
           </div>
         ) : (
           <p className="hedge-culture-chart-empty">Carregando... Aguarde.</p>
@@ -379,12 +424,7 @@ function HedgeByCultureChart({ rows, insightTitle, insightMessage }) {
               </button>
             </div>
             <div className="hedge-culture-modal-body">
-              <ReactECharts
-                option={option}
-                style={{ height: "100%", width: "100%" }}
-                opts={{ renderer: "svg" }}
-                onEvents={{ click: onChartClick }}
-              />
+              {renderChart(true)}
             </div>
           </div>
         </div>
@@ -3670,31 +3710,68 @@ const buildComponentSalesChartState = (rows, interval, datasetVisibility = {}) =
   return { labels, datasets, metaMap, opsIndex, totalsByCategory, periods };
 };
 
-function useComponentSalesSource(dashboardFilter, dateFrom, dateTo) {
+function useComponentSalesSource(dashboardFilter, dateFrom, dateTo, cacheKey) {
   const { matchesDashboardFilter } = useDashboardFilter();
-  const [sales, setSales] = useState([]);
-  const [derivatives, setDerivatives] = useState([]);
-  const [counterparties, setCounterparties] = useState([]);
+  const initialCache = getDashboardPageCache(cacheKey);
+  const initialSource = initialCache?.componentSalesSource || {};
+  const [sales, setSales] = useState(() => initialSource.sales || []);
+  const [derivatives, setDerivatives] = useState(() => initialSource.derivatives || []);
+  const [counterparties, setCounterparties] = useState(() => initialSource.counterparties || []);
+  const [sourceReady, setSourceReady] = useState(() => Boolean(initialCache?.componentSalesSourceReady));
 
   useEffect(() => {
     let isMounted = true;
-    const timeoutId = window.setTimeout(() => {
+    const cachedDashboard = getDashboardPageCache(cacheKey);
+
+    if (cachedDashboard?.componentSalesSourceReady) {
+      const cachedSource = cachedDashboard.componentSalesSource || {};
+      setSales(cachedSource.sales || []);
+      setDerivatives(cachedSource.derivatives || []);
+      setCounterparties(cachedSource.counterparties || []);
+      setSourceReady(true);
+    }
+
+    const loadSource = () => {
       Promise.all([
-        resourceService.listAll("physical-sales"),
-        resourceService.listAll("derivative-operations"),
-        resourceService.listAll("counterparties"),
+        resourceService.listAll("physical-sales").catch(() => []),
+        resourceService.listAll("derivative-operations").catch(() => []),
+        resourceService.listAll("counterparties").catch(() => []),
       ]).then(([salesResponse, derivativesResponse, counterpartiesResponse]) => {
         if (!isMounted) return;
-        setSales(salesResponse || []);
-        setDerivatives(derivativesResponse || []);
-        setCounterparties(counterpartiesResponse || []);
+        const nextSource = {
+          sales: salesResponse || [],
+          derivatives: derivativesResponse || [],
+          counterparties: counterpartiesResponse || [],
+        };
+        setSales(nextSource.sales);
+        setDerivatives(nextSource.derivatives);
+        setCounterparties(nextSource.counterparties);
+        setSourceReady(true);
+        setDashboardPageCache(cacheKey, {
+          componentSalesSource: nextSource,
+          componentSalesSourceReady: true,
+        });
       });
-    }, 1200);
+    };
+
+    const timeoutId = typeof window !== "undefined"
+      ? window.setTimeout(loadSource, cachedDashboard?.componentSalesSourceReady ? 1200 : 0)
+      : 0;
     return () => {
       isMounted = false;
-      window.clearTimeout(timeoutId);
+      if (typeof window !== "undefined") {
+        window.clearTimeout(timeoutId);
+      }
     };
-  }, []);
+  }, [cacheKey]);
+
+  useEffect(() => {
+    if (!sourceReady) return;
+    setDashboardPageCache(cacheKey, {
+      componentSalesSource: { sales, derivatives, counterparties },
+      componentSalesSourceReady: true,
+    });
+  }, [cacheKey, counterparties, derivatives, sales, sourceReady]);
 
   const counterpartyMap = useMemo(
     () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.contraparte || item.obs || `#${item.id}`])),
@@ -3812,82 +3889,24 @@ function ComponentSalesDetailsPopup({ selectedBar, onClose, onOpenOperation }) {
   );
 }
 
-const stackTotalsPlugin = {
-  id: "componentStackTotals",
-  afterDatasetsDraw(chart) {
-    const { ctx } = chart;
-    const labels = chart.data.labels || [];
-    if (!labels.length) return;
-
-    ["stack_fisico_bolsa", "stack_dolar"].forEach((stackId) => {
-      labels.forEach((_, dataIndex) => {
-        const datasetIndexes = chart.data.datasets
-          .map((dataset, index) => ({ dataset, index }))
-          .filter(({ dataset, index }) => dataset.stack === stackId && chart.isDatasetVisible(index))
-          .map(({ index }) => index);
-
-        if (!datasetIndexes.length) return;
-
-        const total = datasetIndexes.reduce((sum, datasetIndex) => sum + (Number(chart.data.datasets[datasetIndex].data?.[dataIndex]) || 0), 0);
-        if (!total) return;
-
-        const topDatasetIndex = datasetIndexes[datasetIndexes.length - 1];
-        const element = chart.getDatasetMeta(topDatasetIndex)?.data?.[dataIndex];
-        if (!element) return;
-
-        const text = `Total: ${formatCurrency2(total)}`;
-        const x = element.x;
-        const y = element.y - 8;
-        const padX = 8;
-        const height = 28;
-        const radius = 8;
-
-        ctx.save();
-        ctx.font = "700 12px Arial";
-        const width = ctx.measureText(text).width + padX * 2;
-        const left = x - width / 2;
-        const top = y - height;
-
-        ctx.beginPath();
-        ctx.moveTo(left + radius, top);
-        ctx.lineTo(left + width - radius, top);
-        ctx.quadraticCurveTo(left + width, top, left + width, top + radius);
-        ctx.lineTo(left + width, top + height - radius);
-        ctx.quadraticCurveTo(left + width, top + height, left + width - radius, top + height);
-        ctx.lineTo(left + radius, top + height);
-        ctx.quadraticCurveTo(left, top + height, left, top + height - radius);
-        ctx.lineTo(left, top + radius);
-        ctx.quadraticCurveTo(left, top, left + radius, top);
-        ctx.closePath();
-        ctx.fillStyle = "#ffffff";
-        ctx.strokeStyle = "rgba(15, 23, 42, 0.35)";
-        ctx.lineWidth = 1;
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = "#111827";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(text, x, top + height / 2);
-        ctx.restore();
-      });
-    });
-  },
-};
-
-Chart.register(stackTotalsPlugin);
-
 function ComponentSalesDashboard({ dashboardFilter }) {
+  const { user } = useAuth();
   const defaultDateRange = useMemo(() => buildComponentSalesDefaultDateRange(), []);
-  const chartRef = useRef(null);
+  const dashboardCacheKey = useMemo(
+    () => buildDashboardPageCacheKey("component-sales", dashboardFilter, user),
+    [dashboardFilter, user],
+  );
+  const initialDashboardCache = getDashboardPageCache(dashboardCacheKey);
+  const initialUiState = initialDashboardCache?.componentSalesUi || {};
   const chartWrapRef = useRef(null);
-  const [interval, setInterval] = useState("monthly");
-  const [dateFrom, setDateFrom] = useState(defaultDateRange.fromBrazilian);
-  const [dateTo, setDateTo] = useState(defaultDateRange.toBrazilian);
+  const [interval, setInterval] = useState(() => initialUiState.interval || "monthly");
+  const [dateFrom, setDateFrom] = useState(() => initialUiState.dateFrom || defaultDateRange.fromBrazilian);
+  const [dateTo, setDateTo] = useState(() => initialUiState.dateTo || defaultDateRange.toBrazilian);
   const [selectedTableModal, setSelectedTableModal] = useState(null);
-  const [zoomRange, setZoomRange] = useState(null);
+  const [zoomRange, setZoomRange] = useState(() => initialUiState.zoomRange || null);
   const [chartWidth, setChartWidth] = useState(0);
   const [datasetVisibility, setDatasetVisibility] = useState(() =>
-    Object.fromEntries(COMPONENT_DATASETS.map((dataset) => [dataset.key, true])),
+    initialUiState.datasetVisibility || Object.fromEntries(COMPONENT_DATASETS.map((dataset) => [dataset.key, true])),
   );
   const {
     rows,
@@ -3895,7 +3914,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     setSales,
     derivatives,
     setDerivatives,
-  } = useComponentSalesSource(dashboardFilter, dateFrom, dateTo);
+  } = useComponentSalesSource(dashboardFilter, dateFrom, dateTo, dashboardCacheKey);
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
     sales,
     setSales,
@@ -4293,6 +4312,18 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   }, [interval, dateFrom, dateTo]);
 
   useEffect(() => {
+    setDashboardPageCache(dashboardCacheKey, {
+      componentSalesUi: {
+        interval,
+        dateFrom,
+        dateTo,
+        zoomRange,
+        datasetVisibility,
+      },
+    });
+  }, [dashboardCacheKey, datasetVisibility, dateFrom, dateTo, interval, zoomRange]);
+
+  useEffect(() => {
     const node = chartWrapRef.current;
     if (!node || typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver((entries) => {
@@ -4401,7 +4432,6 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 
         <div ref={chartWrapRef} className="component-chartjs-wrap">
           <ReactECharts
-            ref={chartRef}
             option={chartOption}
             onEvents={chartEvents}
             style={{ height: "100%" }}
@@ -5808,27 +5838,36 @@ const buildCashflowDailyEntries = ({ sales, cashPayments, otherCashOutflows, oth
 };
 
 function CashflowDailyDashboard({ dashboardFilter }) {
+  const { user } = useAuth();
   const defaultRange = useMemo(() => buildCashflowDailyDefaultDateRange(), []);
-  const [dateStart, setDateStart] = useState(defaultRange.startIso);
-  const [dateEnd, setDateEnd] = useState(defaultRange.endIso);
-  const [chartInterval, setChartInterval] = useState("daily");
-  const [initialBalanceInput, setInitialBalanceInput] = useState("0");
-  const [openingBalanceOverrides, setOpeningBalanceOverrides] = useState({});
-  const [entriesOverrides, setEntriesOverrides] = useState({});
-  const [outputsOverrides, setOutputsOverrides] = useState({});
-  const [expandedDays, setExpandedDays] = useState(() => new Set());
+  const dashboardCacheKey = useMemo(
+    () => buildDashboardPageCacheKey("cashflow-daily", dashboardFilter, user),
+    [dashboardFilter, user],
+  );
+  const initialDashboardCache = getDashboardPageCache(dashboardCacheKey);
+  const initialUiState = initialDashboardCache?.cashflowDailyUi || {};
+  const initialSource = initialDashboardCache?.cashflowDailySource || {};
+  const [dateStart, setDateStart] = useState(() => initialUiState.dateStart || defaultRange.startIso);
+  const [dateEnd, setDateEnd] = useState(() => initialUiState.dateEnd || defaultRange.endIso);
+  const [chartInterval, setChartInterval] = useState(() => initialUiState.chartInterval || "daily");
+  const [initialBalanceInput, setInitialBalanceInput] = useState(() => initialUiState.initialBalanceInput || "0");
+  const [openingBalanceOverrides, setOpeningBalanceOverrides] = useState(() => initialUiState.openingBalanceOverrides || {});
+  const [entriesOverrides, setEntriesOverrides] = useState(() => initialUiState.entriesOverrides || {});
+  const [outputsOverrides, setOutputsOverrides] = useState(() => initialUiState.outputsOverrides || {});
+  const [expandedDays, setExpandedDays] = useState(() => new Set(initialUiState.expandedDays || []));
   const [entryPickerOpen, setEntryPickerOpen] = useState(false);
   const [outputPickerOpen, setOutputPickerOpen] = useState(false);
   const [summaryModal, setSummaryModal] = useState(null);
   const [createModal, setCreateModal] = useState(null);
   const [createFormError, setCreateFormError] = useState("");
-  const [sales, setSales] = useState([]);
-  const [cashPayments, setCashPayments] = useState([]);
-  const [otherCashOutflows, setOtherCashOutflows] = useState([]);
-  const [otherEntries, setOtherEntries] = useState([]);
-  const [derivatives, setDerivatives] = useState([]);
-  const [counterparties, setCounterparties] = useState([]);
-  const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
+  const [sales, setSales] = useState(() => initialSource.sales || []);
+  const [cashPayments, setCashPayments] = useState(() => initialSource.cashPayments || []);
+  const [otherCashOutflows, setOtherCashOutflows] = useState(() => initialSource.otherCashOutflows || []);
+  const [otherEntries, setOtherEntries] = useState(() => initialSource.otherEntries || []);
+  const [derivatives, setDerivatives] = useState(() => initialSource.derivatives || []);
+  const [counterparties, setCounterparties] = useState(() => initialSource.counterparties || []);
+  const [tradingviewQuotes, setTradingviewQuotes] = useState(() => initialSource.tradingviewQuotes || []);
+  const [sourceReady, setSourceReady] = useState(() => Boolean(initialDashboardCache?.cashflowDailySourceReady));
   const [statusSavingByEntry, setStatusSavingByEntry] = useState({});
   const [statusErrorByEntry, setStatusErrorByEntry] = useState({});
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
@@ -5846,7 +5885,21 @@ function CashflowDailyDashboard({ dashboardFilter }) {
 
   useEffect(() => {
     let isMounted = true;
-    const timeoutId = window.setTimeout(() => {
+    const cachedDashboard = getDashboardPageCache(dashboardCacheKey);
+
+    if (cachedDashboard?.cashflowDailySourceReady) {
+      const cachedSource = cachedDashboard.cashflowDailySource || {};
+      setSales(cachedSource.sales || []);
+      setCashPayments(cachedSource.cashPayments || []);
+      setOtherCashOutflows(cachedSource.otherCashOutflows || []);
+      setOtherEntries(cachedSource.otherEntries || []);
+      setDerivatives(cachedSource.derivatives || []);
+      setCounterparties(cachedSource.counterparties || []);
+      setTradingviewQuotes(cachedSource.tradingviewQuotes || []);
+      setSourceReady(true);
+    }
+
+    const loadSource = () => {
       Promise.all([
         resourceService.listAll("physical-sales").catch(() => []),
         resourceService.listAll("cash-payments").catch(() => []),
@@ -5857,20 +5910,81 @@ function CashflowDailyDashboard({ dashboardFilter }) {
         resourceService.listTradingviewQuotes().catch(() => []),
       ]).then(([salesResponse, cashPaymentsResponse, otherCashOutflowsResponse, otherEntriesResponse, derivativesResponse, counterpartiesResponse, tradingviewQuotesResponse]) => {
         if (!isMounted) return;
-        setSales(salesResponse || []);
-        setCashPayments(cashPaymentsResponse || []);
-        setOtherCashOutflows(otherCashOutflowsResponse || []);
-        setOtherEntries(otherEntriesResponse || []);
-        setDerivatives(derivativesResponse || []);
-        setCounterparties(counterpartiesResponse || []);
-        setTradingviewQuotes(tradingviewQuotesResponse || []);
+        const nextSource = {
+          sales: salesResponse || [],
+          cashPayments: cashPaymentsResponse || [],
+          otherCashOutflows: otherCashOutflowsResponse || [],
+          otherEntries: otherEntriesResponse || [],
+          derivatives: derivativesResponse || [],
+          counterparties: counterpartiesResponse || [],
+          tradingviewQuotes: tradingviewQuotesResponse || [],
+        };
+        setSales(nextSource.sales);
+        setCashPayments(nextSource.cashPayments);
+        setOtherCashOutflows(nextSource.otherCashOutflows);
+        setOtherEntries(nextSource.otherEntries);
+        setDerivatives(nextSource.derivatives);
+        setCounterparties(nextSource.counterparties);
+        setTradingviewQuotes(nextSource.tradingviewQuotes);
+        setSourceReady(true);
+        setDashboardPageCache(dashboardCacheKey, {
+          cashflowDailySource: nextSource,
+          cashflowDailySourceReady: true,
+        });
       });
-    }, 2200);
+    };
+
+    const timeoutId = typeof window !== "undefined"
+      ? window.setTimeout(loadSource, cachedDashboard?.cashflowDailySourceReady ? 1200 : 0)
+      : 0;
     return () => {
       isMounted = false;
-      window.clearTimeout(timeoutId);
+      if (typeof window !== "undefined") {
+        window.clearTimeout(timeoutId);
+      }
     };
-  }, []);
+  }, [dashboardCacheKey]);
+
+  useEffect(() => {
+    if (!sourceReady) return;
+    setDashboardPageCache(dashboardCacheKey, {
+      cashflowDailySource: {
+        sales,
+        cashPayments,
+        otherCashOutflows,
+        otherEntries,
+        derivatives,
+        counterparties,
+        tradingviewQuotes,
+      },
+      cashflowDailySourceReady: true,
+    });
+  }, [cashPayments, counterparties, dashboardCacheKey, derivatives, otherCashOutflows, otherEntries, sales, sourceReady, tradingviewQuotes]);
+
+  useEffect(() => {
+    setDashboardPageCache(dashboardCacheKey, {
+      cashflowDailyUi: {
+        dateStart,
+        dateEnd,
+        chartInterval,
+        initialBalanceInput,
+        openingBalanceOverrides,
+        entriesOverrides,
+        outputsOverrides,
+        expandedDays: Array.from(expandedDays),
+      },
+    });
+  }, [
+    chartInterval,
+    dashboardCacheKey,
+    dateEnd,
+    dateStart,
+    entriesOverrides,
+    expandedDays,
+    initialBalanceInput,
+    openingBalanceOverrides,
+    outputsOverrides,
+  ]);
 
   const counterpartyMap = useMemo(
     () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.contraparte || item.obs || `#${item.id}`])),
@@ -6730,36 +6844,34 @@ function CommercialRiskAnalyticsSkeleton() {
 
 function CommercialRiskDashboard({ dashboardFilter }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { options, updateFilter } = useDashboardFilter();
-  const [physicalSales, setPhysicalSales] = useState([]);
-  const [derivatives, setDerivatives] = useState([]);
-  const [cropBoards, setCropBoards] = useState([]);
-  const [hedgePolicies, setHedgePolicies] = useState([]);
-  const [physicalPayments, setPhysicalPayments] = useState([]);
-  const [cashPayments, setCashPayments] = useState([]);
-  const [strategyTriggers, setStrategyTriggers] = useState([]);
-  const [triggerQuotes, setTriggerQuotes] = useState([]);
-  const [triggerExchanges, setTriggerExchanges] = useState([]);
-  const [summaryData, setSummaryData] = useState({
-    productionSummary: {
-      productionTotal: 0,
-      totalArea: 0,
-      physicalPaymentVolume: 0,
-      netProductionVolume: 0,
-    },
-    marketQuotes: [],
-    marketNewsPosts: [],
-    upcomingMaturityRows: [],
-    formCompletionRows: [],
-    formCompletionSummary: {
-      totalForms: 0,
-      filledForms: 0,
-      pendingForms: 0,
-      totalRecords: 0,
-    },
-  });
-  const [summaryLoading, setSummaryLoading] = useState(true);
-  const [analyticsReady, setAnalyticsReady] = useState(false);
+  const summaryParams = useMemo(
+    () => ({
+      grupo: dashboardFilter?.grupo || EMPTY_DASHBOARD_FILTER_ARRAY,
+      subgrupo: dashboardFilter?.subgrupo || EMPTY_DASHBOARD_FILTER_ARRAY,
+      cultura: dashboardFilter?.cultura || EMPTY_DASHBOARD_FILTER_ARRAY,
+      safra: dashboardFilter?.safra || EMPTY_DASHBOARD_FILTER_ARRAY,
+    }),
+    [dashboardFilter?.grupo, dashboardFilter?.subgrupo, dashboardFilter?.cultura, dashboardFilter?.safra],
+  );
+  const dashboardCacheKey = useMemo(
+    () => buildCommercialRiskDashboardCacheKey(summaryParams, user),
+    [summaryParams, user],
+  );
+  const initialDashboardCache = getCommercialRiskDashboardCache(dashboardCacheKey);
+  const [physicalSales, setPhysicalSales] = useState(() => initialDashboardCache?.physicalSales || []);
+  const [derivatives, setDerivatives] = useState(() => initialDashboardCache?.derivatives || []);
+  const [cropBoards, setCropBoards] = useState(() => initialDashboardCache?.cropBoards || []);
+  const [hedgePolicies, setHedgePolicies] = useState(() => initialDashboardCache?.hedgePolicies || []);
+  const [physicalPayments, setPhysicalPayments] = useState(() => initialDashboardCache?.physicalPayments || []);
+  const [cashPayments, setCashPayments] = useState(() => initialDashboardCache?.cashPayments || []);
+  const [strategyTriggers, setStrategyTriggers] = useState(() => initialDashboardCache?.strategyTriggers || []);
+  const [triggerQuotes, setTriggerQuotes] = useState(() => initialDashboardCache?.triggerQuotes || []);
+  const [triggerExchanges, setTriggerExchanges] = useState(() => initialDashboardCache?.triggerExchanges || []);
+  const [summaryData, setSummaryData] = useState(() => initialDashboardCache?.summaryData || DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA);
+  const [summaryLoading, setSummaryLoading] = useState(() => !initialDashboardCache?.summaryData);
+  const [analyticsReady, setAnalyticsReady] = useState(() => Boolean(initialDashboardCache?.analyticsReady));
   const [selectedMarketNewsPost, setSelectedMarketNewsPost] = useState(null);
   const [selectedMarketNewsAttachments, setSelectedMarketNewsAttachments] = useState([]);
   const [selectedMarketNewsAttachmentsLoading, setSelectedMarketNewsAttachmentsLoading] = useState(false);
@@ -6771,17 +6883,24 @@ function CommercialRiskDashboard({ dashboardFilter }) {
 
   useEffect(() => {
     let isMounted = true;
-    setSummaryLoading(true);
+    const cachedDashboard = getCommercialRiskDashboardCache(dashboardCacheKey);
+    const cachedSummary = cachedDashboard?.summaryData || resourceService.getCachedCommercialRiskSummary(summaryParams);
+
+    if (cachedSummary) {
+      setSummaryData(cachedSummary);
+      setSummaryLoading(false);
+    } else {
+      setSummaryData(DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA);
+      setSummaryLoading(true);
+    }
+
     resourceService
-      .getCommercialRiskSummary({
-        grupo: dashboardFilter?.grupo || [],
-        subgrupo: dashboardFilter?.subgrupo || [],
-        cultura: dashboardFilter?.cultura || [],
-        safra: dashboardFilter?.safra || [],
-      })
+      .getCommercialRiskSummary(summaryParams, cachedSummary ? { force: true } : {})
       .then((response) => {
         if (!isMounted) return;
-        setSummaryData(response || {});
+        const nextSummary = response || DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA;
+        setSummaryData(nextSummary);
+        setCommercialRiskDashboardCache(dashboardCacheKey, { summaryData: nextSummary });
       })
       .catch(() => {
         if (!isMounted) return;
@@ -6794,12 +6913,36 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     return () => {
       isMounted = false;
     };
-  }, [dashboardFilter]);
+  }, [dashboardCacheKey, summaryParams]);
 
   useEffect(() => {
     let isMounted = true;
-    setAnalyticsReady(false);
     let timeoutId = 0;
+    const cachedDashboard = getCommercialRiskDashboardCache(dashboardCacheKey);
+
+    if (cachedDashboard?.analyticsReady) {
+      setPhysicalSales(cachedDashboard.physicalSales || []);
+      setDerivatives(cachedDashboard.derivatives || []);
+      setCropBoards(cachedDashboard.cropBoards || []);
+      setHedgePolicies(cachedDashboard.hedgePolicies || []);
+      setPhysicalPayments(cachedDashboard.physicalPayments || []);
+      setCashPayments(cachedDashboard.cashPayments || []);
+      setStrategyTriggers(cachedDashboard.strategyTriggers || []);
+      setTriggerQuotes(cachedDashboard.triggerQuotes || []);
+      setTriggerExchanges(cachedDashboard.triggerExchanges || []);
+      setAnalyticsReady(true);
+    } else {
+      setPhysicalSales([]);
+      setDerivatives([]);
+      setCropBoards([]);
+      setHedgePolicies([]);
+      setPhysicalPayments([]);
+      setCashPayments([]);
+      setStrategyTriggers([]);
+      setTriggerQuotes([]);
+      setTriggerExchanges([]);
+      setAnalyticsReady(false);
+    }
 
     const loadAnalytics = () => {
       Promise.all([
@@ -6808,8 +6951,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         resourceService.listAll("crop-boards").catch(() => []),
         resourceService.listAll("hedge-policies").catch(() => []),
         resourceService.listAll("physical-payments").catch(() => []),
+        resourceService.listAll("cash-payments").catch(() => []),
         resourceService.listAll("strategy-triggers").catch(() => []),
-        resourceService.listTradingviewQuotes({ force: true }).catch(() => []),
+        resourceService.listTradingviewQuotes().catch(() => []),
         resourceService.listAll("exchanges").catch(() => []),
       ])
         .then(([
@@ -6818,6 +6962,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           cropBoardResponse,
           policiesResponse,
           physicalPaymentsResponse,
+          cashPaymentsResponse,
           strategyTriggersResponse,
           triggerQuotesResponse,
           triggerExchangesResponse,
@@ -6828,20 +6973,30 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           setCropBoards(cropBoardResponse || []);
           setHedgePolicies(policiesResponse || []);
           setPhysicalPayments(physicalPaymentsResponse || []);
+          setCashPayments(cashPaymentsResponse || []);
           setStrategyTriggers(strategyTriggersResponse || []);
           setTriggerQuotes(triggerQuotesResponse || []);
           setTriggerExchanges(triggerExchangesResponse || []);
+          setCommercialRiskDashboardCache(dashboardCacheKey, {
+            physicalSales: salesResponse || [],
+            derivatives: derivativeResponse || [],
+            cropBoards: cropBoardResponse || [],
+            hedgePolicies: policiesResponse || [],
+            physicalPayments: physicalPaymentsResponse || [],
+            cashPayments: cashPaymentsResponse || [],
+            strategyTriggers: strategyTriggersResponse || [],
+            triggerQuotes: triggerQuotesResponse || [],
+            triggerExchanges: triggerExchangesResponse || [],
+            analyticsReady: true,
+          });
           setAnalyticsReady(true);
         });
     };
 
     if (typeof window !== "undefined") {
       timeoutId = window.setTimeout(() => {
-        if (document.visibilityState === "hidden") {
-          return;
-        }
         loadAnalytics();
-      }, 3500);
+      }, cachedDashboard?.analyticsReady ? 1200 : 50);
     }
 
     return () => {
@@ -6850,7 +7005,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         window.clearTimeout(timeoutId);
       }
     };
-  }, []);
+  }, [dashboardCacheKey]);
 
   useEffect(() => {
     if (!analyticsReady || summaryReadyEventDispatchedRef.current || typeof window === "undefined") {
@@ -6859,6 +7014,39 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     summaryReadyEventDispatchedRef.current = true;
     window.dispatchEvent(new CustomEvent("sdt:summary-ready"));
   }, [analyticsReady]);
+
+  useEffect(() => {
+    if (summaryLoading) return;
+    setCommercialRiskDashboardCache(dashboardCacheKey, { summaryData });
+  }, [dashboardCacheKey, summaryData, summaryLoading]);
+
+  useEffect(() => {
+    if (!analyticsReady) return;
+    setCommercialRiskDashboardCache(dashboardCacheKey, {
+      physicalSales,
+      derivatives,
+      cropBoards,
+      hedgePolicies,
+      physicalPayments,
+      cashPayments,
+      strategyTriggers,
+      triggerQuotes,
+      triggerExchanges,
+      analyticsReady: true,
+    });
+  }, [
+    analyticsReady,
+    cashPayments,
+    cropBoards,
+    dashboardCacheKey,
+    derivatives,
+    hedgePolicies,
+    physicalPayments,
+    physicalSales,
+    strategyTriggers,
+    triggerExchanges,
+    triggerQuotes,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -8749,16 +8937,12 @@ function HedgePolicyChart({
   insightMessage = null,
   precomputedChartState = null,
 }) {
-  const chartRef = useRef(null);
-  const chartWrapRef = useRef(null);
-  const chartInstanceRef = useRef(null);
   const [internalActiveIndex, setInternalActiveIndex] = useState(0);
   const [detailIndex, setDetailIndex] = useState(null);
   const [showPhysical, setShowPhysical] = useState(true);
   const [showDerivatives, setShowDerivatives] = useState(true);
   const [detailPhysicalSearch, setDetailPhysicalSearch] = useState("");
   const [detailDerivativeSearch, setDetailDerivativeSearch] = useState("");
-  const [guideState, setGuideState] = useState({ today: null, hover: null });
   const [hoverSnapshot, setHoverSnapshot] = useState(null);
 
   const chartState = useMemo(
@@ -8836,258 +9020,6 @@ function HedgePolicyChart({
     }
   }, [chartState.points.length, frequency, todayIndex]);
 
-  const resolveHoverSnapshot = useCallback(
-    (chart, nativeEvent) => {
-      const area = chart?.chartArea;
-      const visiblePoints = chartState.points || [];
-      if (!area || visiblePoints.length < 1) return null;
-
-      const rawX = nativeEvent?.x;
-      if (!Number.isFinite(rawX)) return null;
-      const clampedX = Math.max(area.left, Math.min(rawX, area.right));
-      const range = Math.max(area.right - area.left, 1);
-      const ratio = (clampedX - area.left) / range;
-      const nearestIndex = Math.max(0, Math.min(Math.round(ratio * (visiblePoints.length - 1)), visiblePoints.length - 1));
-      const nearestPoint = visiblePoints[nearestIndex];
-      const snappedX =
-        visiblePoints.length > 1
-          ? area.left + (range * nearestIndex) / Math.max(visiblePoints.length - 1, 1)
-          : area.left + range / 2;
-
-      return {
-        index: nearestIndex,
-        point: nearestPoint,
-        x: snappedX,
-        label: nearestPoint?.date ? formatHedgeTitleDate(nearestPoint.date) : null,
-      };
-    },
-    [chartState.points],
-  );
-
-  const syncGuideState = useCallback(
-    (chart, hoverIndex = activeIndex, hoverInfo = hoverSnapshot) => {
-      if (!chart) {
-        setGuideState({ today: null, hover: null });
-        return;
-      }
-
-      const totalDatasetIndex = chart.data.datasets.findIndex((dataset) => dataset?.label === "Total Realizado");
-      const meta = chart.getDatasetMeta(totalDatasetIndex >= 0 ? totalDatasetIndex : chart.data.datasets.length - 1);
-      const points = meta?.data || [];
-      const area = chart.chartArea;
-      if (!area || !points.length) {
-        setGuideState({ today: null, hover: null });
-        return;
-      }
-
-      const buildGuide = (index, label, variant) => {
-        if (!Number.isInteger(index) || index < 0 || index >= points.length) return null;
-        const x = points[index]?.x;
-        if (!Number.isFinite(x)) return null;
-        return {
-          left: x,
-          top: area.top,
-          height: area.bottom - area.top,
-          label,
-          variant,
-        };
-      };
-
-      setGuideState({
-        today: buildGuide(todayIndex, "Hoje", "today"),
-        hover: hoverInfo
-          ? {
-              left: hoverInfo.x,
-              top: area.top,
-              height: area.bottom - area.top,
-              label: hoverInfo.label,
-              variant: "hover",
-            }
-          : null,
-      });
-    },
-    [hoverSnapshot, todayIndex],
-  );
-
-  // Ref bag: keeps callbacks/interaction-state current without triggering chart recreation
-  const callbacksRef = useRef({});
-  callbacksRef.current = { resolveHoverSnapshot, updateActiveIndex, syncGuideState, todayIndex, activeIndex, hoverSnapshot };
-
-  useEffect(() => {
-    const canvas = chartRef.current;
-    if (!canvas || !chartState.points.length) return undefined;
-
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.destroy();
-    }
-
-    const nextChart = new Chart(canvas.getContext("2d"), {
-      type: "line",
-      data: {
-        labels: chartState.labels,
-        datasets: [
-          {
-            label: "Politica Minima",
-            data: chartState.minDataset,
-            borderColor: "#22c55e",
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            borderWidth: 1.5,
-            tension: 0,
-            fill: false,
-          },
-          {
-            label: "Politica Maxima",
-            data: chartState.maxDataset,
-            borderColor: "#22c55e",
-            backgroundColor: "rgba(34, 197, 94, 0.14)",
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            borderWidth: 1.5,
-            tension: 0,
-            fill: "-1",
-          },
-          {
-            label: "Hedge via Derivativos",
-            data: chartState.derivativeDataset,
-            borderColor: "rgba(71, 85, 105, 0.9)",
-            backgroundColor: "rgba(251, 146, 60, 0.48)",
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            borderWidth: 1.5,
-            borderDash: [6, 4],
-            tension: 0,
-            fill: "origin",
-          },
-          {
-            label: "Vendas via Fisico",
-            data: chartState.physicalDataset,
-            borderColor: "#0f172a",
-            backgroundColor: "rgba(250, 204, 21, 0.18)",
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            borderWidth: 1.8,
-            tension: 0,
-            fill: "-1",
-          },
-          ...(comparisonSeriesName
-            ? [{
-                label: comparisonSeriesName,
-                data: chartState.comparisonDataset,
-                borderColor: "#2563eb",
-                backgroundColor: "#2563eb",
-                pointRadius: 0,
-                pointHoverRadius: 0,
-                borderWidth: 2,
-                borderDash: [10, 4],
-                tension: 0,
-                fill: false,
-              }]
-            : []),
-          {
-            label: "Total Realizado",
-            data: chartState.totalDataset,
-            borderColor: "#111827",
-            backgroundColor: "#111827",
-            pointRadius: 0,
-            pointHoverRadius: 0,
-            borderWidth: 4,
-            tension: 0,
-            fill: false,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        interaction: { mode: "nearest", axis: "x", intersect: false },
-        onClick: (_, elements) => {
-          if (!elements?.[0]) return;
-          setDetailIndex(elements[0].index);
-        },
-        onHover: (event, elements, chart) => {
-          const nextHoverSnapshot = callbacksRef.current.resolveHoverSnapshot(chart, event);
-          const previousHoverSnapshot = callbacksRef.current.hoverSnapshot;
-          const isSameHoverSnapshot =
-            previousHoverSnapshot?.point?.date?.getTime?.() === nextHoverSnapshot?.point?.date?.getTime?.() &&
-            previousHoverSnapshot?.x === nextHoverSnapshot?.x &&
-            previousHoverSnapshot?.label === nextHoverSnapshot?.label;
-          if (!isSameHoverSnapshot) {
-            setHoverSnapshot(nextHoverSnapshot);
-          }
-          if (elements?.[0]) {
-            callbacksRef.current.updateActiveIndex(elements[0].index);
-          }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: false },
-          datalabels: { display: false },
-          longShortCenterTextPlugin: { enabled: false },
-          fundPositionZeroLineAndLabels: { enabled: false },
-          fundPositionLastValueLabel: { enabled: false },
-        },
-        layout: {
-          padding: {
-            top: 20,
-            right: 18,
-          },
-        },
-        scales: {
-          x: {
-            offset: true,
-            ticks: {
-              color: "#475569",
-              font: { size: 11, weight: "700" },
-              maxRotation: 0,
-              autoSkip: true,
-              maxTicksLimit: frequency === "monthly" ? 7 : frequency === "weekly" ? 8 : 6,
-            },
-            grid: { color: "rgba(148, 163, 184, 0.18)" },
-          },
-          y: {
-            beginAtZero: true,
-            ticks: {
-              color: "#475569",
-              font: { size: 11 },
-              callback: (value) => formatHedgeAxisValue(value, unit),
-            },
-            grid: { color: "rgba(148, 163, 184, 0.18)" },
-          },
-        },
-      },
-    });
-
-    const handleMouseLeave = () => {
-      setHoverSnapshot(null);
-      callbacksRef.current.updateActiveIndex(callbacksRef.current.todayIndex);
-    };
-    canvas.addEventListener("mouseleave", handleMouseLeave);
-
-    chartInstanceRef.current = nextChart;
-    callbacksRef.current.syncGuideState(nextChart, callbacksRef.current.activeIndex, callbacksRef.current.hoverSnapshot);
-
-    const handleResize = () => {
-      window.requestAnimationFrame(() => {
-        callbacksRef.current.syncGuideState(nextChart, callbacksRef.current.activeIndex, callbacksRef.current.hoverSnapshot);
-      });
-    };
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      canvas.removeEventListener("mouseleave", handleMouseLeave);
-      window.removeEventListener("resize", handleResize);
-      nextChart.destroy();
-    };
-  }, [baseValue, chartState, comparisonSeriesName, frequency, simulatedIncrement, unit]);
-
-  useEffect(() => {
-    const chart = chartInstanceRef.current;
-    if (!chart) return;
-    syncGuideState(chart, activeIndex, hoverSnapshot);
-  }, [activeIndex, hoverSnapshot, syncGuideState]);
-
   const activePoint = hoverSnapshot?.point || chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
   const activeSimulation = hoverSnapshot?.point
@@ -9150,6 +9082,111 @@ function HedgePolicyChart({
     setDetailDerivativeSearch("");
   }, [detailIndex]);
 
+  const nativeChart = (() => {
+    const width = 1000;
+    const height = 360;
+    const plot = { left: 64, right: 24, top: 24, bottom: 44 };
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const points = chartState.points || [];
+    const values = [
+      ...chartState.minDataset,
+      ...chartState.maxDataset,
+      ...chartState.derivativeDataset,
+      ...chartState.physicalDataset,
+      ...chartState.comparisonDataset,
+      ...chartState.totalDataset,
+    ].filter((value) => Number.isFinite(Number(value)));
+    const yMax = Math.max(1, ...values, Number(baseValue || 0));
+    const scaleMax = yMax * 1.08;
+    const xForIndex = (index) => plot.left + (plotWidth * index) / Math.max(points.length - 1, 1);
+    const yForValue = (value) => plot.top + plotHeight - (Math.max(0, Number(value || 0)) / scaleMax) * plotHeight;
+    const baselineY = yForValue(0);
+    const buildLinePath = (dataset) => {
+      let path = "";
+      let openSegment = false;
+      dataset.forEach((value, index) => {
+        if (!Number.isFinite(Number(value))) {
+          openSegment = false;
+          return;
+        }
+        path += `${openSegment ? "L" : "M"} ${xForIndex(index)} ${yForValue(value)} `;
+        openSegment = true;
+      });
+      return path.trim();
+    };
+    const buildAreaPath = (dataset) => {
+      const coords = dataset
+        .map((value, index) => (Number.isFinite(Number(value)) ? [xForIndex(index), yForValue(value)] : null))
+        .filter(Boolean);
+      if (!coords.length) return "";
+      return `M ${coords[0][0]} ${baselineY} ${coords.map(([x, y]) => `L ${x} ${y}`).join(" ")} L ${coords.at(-1)[0]} ${baselineY} Z`;
+    };
+    const buildBetweenAreaPath = (topDataset, bottomDataset) => {
+      const topCoords = [];
+      const bottomCoords = [];
+      topDataset.forEach((value, index) => {
+        const bottomValue = bottomDataset[index];
+        if (!Number.isFinite(Number(value)) || !Number.isFinite(Number(bottomValue))) return;
+        topCoords.push([xForIndex(index), yForValue(value)]);
+        bottomCoords.push([xForIndex(index), yForValue(bottomValue)]);
+      });
+      if (!topCoords.length) return "";
+      return `M ${topCoords[0][0]} ${topCoords[0][1]} ${topCoords.map(([x, y]) => `L ${x} ${y}`).join(" ")} ${bottomCoords
+        .reverse()
+        .map(([x, y]) => `L ${x} ${y}`)
+        .join(" ")} Z`;
+    };
+    const tickValues = [0, scaleMax * 0.25, scaleMax * 0.5, scaleMax * 0.75, scaleMax];
+    const labelEvery = Math.max(1, Math.ceil(points.length / 7));
+    const hoverIndex = hoverSnapshot?.index ?? activeIndex;
+    const hoverX = Number.isInteger(hoverIndex) && points[hoverIndex] ? xForIndex(hoverIndex) : null;
+    const todayX = points[todayIndex] ? xForIndex(todayIndex) : null;
+
+    return {
+      width,
+      height,
+      plot,
+      plotWidth,
+      plotHeight,
+      points,
+      xForIndex,
+      yForValue,
+      tickValues,
+      labelEvery,
+      hoverX,
+      todayX,
+      minPath: buildLinePath(chartState.minDataset),
+      maxPath: buildLinePath(chartState.maxDataset),
+      derivativeAreaPath: buildAreaPath(chartState.derivativeDataset),
+      physicalAreaPath: buildBetweenAreaPath(chartState.physicalDataset, chartState.derivativeDataset),
+      policyBandPath: buildBetweenAreaPath(chartState.maxDataset, chartState.minDataset),
+      comparisonPath: buildLinePath(chartState.comparisonDataset),
+      totalPath: buildLinePath(chartState.totalDataset),
+    };
+  })();
+
+  const handleNativeChartPoint = useCallback(
+    (index) => {
+      const point = chartState.points[index];
+      if (!point) return;
+      const x = nativeChart.xForIndex(index);
+      setHoverSnapshot({
+        index,
+        point,
+        x,
+        label: point?.date ? formatHedgeTitleDate(point.date) : null,
+      });
+      updateActiveIndex(index);
+    },
+    [chartState.points, nativeChart, updateActiveIndex],
+  );
+
+  const clearNativeChartHover = useCallback(() => {
+    setHoverSnapshot(null);
+    updateActiveIndex(todayIndex);
+  }, [todayIndex, updateActiveIndex]);
+
   return (
     <article className={`hedge-chart-card${showFloatingCard && activePoint ? " has-floating-card" : " is-chart-fill"}`}>
       <div className="hedge-chart-card-header">
@@ -9207,24 +9244,85 @@ function HedgePolicyChart({
         </aside>
       ) : null}
 
-      <div className="hedge-chart-wrap" ref={chartWrapRef}>
-        <canvas ref={chartRef} />
-        {guideState.today ? (
-          <div
-            className="hedge-chart-guide hedge-chart-guide--today"
-            style={{ left: `${guideState.today.left}px`, top: `${guideState.today.top}px`, height: `${guideState.today.height}px` }}
+      <div className="hedge-chart-wrap">
+        {nativeChart.points.length ? (
+          <svg
+            className="hedge-chart-svg"
+            viewBox={`0 0 ${nativeChart.width} ${nativeChart.height}`}
+            preserveAspectRatio="none"
+            onMouseLeave={clearNativeChartHover}
+            role="img"
+            aria-label={title}
           >
-            <div className="hedge-chart-guide-label hedge-chart-guide-label--today">{guideState.today.label}</div>
-          </div>
-        ) : null}
-        {guideState.hover ? (
-          <div
-            className="hedge-chart-guide hedge-chart-guide--hover"
-            style={{ left: `${guideState.hover.left}px`, top: `${guideState.hover.top}px`, height: `${guideState.hover.height}px` }}
-          >
-            <div className="hedge-chart-guide-label hedge-chart-guide-label--hover">{guideState.hover.label}</div>
-          </div>
-        ) : null}
+            {nativeChart.tickValues.map((tick, index) => {
+              const y = nativeChart.yForValue(tick);
+              return (
+                <g key={`${tick}-${index}`}>
+                  <line x1={nativeChart.plot.left} x2={nativeChart.width - nativeChart.plot.right} y1={y} y2={y} className="hedge-chart-svg-grid" />
+                  <text x={nativeChart.plot.left - 10} y={y + 4} textAnchor="end" className="hedge-chart-svg-axis">
+                    {formatHedgeAxisValue(tick, unit)}
+                  </text>
+                </g>
+              );
+            })}
+            {nativeChart.policyBandPath ? <path d={nativeChart.policyBandPath} className="hedge-chart-svg-policy-band" /> : null}
+            {nativeChart.derivativeAreaPath ? <path d={nativeChart.derivativeAreaPath} className="hedge-chart-svg-derivative-area" /> : null}
+            {nativeChart.physicalAreaPath ? <path d={nativeChart.physicalAreaPath} className="hedge-chart-svg-physical-area" /> : null}
+            {nativeChart.minPath ? <path d={nativeChart.minPath} className="hedge-chart-svg-policy-line" /> : null}
+            {nativeChart.maxPath ? <path d={nativeChart.maxPath} className="hedge-chart-svg-policy-line" /> : null}
+            {nativeChart.comparisonPath ? <path d={nativeChart.comparisonPath} className="hedge-chart-svg-comparison-line" /> : null}
+            {nativeChart.totalPath ? <path d={nativeChart.totalPath} className="hedge-chart-svg-total-line" /> : null}
+            {nativeChart.todayX != null ? (
+              <g>
+                <line
+                  x1={nativeChart.todayX}
+                  x2={nativeChart.todayX}
+                  y1={nativeChart.plot.top}
+                  y2={nativeChart.plot.top + nativeChart.plotHeight}
+                  className="hedge-chart-svg-today-line"
+                />
+                <text x={nativeChart.todayX + 6} y={nativeChart.plot.top + 14} className="hedge-chart-svg-guide-label">
+                  Hoje
+                </text>
+              </g>
+            ) : null}
+            {nativeChart.hoverX != null ? (
+              <line
+                x1={nativeChart.hoverX}
+                x2={nativeChart.hoverX}
+                y1={nativeChart.plot.top}
+                y2={nativeChart.plot.top + nativeChart.plotHeight}
+                className="hedge-chart-svg-hover-line"
+              />
+            ) : null}
+            {nativeChart.points.map((point, index) => {
+              const x = nativeChart.xForIndex(index);
+              const bandWidth = nativeChart.plotWidth / Math.max(nativeChart.points.length, 1);
+              const shouldShowLabel = index === 0 || index === nativeChart.points.length - 1 || index % nativeChart.labelEvery === 0;
+              return (
+                <g key={`${point.label}-${index}`}>
+                  {shouldShowLabel ? (
+                    <text x={x} y={nativeChart.height - 10} textAnchor="middle" className="hedge-chart-svg-axis hedge-chart-svg-x-label">
+                      {point.label}
+                    </text>
+                  ) : null}
+                  <rect
+                    x={x - bandWidth / 2}
+                    y={nativeChart.plot.top}
+                    width={bandWidth}
+                    height={nativeChart.plotHeight}
+                    fill="transparent"
+                    className="hedge-chart-svg-hit-area"
+                    onMouseEnter={() => handleNativeChartPoint(index)}
+                    onClick={() => setDetailIndex(index)}
+                  />
+                </g>
+              );
+            })}
+          </svg>
+        ) : (
+          <div className="hedge-chart-empty">Sem dados suficientes para montar o gráfico.</div>
+        )}
       </div>
 
       <div className="hedge-legend">
@@ -16503,17 +16601,6 @@ function MtmDashboard({ dashboardFilter }) {
     }),
     [closedRowsInView, openMtmRowsModal],
   );
-
-  if (!normalizedRows.length) {
-    return (
-      <section className="mtm-shell">
-        <article className="card mtm-empty-card">
-          <strong>Sem derivativos para o recorte atual.</strong>
-          <p>O dashboard de MTM só aparece quando existem operações em `derivative-operations`. Nesta visão, o filtro de cultura é ignorado por padrão.</p>
-        </article>
-      </section>
-    );
-  }
 
   const activeScopeMeta = {
     all: {

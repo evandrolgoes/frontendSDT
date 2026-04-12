@@ -4531,6 +4531,83 @@ textarea {
   min-height: 0;
 }
 
+.hedge-culture-native-chart {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.hedge-culture-native-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 0 34px 2px 4px;
+}
+
+.hedge-culture-native-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.hedge-culture-native-legend-item span {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.hedge-culture-chart-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hedge-culture-grid-line {
+  stroke: rgba(148, 163, 184, 0.18);
+  stroke-width: 1;
+}
+
+.hedge-culture-axis-label {
+  fill: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.hedge-culture-season-label {
+  fill: #334155;
+}
+
+.hedge-culture-value-label {
+  fill: #0f172a;
+  font-size: 10px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.hedge-culture-bar {
+  transition: opacity 120ms ease;
+}
+
+.hedge-culture-bar.is-clickable {
+  cursor: pointer;
+}
+
+.hedge-culture-bar.is-clickable:hover {
+  opacity: 0.78;
+}
+
+.hedge-culture-bar.is-active {
+  stroke: #ea580c;
+  stroke-width: 2;
+  filter: drop-shadow(0 -2px 8px rgba(234, 88, 12, 0.28));
+}
+
 .hedge-culture-filter-hint {
   font-size: 0.65rem;
   font-weight: 400;
@@ -5701,6 +5778,87 @@ textarea {
   width: 100%;
   min-width: 0;
   overflow: hidden;
+}
+
+.hedge-chart-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hedge-chart-svg-grid {
+  stroke: rgba(148, 163, 184, 0.18);
+  stroke-width: 1;
+}
+
+.hedge-chart-svg-axis {
+  fill: #475569;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.hedge-chart-svg-x-label {
+  fill: #334155;
+}
+
+.hedge-chart-svg-policy-band {
+  fill: rgba(34, 197, 94, 0.14);
+}
+
+.hedge-chart-svg-policy-line {
+  fill: none;
+  stroke: #22c55e;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.hedge-chart-svg-derivative-area {
+  fill: rgba(251, 146, 60, 0.48);
+}
+
+.hedge-chart-svg-physical-area {
+  fill: rgba(250, 204, 21, 0.2);
+}
+
+.hedge-chart-svg-total-line {
+  fill: none;
+  stroke: #111827;
+  stroke-width: 4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.hedge-chart-svg-comparison-line {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 2;
+  stroke-dasharray: 10 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.hedge-chart-svg-today-line {
+  stroke: rgba(37, 99, 235, 0.95);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.hedge-chart-svg-hover-line {
+  stroke: rgba(15, 23, 42, 0.35);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.hedge-chart-svg-guide-label {
+  fill: #1d4ed8;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.hedge-chart-svg-hit-area {
+  cursor: pointer;
+  pointer-events: all;
 }
 
 .hedge-chart-wrap--compact {
