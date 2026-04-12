@@ -4522,8 +4522,8 @@ textarea {
   display: flex;
   flex-direction: column;
   height: 400px;
-  gap: 4px;
-  padding: 10px 10px 0;
+  gap: 2px;
+  padding: 8px 10px 4px;
 }
 
 .hedge-culture-chart-wrap {
@@ -4536,13 +4536,23 @@ textarea {
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  width: 100%;
+  --hedge-culture-axis-font-size: 18px;
+  --hedge-culture-season-font-size: 19px;
+  --hedge-culture-value-font-size: 25px;
+}
+
+.hedge-culture-native-chart.is-large {
+  --hedge-culture-axis-font-size: 12px;
+  --hedge-culture-season-font-size: 13px;
+  --hedge-culture-value-font-size: 15px;
 }
 
 .hedge-culture-native-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 12px;
-  padding: 0 34px 2px 4px;
+  gap: 5px 12px;
+  padding: 0 42px 1px 4px;
 }
 
 .hedge-culture-native-legend-item {
@@ -4550,9 +4560,9 @@ textarea {
   align-items: center;
   gap: 6px;
   color: #475569;
-  font-size: 0.72rem;
-  font-weight: 800;
-  line-height: 1.2;
+  font-size: 0.74rem;
+  font-weight: 900;
+  line-height: 1.05;
 }
 
 .hedge-culture-native-legend-item span {
@@ -4575,18 +4585,24 @@ textarea {
 
 .hedge-culture-axis-label {
   fill: #64748b;
-  font-size: 11px;
+  font-size: var(--hedge-culture-axis-font-size);
   font-weight: 800;
 }
 
 .hedge-culture-season-label {
   fill: #334155;
+  font-size: var(--hedge-culture-season-font-size);
+  font-weight: 900;
 }
 
 .hedge-culture-value-label {
   fill: #0f172a;
-  font-size: 10px;
-  font-weight: 900;
+  font-size: var(--hedge-culture-value-font-size);
+  font-weight: 950;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.95);
+  stroke-linejoin: round;
+  stroke-width: 5px;
   pointer-events: none;
 }
 
@@ -5816,6 +5832,14 @@ textarea {
   fill: rgba(251, 146, 60, 0.48);
 }
 
+.hedge-chart-svg-derivative-border {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.72);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
 .hedge-chart-svg-physical-area {
   fill: rgba(250, 204, 21, 0.2);
 }
@@ -5827,6 +5851,40 @@ textarea {
   stroke-linejoin: round;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
+}
+
+.hedge-chart-label-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.hedge-chart-total-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: #111827;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow:
+    -1px -1px 0 rgba(255, 255, 255, 0.9),
+    1px -1px 0 rgba(255, 255, 255, 0.9),
+    -1px 1px 0 rgba(255, 255, 255, 0.9),
+    1px 1px 0 rgba(255, 255, 255, 0.9),
+    0 0 2px rgba(255, 255, 255, 0.95);
+  white-space: nowrap;
+}
+
+.hedge-chart-total-label--start {
+  transform: translate(0, -50%);
+}
+
+.hedge-chart-total-label--end {
+  transform: translate(-100%, -50%);
 }
 
 .hedge-chart-svg-comparison-line {
@@ -6034,17 +6092,18 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 10px 18px;
+  gap: 12px 22px;
 }
 
 .hedge-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   border: none;
   background: transparent;
   color: #475569;
-  font-size: 0.9rem;
+  font-size: 0.98rem;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -6053,8 +6112,8 @@ textarea {
 }
 
 .hedge-legend-swatch {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 4px;
   border: 1px solid rgba(15, 23, 42, 0.16);
   flex-shrink: 0;

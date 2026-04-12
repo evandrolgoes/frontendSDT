@@ -314,18 +314,21 @@ function HedgeByCultureChart({ rows, insightTitle, insightMessage }) {
     [rows],
   );
   const renderChart = (large = false) => {
-    const width = large ? 980 : 640;
-    const height = large ? 520 : 260;
-    const plot = { left: 42, right: 18, top: large ? 54 : 34, bottom: large ? 56 : 34 };
+    const width = large ? 980 : 720;
+    const height = large ? 520 : 190;
+    const plot = large
+      ? { left: 50, right: 18, top: 68, bottom: 62 }
+      : { left: 58, right: 8, top: 34, bottom: 36 };
     const plotWidth = width - plot.left - plot.right;
     const plotHeight = height - plot.top - plot.bottom;
     const groupWidth = plotWidth / Math.max(seasons.length, 1);
-    const barGap = large ? 7 : 4;
-    const barWidth = Math.max(8, Math.min(large ? 38 : 28, (groupWidth - 18) / Math.max(cultures.length, 1) - barGap));
+    const barGap = large ? 7 : 8;
+    const barWidth = Math.max(10, Math.min(large ? 38 : 34, (groupWidth - 18) / Math.max(cultures.length, 1) - barGap));
     const yFor = (value) => plot.top + plotHeight - (Math.max(0, Math.min(value, 100)) / 100) * plotHeight;
+    const labelLift = large ? 6 : 9;
 
     return (
-      <div className="hedge-culture-native-chart">
+      <div className={`hedge-culture-native-chart${large ? " is-large" : ""}`}>
         {cultures.length > 1 ? (
           <div className="hedge-culture-native-legend">
             {cultures.map((culture, index) => (
@@ -342,7 +345,7 @@ function HedgeByCultureChart({ rows, insightTitle, insightMessage }) {
             return (
               <g key={tick}>
                 <line x1={plot.left} x2={width - plot.right} y1={y} y2={y} className="hedge-culture-grid-line" />
-                <text x={plot.left - 10} y={y + 4} textAnchor="end" className="hedge-culture-axis-label">{tick}%</text>
+                <text x={plot.left - 12} y={y + (large ? 4 : 6)} textAnchor="end" className="hedge-culture-axis-label">{tick}%</text>
               </g>
             );
           })}
@@ -375,13 +378,13 @@ function HedgeByCultureChart({ rows, insightTitle, insightMessage }) {
                       >
                         <title>{`${culture} · ${season}: ${Math.round(value)}%`}</title>
                       </rect>
-                      <text x={x + barWidth / 2} y={Math.max(plot.top + 12, y - 6)} textAnchor="middle" className="hedge-culture-value-label">
+                      <text x={x + barWidth / 2} y={Math.max(plot.top + (large ? 12 : 18), y - labelLift)} textAnchor="middle" className="hedge-culture-value-label">
                         {Math.round(value)}%
                       </text>
                     </g>
                   );
                 })}
-                <text x={groupCenter} y={height - 10} textAnchor="middle" className="hedge-culture-axis-label hedge-culture-season-label">
+                <text x={groupCenter} y={height - (large ? 10 : 9)} textAnchor="middle" className="hedge-culture-axis-label hedge-culture-season-label">
                   {season}
                 </text>
               </g>
@@ -2133,7 +2136,7 @@ function CommercialRiskLongShortChart({
         show: true,
         color: "#0f172a",
         fontWeight: 900,
-        fontSize: 11,
+        fontSize: 13,
         formatter: ({ value, dataIndex }) => {
           const numericValue = Number(value || 0);
           if (!numericValue) return "";
@@ -7284,11 +7287,35 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     () => getHedgeTodayIndex(hedgeSummaryChartState.points),
     [hedgeSummaryChartState.points],
   );
-  const [hedgeSummaryActiveIndex, setHedgeSummaryActiveIndex] = useState(hedgeSummaryTodayIndex);
+  const hedgeSummaryPointsKey = useMemo(
+    () => hedgeSummaryChartState.points.map((point) => dashboardDateKey(point.date)).join("|"),
+    [hedgeSummaryChartState.points],
+  );
+  const [hedgeSummaryActiveState, setHedgeSummaryActiveState] = useState(() => ({
+    key: "",
+    index: 0,
+  }));
 
   useEffect(() => {
-    setHedgeSummaryActiveIndex(hedgeSummaryTodayIndex);
-  }, [hedgeSummaryTodayIndex]);
+    setHedgeSummaryActiveState({
+      key: hedgeSummaryPointsKey,
+      index: hedgeSummaryTodayIndex,
+    });
+  }, [hedgeSummaryPointsKey, hedgeSummaryTodayIndex]);
+
+  const hedgeSummaryActiveIndex =
+    hedgeSummaryActiveState.key === hedgeSummaryPointsKey
+      ? hedgeSummaryActiveState.index
+      : hedgeSummaryTodayIndex;
+  const updateHedgeSummaryActiveIndex = useCallback(
+    (index) => {
+      setHedgeSummaryActiveState({
+        key: hedgeSummaryPointsKey,
+        index,
+      });
+    },
+    [hedgeSummaryPointsKey],
+  );
 
   const hedgeSummaryActivePoint =
     hedgeSummaryChartState.points[hedgeSummaryActiveIndex] || hedgeSummaryChartState.points[hedgeSummaryTodayIndex] || hedgeSummaryChartState.points.at(-1) || null;
@@ -7499,6 +7526,15 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       totalArea,
     ],
   );
+  const groupSubgroupFilter = useMemo(
+    () => ({
+      grupo: dashboardFilter?.grupo || [],
+      subgrupo: dashboardFilter?.subgrupo || [],
+      cultura: [],
+      safra: [],
+    }),
+    [dashboardFilter?.grupo, dashboardFilter?.subgrupo],
+  );
   const longShortFilter = useMemo(
     () => ({
       grupo: dashboardFilter?.grupo || [],
@@ -7639,13 +7675,39 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     if (!selectedSeasons.length) return "";
     return selectedSeasons.length === 1 ? selectedSeasons[0] : `${selectedSeasons[0]} +${selectedSeasons.length - 1}`;
   }, [dashboardFilter?.safra, resolveSeasonLabel]);
+  const hedgeByCultureReferenceDate = useMemo(() => {
+    const referenceCropBoards = cropBoards.filter((item) => rowMatchesDashboardFilter(item, groupSubgroupFilter));
+    const referencePhysicalPayments = physicalPayments.filter((item) =>
+      rowMatchesDashboardFilter(item, groupSubgroupFilter, {
+        cultureKeys: ["fazer_frente_com"],
+      }),
+    );
+    const referenceBase = getNetProductionValue(referenceCropBoards, referencePhysicalPayments, (item) => item.producao_total, (item) => item.volume);
+    const referenceChartState = buildHedgePolicyChartState({
+      unit: "SC",
+      frequency: "monthly",
+      baseValue: referenceBase,
+      physicalRows: physicalSales.filter((item) => rowMatchesDashboardFilter(item, groupSubgroupFilter)),
+      derivativeRows: derivatives.filter((item) =>
+        rowMatchesDashboardFilter(item, groupSubgroupFilter, {
+          cultureKeys: DERIVATIVE_CULTURE_KEYS,
+        }) && normalizeText(item.moeda_ou_cmdtye) === "cmdtye"
+      ),
+      policies: hedgePolicies.filter((item) => rowMatchesDashboardFilter(item, groupSubgroupFilter)),
+      physicalValueGetter: getPhysicalVolumeValue,
+      derivativeValueGetter: derivativeStandardVolumeGetter,
+    });
+    return referenceChartState.points[getHedgeTodayIndex(referenceChartState.points)]?.date || startOfDashboardDay(new Date());
+  }, [
+    cropBoards,
+    derivatives,
+    derivativeStandardVolumeGetter,
+    groupSubgroupFilter,
+    hedgePolicies,
+    physicalPayments,
+    physicalSales,
+  ]);
   const hedgeByCultureRows = useMemo(() => {
-    const groupSubgroupFilter = {
-      grupo: dashboardFilter?.grupo || [],
-      subgrupo: dashboardFilter?.subgrupo || [],
-      cultura: [],
-      safra: [],
-    };
     const selectedCultureIds = new Set((dashboardFilter?.cultura || []).map(String));
     const selectedSeasonIds = new Set((dashboardFilter?.safra || []).map(String));
     const nodeMap = new Map();
@@ -7696,7 +7758,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       .filter((item) => rowMatchesDashboardFilter(item, groupSubgroupFilter))
       .forEach((item) => {
         const saleDate = startOfDashboardDay(item.data_negociacao || item.created_at);
-        if (!saleDate || !hedgeSummaryReferenceDate || saleDate > hedgeSummaryReferenceDate) return;
+        if (!saleDate || !hedgeByCultureReferenceDate || saleDate > hedgeByCultureReferenceDate) return;
         const node = findNode(item.cultura || item.cultura_produto || item.cultura_texto, item.safra || item.safra_texto);
         if (node) {
           node.physical += Math.abs(Number(item.volume_fisico || 0));
@@ -7712,7 +7774,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       .forEach((item) => {
         const startDate = startOfDashboardDay(item.data_contratacao || item.created_at);
         const endDate = startOfDashboardDay(item.data_liquidacao || item.data_contratacao || item.created_at);
-        if (!startDate || !endDate || !hedgeSummaryReferenceDate || startDate > hedgeSummaryReferenceDate || hedgeSummaryReferenceDate >= endDate) return;
+        if (!startDate || !endDate || !hedgeByCultureReferenceDate || startDate > hedgeByCultureReferenceDate || hedgeByCultureReferenceDate >= endDate) return;
         const node = findNode(getDerivativeCultureValue(item), item.safra || item.safra_texto);
         if (node) {
           node.derivatives += derivativeStandardVolumeGetter(item);
@@ -7765,7 +7827,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     dashboardFilter,
     derivativeStandardVolumeGetter,
     derivatives,
-    hedgeSummaryReferenceDate,
+    groupSubgroupFilter,
+    hedgeByCultureReferenceDate,
     physicalPayments,
     physicalSales,
     resolveCultureLabel,
@@ -7954,7 +8017,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       baseValue={netProductionBase}
       areaBase={totalArea}
       activeIndex={hedgeSummaryActiveIndex}
-      onActiveIndexChange={setHedgeSummaryActiveIndex}
+      onActiveIndexChange={updateHedgeSummaryActiveIndex}
       physicalRows={filteredSales}
       derivativeRows={bolsaDerivatives}
       policies={filteredPolicies}
@@ -9139,9 +9202,63 @@ function HedgePolicyChart({
     };
     const tickValues = [0, scaleMax * 0.25, scaleMax * 0.5, scaleMax * 0.75, scaleMax];
     const labelEvery = Math.max(1, Math.ceil(points.length / 7));
+    const dataLabelEvery = points.length <= 18 ? 1 : Math.max(1, Math.ceil(points.length / 12));
     const hoverIndex = hoverSnapshot?.index ?? activeIndex;
     const hoverX = Number.isInteger(hoverIndex) && points[hoverIndex] ? xForIndex(hoverIndex) : null;
     const todayX = points[todayIndex] ? xForIndex(todayIndex) : null;
+    const derivativeAreaPath = buildAreaPath(chartState.derivativeDataset);
+    const hasDerivativeArea = chartState.derivativeDataset.some((value) => Number(value || 0) > 0);
+    const axisLabels = tickValues.map((tick, index) => ({
+      key: `${tick}-${index}`,
+      xPercent: `${((plot.left - 10) / width) * 100}%`,
+      yPercent: `${((yForValue(tick) + 4) / height) * 100}%`,
+      anchor: "end",
+      label: formatHedgeAxisValue(tick, unit),
+      variant: "y",
+    }));
+    const xAxisLabels = points
+      .map((point, index) => {
+        const shouldShowLabel = index === 0 || index === points.length - 1 || index % labelEvery === 0;
+        if (!shouldShowLabel) return null;
+        return {
+          key: `${point.label}-${index}`,
+          xPercent: `${(xForIndex(index) / width) * 100}%`,
+          yPercent: `${((height - 10) / height) * 100}%`,
+          anchor: index === 0 ? "start" : index === points.length - 1 ? "end" : "middle",
+          label: point.label,
+          variant: "x",
+        };
+      })
+      .filter(Boolean);
+    const todayLabel = todayX != null
+      ? {
+          xPercent: `${((todayX + 6) / width) * 100}%`,
+          yPercent: `${((plot.top + 14) / height) * 100}%`,
+          anchor: "start",
+          label: "Hoje",
+        }
+      : null;
+    const totalDataLabels = chartState.totalDataset
+      .map((value, index) => {
+        const numericValue = Number(value);
+        const shouldShow =
+          Number(baseValue || 0) > 0 &&
+          Number.isFinite(numericValue) &&
+          numericValue > 0 &&
+          (index === points.length - 1 || index === todayIndex || index % dataLabelEvery === 0);
+        if (!shouldShow) return null;
+        const x = Math.min(Math.max(xForIndex(index), plot.left + 10), width - plot.right - 10);
+        const lineY = yForValue(numericValue);
+        const y = lineY < plot.top + 14 ? lineY + 13 : lineY - 7;
+        return {
+          key: `${points[index]?.label || index}-${index}`,
+          xPercent: `${(x / width) * 100}%`,
+          yPercent: `${(y / height) * 100}%`,
+          anchor: index === 0 ? "start" : index === points.length - 1 ? "end" : "middle",
+          label: formatHedgeSummaryPercentValue(numericValue, baseValue),
+        };
+      })
+      .filter(Boolean);
 
     return {
       width,
@@ -9154,11 +9271,16 @@ function HedgePolicyChart({
       yForValue,
       tickValues,
       labelEvery,
+      axisLabels,
+      xAxisLabels,
+      todayLabel,
+      totalDataLabels,
       hoverX,
       todayX,
       minPath: buildLinePath(chartState.minDataset),
       maxPath: buildLinePath(chartState.maxDataset),
-      derivativeAreaPath: buildAreaPath(chartState.derivativeDataset),
+      derivativeAreaPath,
+      derivativeBorderPath: hasDerivativeArea ? derivativeAreaPath : "",
       physicalAreaPath: buildBetweenAreaPath(chartState.physicalDataset, chartState.derivativeDataset),
       policyBandPath: buildBetweenAreaPath(chartState.maxDataset, chartState.minDataset),
       comparisonPath: buildLinePath(chartState.comparisonDataset),
@@ -9246,28 +9368,27 @@ function HedgePolicyChart({
 
       <div className="hedge-chart-wrap">
         {nativeChart.points.length ? (
-          <svg
-            className="hedge-chart-svg"
-            viewBox={`0 0 ${nativeChart.width} ${nativeChart.height}`}
-            preserveAspectRatio="none"
-            onMouseLeave={clearNativeChartHover}
-            role="img"
-            aria-label={title}
-          >
+          <>
+            <svg
+              className="hedge-chart-svg"
+              viewBox={`0 0 ${nativeChart.width} ${nativeChart.height}`}
+              preserveAspectRatio="none"
+              onMouseLeave={clearNativeChartHover}
+              role="img"
+              aria-label={title}
+            >
             {nativeChart.tickValues.map((tick, index) => {
               const y = nativeChart.yForValue(tick);
               return (
                 <g key={`${tick}-${index}`}>
                   <line x1={nativeChart.plot.left} x2={nativeChart.width - nativeChart.plot.right} y1={y} y2={y} className="hedge-chart-svg-grid" />
-                  <text x={nativeChart.plot.left - 10} y={y + 4} textAnchor="end" className="hedge-chart-svg-axis">
-                    {formatHedgeAxisValue(tick, unit)}
-                  </text>
                 </g>
               );
             })}
             {nativeChart.policyBandPath ? <path d={nativeChart.policyBandPath} className="hedge-chart-svg-policy-band" /> : null}
             {nativeChart.derivativeAreaPath ? <path d={nativeChart.derivativeAreaPath} className="hedge-chart-svg-derivative-area" /> : null}
             {nativeChart.physicalAreaPath ? <path d={nativeChart.physicalAreaPath} className="hedge-chart-svg-physical-area" /> : null}
+            {nativeChart.derivativeBorderPath ? <path d={nativeChart.derivativeBorderPath} className="hedge-chart-svg-derivative-border" /> : null}
             {nativeChart.minPath ? <path d={nativeChart.minPath} className="hedge-chart-svg-policy-line" /> : null}
             {nativeChart.maxPath ? <path d={nativeChart.maxPath} className="hedge-chart-svg-policy-line" /> : null}
             {nativeChart.comparisonPath ? <path d={nativeChart.comparisonPath} className="hedge-chart-svg-comparison-line" /> : null}
@@ -9281,9 +9402,6 @@ function HedgePolicyChart({
                   y2={nativeChart.plot.top + nativeChart.plotHeight}
                   className="hedge-chart-svg-today-line"
                 />
-                <text x={nativeChart.todayX + 6} y={nativeChart.plot.top + 14} className="hedge-chart-svg-guide-label">
-                  Hoje
-                </text>
               </g>
             ) : null}
             {nativeChart.hoverX != null ? (
@@ -9301,11 +9419,6 @@ function HedgePolicyChart({
               const shouldShowLabel = index === 0 || index === nativeChart.points.length - 1 || index % nativeChart.labelEvery === 0;
               return (
                 <g key={`${point.label}-${index}`}>
-                  {shouldShowLabel ? (
-                    <text x={x} y={nativeChart.height - 10} textAnchor="middle" className="hedge-chart-svg-axis hedge-chart-svg-x-label">
-                      {point.label}
-                    </text>
-                  ) : null}
                   <rect
                     x={x - bandWidth / 2}
                     y={nativeChart.plot.top}
@@ -9319,7 +9432,36 @@ function HedgePolicyChart({
                 </g>
               );
             })}
-          </svg>
+            </svg>
+            <div className="hedge-chart-label-layer" aria-hidden="true">
+              {[...nativeChart.axisLabels, ...nativeChart.xAxisLabels].map((label) => (
+                <span
+                  key={label.key}
+                  className={`hedge-chart-axis-label hedge-chart-axis-label--${label.variant} hedge-chart-label--${label.anchor}`}
+                  style={{ left: label.xPercent, top: label.yPercent }}
+                >
+                  {label.label}
+                </span>
+              ))}
+              {nativeChart.todayLabel ? (
+                <span
+                  className="hedge-chart-today-label hedge-chart-label--start"
+                  style={{ left: nativeChart.todayLabel.xPercent, top: nativeChart.todayLabel.yPercent }}
+                >
+                  {nativeChart.todayLabel.label}
+                </span>
+              ) : null}
+              {nativeChart.totalDataLabels.map((label) => (
+                <span
+                  key={label.key}
+                  className={`hedge-chart-total-label hedge-chart-label--${label.anchor}`}
+                  style={{ left: label.xPercent, top: label.yPercent }}
+                >
+                  {label.label}
+                </span>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="hedge-chart-empty">Sem dados suficientes para montar o gráfico.</div>
         )}
