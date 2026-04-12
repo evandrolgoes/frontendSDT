@@ -5,6 +5,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { DashboardDebugProvider, useDashboardDebug } from "../contexts/DashboardDebugContext";
 import { filterSubgroupsByGroups, useDashboardFilter } from "../contexts/DashboardFilterContext";
+import { useBackgroundPrefetch } from "../hooks/useBackgroundPrefetch";
 import { getNavigationSections } from "../routes/routes";
 
 const EMPTY_FILTER = { grupo: [], subgrupo: [], cultura: [], safra: [] };
@@ -584,6 +585,7 @@ function AdminLayoutShell({ children }) {
 
 export function AdminLayout({ children }) {
   const { user } = useAuth();
+  useBackgroundPrefetch();
 
   return (
     <DashboardDebugProvider isSuperuser={Boolean(user?.is_superuser)}>

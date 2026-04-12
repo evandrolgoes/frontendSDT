@@ -16816,33 +16816,9 @@ function MtmDashboard({ dashboardFilter }) {
         <section className="mtm-extra-section">
           <div className="mtm-section-head">
             <h3>Painel operacional em aberto</h3>
-            <p>Gráficos dedicados apenas às posições em aberto, olhando pressão, exposição, vencimento e composição do book vivo.</p>
+            <p>Leitura dedicada às posições em aberto, com foco na janela de vencimento do book vivo.</p>
           </div>
           <div className="mtm-extra-grid">
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Pressão por bolsa</h4>
-                <p>Saldo MTM das operações ainda abertas por bolsa.</p>
-              </div>
-              <ReactECharts
-                option={createMiniHorizontalBarOption({ rows: openExchangePressureRows, color: "#16a34a" })}
-                onEvents={openExchangePressureEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Exposição por tipo</h4>
-                <p>Volume ainda aberto por estrutura derivativa.</p>
-              </div>
-              <ReactECharts
-                option={createMiniVerticalBarOption({ rows: openTypeExposureRows, color: "#2563eb", valueFormatter: formatNumber0 })}
-                onEvents={openTypeExposureEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
             <article className="card mtm-mini-card">
               <div className="mtm-mini-card-head">
                 <h4>Janela de vencimento</h4>
@@ -16851,30 +16827,6 @@ function MtmDashboard({ dashboardFilter }) {
               <ReactECharts
                 option={createMiniVerticalBarOption({ rows: openSettlementBandRows, color: "#7c3aed", valueFormatter: formatNumber0 })}
                 onEvents={openSettlementBandEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>MTM por posição</h4>
-                <p>Compra versus venda nas operações ainda vivas.</p>
-              </div>
-              <ReactECharts
-                option={createMiniHorizontalBarOption({ rows: openPositionNetRows, color: "#f97316" })}
-                onEvents={openPositionNetEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Mix de sinal</h4>
-                <p>Quantas abertas estão positivas, negativas ou neutras.</p>
-              </div>
-              <ReactECharts
-                option={createMiniDonutOption({ rows: openDirectionSlices, centerLabel: "Abertas", centerValue: formatNumber0(openRowsInView.length) })}
-                onEvents={openDirectionEvents}
                 style={{ height: 290, width: "100%" }}
                 opts={{ renderer: "svg" }}
               />
@@ -16934,48 +16886,12 @@ function MtmDashboard({ dashboardFilter }) {
           <div className="mtm-extra-grid">
             <article className="card mtm-mini-card">
               <div className="mtm-mini-card-head">
-                <h4>Resultado por bolsa</h4>
-                <p>Saldo realizado das operações encerradas por bolsa.</p>
-              </div>
-              <ReactECharts
-                option={createMiniHorizontalBarOption({ rows: closedExchangeResultRows, color: "#16a34a" })}
-                onEvents={closedExchangeResultEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Resultado por tipo</h4>
-                <p>Estruturas que mais contribuíram no encerrado.</p>
-              </div>
-              <ReactECharts
-                option={createMiniHorizontalBarOption({ rows: closedTypeResultRows, color: "#0f766e" })}
-                onEvents={closedTypeResultEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
                 <h4>Liquidação por mês</h4>
                 <p>Ritmo mensal do MTM realizado no encerrado.</p>
               </div>
               <ReactECharts
                 option={createMiniLineOption({ rows: closedSettlementMonthRows, color: "#7c3aed" })}
                 onEvents={closedSettlementMonthEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Resultado por posição</h4>
-                <p>Compra versus venda no book já encerrado.</p>
-              </div>
-              <ReactECharts
-                option={createMiniHorizontalBarOption({ rows: closedPositionResultRows, color: "#ea580c" })}
-                onEvents={closedPositionResultEvents}
                 style={{ height: 290, width: "100%" }}
                 opts={{ renderer: "svg" }}
               />
