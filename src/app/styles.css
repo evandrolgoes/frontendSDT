@@ -5738,8 +5738,8 @@ textarea {
 
 .hedge-chart-card {
   display: grid;
-  gap: 6px;
-  padding: 10px 12px 10px;
+  gap: 4px;
+  padding: 8px 10px 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -5790,7 +5790,7 @@ textarea {
 
 .hedge-chart-wrap {
   position: relative;
-  height: 360px;
+  height: 390px;
   width: 100%;
   min-width: 0;
   overflow: hidden;
@@ -5853,6 +5853,26 @@ textarea {
   vector-effect: non-scaling-stroke;
 }
 
+.hedge-chart-svg-crop-marker {
+  pointer-events: none;
+}
+
+.hedge-chart-svg-crop-marker-line {
+  stroke-width: 2;
+  stroke-dasharray: 7 5;
+  opacity: 0.95;
+  vector-effect: non-scaling-stroke;
+}
+
+.hedge-chart-svg-crop-marker-label {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.88);
+  stroke-width: 3px;
+}
+
 .hedge-chart-label-layer {
   position: absolute;
   inset: 0;
@@ -5885,6 +5905,40 @@ textarea {
 
 .hedge-chart-total-label--end {
   transform: translate(-100%, -50%);
+}
+
+.hedge-chart-x-axis-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: #334155;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.hedge-chart-x-axis-label--start {
+  transform: translate(0, -50%);
+}
+
+.hedge-chart-x-axis-label--end {
+  transform: translate(-100%, -50%);
+}
+
+.hedge-chart-today-overlay-label {
+  position: absolute;
+  transform: translate(0, -50%);
+  color: #1d4ed8;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .hedge-chart-svg-comparison-line {
@@ -6092,17 +6146,17 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 12px 22px;
+  gap: 8px 16px;
 }
 
 .hedge-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
   border: none;
   background: transparent;
   color: #475569;
-  font-size: 0.98rem;
+  font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -6112,8 +6166,8 @@ textarea {
 }
 
 .hedge-legend-swatch {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 4px;
   border: 1px solid rgba(15, 23, 42, 0.16);
   flex-shrink: 0;

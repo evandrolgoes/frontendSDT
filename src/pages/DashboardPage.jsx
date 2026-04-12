@@ -2812,24 +2812,21 @@ const formatHedgeSummaryHeadline = (statusText, value, unit, areaBase) =>
     formatHedgeSummaryScPerHaValue(value, unit, areaBase) ? ` — ${formatHedgeSummaryScPerHaValue(value, unit, areaBase)}` : ""
   }`;
 
-const formatHedgeSummaryPolicyHeadline = (value, baseValue, minValue, maxValue) => {
-  if (Number.isFinite(maxValue) && value > maxValue) {
-    return `você está ${formatHedgeSummaryPercentValue(value - maxValue, baseValue)} acima da politica`;
-  }
-  if (Number.isFinite(minValue) && value < minValue) {
-    return `você está ${formatHedgeSummaryPercentValue(minValue - value, baseValue)} abaixo da politica`;
-  }
-  return "você está dentro da politica";
+const formatHedgeSummaryPolicyDeviationValue = (value, unit) => {
+  const formattedValue = formatHedgeSummaryValue(value, unit);
+  return unit === "SC" ? formattedValue.replace(/ sc$/, " scs") : formattedValue;
 };
 
-const formatHedgeSummaryPolicyDeviation = (value, minValue, maxValue, unit) => {
+const formatHedgeSummaryPolicyHeadline = (value, baseValue, minValue, maxValue, unit = "SC") => {
   if (Number.isFinite(maxValue) && value > maxValue) {
-    return `${formatHedgeSummaryValue(value - maxValue, unit)} acima da politica`;
+    const deviation = value - maxValue;
+    return `você está ${formatHedgeSummaryPercentValue(deviation, baseValue)} (${formatHedgeSummaryPolicyDeviationValue(deviation, unit)}) acima da Política`;
   }
   if (Number.isFinite(minValue) && value < minValue) {
-    return `${formatHedgeSummaryValue(minValue - value, unit)} abaixo da politica`;
+    const deviation = minValue - value;
+    return `você está ${formatHedgeSummaryPercentValue(deviation, baseValue)} (${formatHedgeSummaryPolicyDeviationValue(deviation, unit)}) abaixo da Política`;
   }
-  return null;
+  return "você está dentro da Política";
 };
 
 const getHedgeBandTone = (totalPercent, policyMinPercent = null, policyMaxPercent = null) => {
@@ -2887,6 +2884,34 @@ const formatHedgeShortDate = (value, frequency) => {
 };
 
 const formatHedgeTitleDate = (value) => formatBrazilianDate(parseDashboardDate(value), "—");
+
+const hasDashboardFilterSelection = (filter = {}) =>
+  ["grupo", "subgrupo", "cultura", "safra"].some((key) => {
+    const value = filter?.[key];
+    if (Array.isArray(value)) {
+      return value.some((item) => item != null && item !== "");
+    }
+    return value != null && value !== "";
+  });
+
+const getAverageDashboardDate = (rows = [], fieldName) => {
+  const timestamps = rows
+    .map((item) => startOfDashboardDay(item?.[fieldName])?.getTime())
+    .filter((value) => Number.isFinite(value));
+  if (!timestamps.length) return null;
+  const averageTimestamp = timestamps.reduce((sum, value) => sum + value, 0) / timestamps.length;
+  const averageDate = new Date(averageTimestamp);
+  if (averageDate.getHours() >= 12) {
+    averageDate.setDate(averageDate.getDate() + 1);
+  }
+  return startOfDashboardDay(averageDate);
+};
+
+const buildCropBoardDateMarkers = (cropBoardRows = []) =>
+  [
+    { key: "plantio", label: "plantio", date: getAverageDashboardDate(cropBoardRows, "data_plantio"), color: "#15803d" },
+    { key: "colheita", label: "colheita", date: getAverageDashboardDate(cropBoardRows, "data_colheita"), color: "#b45309" },
+  ].filter((item) => item.date);
 
 const formatMi3 = (value) =>
   Number(value || 0).toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
@@ -6813,6 +6838,88 @@ const readRelationId = (value) => {
   return "";
 };
 
+const formatDashboardExchangeLabel = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replaceAll("/", " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+};
+
+const capitalizeFirstSummaryLabel = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+};
+
+const formatDerivativeOperationPart = (value) => {
+  const raw = String(value || "").replaceAll("_", " ").replaceAll("-", " ").trim();
+  if (!raw) return "";
+  const specialTokens = {
+    ndf: "NDF",
+    usd: "USD",
+    brl: "BRL",
+  };
+  return raw
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => specialTokens[part.toLowerCase()] || `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+};
+
+const buildDerivativePositionTypeLabel = (item = {}) => {
+  const operationLabel = [
+    formatDerivativeOperationPart(item?.posicao || item?.grupo_montagem || item?.compra_venda),
+    formatDerivativeOperationPart(item?.tipo_derivativo),
+  ].filter(Boolean).join(" ");
+  return operationLabel || capitalizeFirstSummaryLabel(
+    item?.nome_da_operacao ||
+      item?.title ||
+      item?.contrato_derivativo ||
+      item?.cod_operacao_mae ||
+      item?.summaryLabel ||
+      "Operacao derivativa",
+  );
+};
+
+const formatDashboardStrikeLabel = (value, unit) => {
+  if (value === null || value === undefined || value === "") return "";
+  const parsed = parseLocalizedNumber(value);
+  if (!Number.isFinite(parsed)) return "";
+  const formatted = parsed.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const unitLabel = String(unit || "").trim();
+  return `${formatted}${unitLabel ? ` ${unitLabel}` : ""}`;
+};
+
+const buildDerivativeMaturitySummaryLabel = (item, derivativeRow = null) => {
+  const exchangeLabel = formatDashboardExchangeLabel(
+    derivativeRow?.bolsa_ref ||
+      derivativeRow?.ctrbolsa ||
+      derivativeRow?.instituicao ||
+      item?.exchangeLabel ||
+      item?.bolsa_ref,
+  );
+  const operationLabel = buildDerivativePositionTypeLabel(derivativeRow || item);
+  const strikeLabel =
+    item?.strikeMontagemLabel ||
+    formatDashboardStrikeLabel(
+      derivativeRow?.strike_montagem ?? item?.strike_montagem,
+      derivativeRow?.strike_moeda_unidade || item?.strike_moeda_unidade,
+    );
+  const operationWithStrike = `${operationLabel}${strikeLabel ? ` ${strikeLabel}` : ""}`;
+  return exchangeLabel
+    ? `${exchangeLabel} - ${operationWithStrike}`
+    : operationWithStrike;
+};
+
 function CommercialRiskAnalyticsSkeleton() {
   return (
     <>
@@ -7088,6 +7195,20 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const upcomingMaturityRows = Array.isArray(summaryData?.upcomingMaturityRows) ? summaryData.upcomingMaturityRows : [];
   const formCompletionRows = Array.isArray(summaryData?.formCompletionRows) ? summaryData.formCompletionRows : [];
   const formCompletionSummary = summaryData?.formCompletionSummary || {};
+  const upcomingMaturityDisplayRows = useMemo(
+    () =>
+      upcomingMaturityRows.map((item) => {
+        if (item?.resourceKey !== "derivative-operations") return item;
+        const derivativeRow = derivatives.find((row) => String(row.id) === String(item.recordId));
+        const title = derivativeRow ? buildDerivativePositionTypeLabel(derivativeRow) : item.title;
+        return {
+          ...item,
+          title,
+          summaryLabel: buildDerivativeMaturitySummaryLabel(item, derivativeRow),
+        };
+      }),
+    [derivatives, upcomingMaturityRows],
+  );
 
   const filteredSales = useMemo(
     () => physicalSales.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
@@ -7096,6 +7217,14 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const filteredCropBoards = useMemo(
     () => cropBoards.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
     [cropBoards, dashboardFilter],
+  );
+  const cropBoardDateMarkerRows = useMemo(
+    () => (hasDashboardFilterSelection(dashboardFilter) ? filteredCropBoards : cropBoards),
+    [cropBoards, dashboardFilter, filteredCropBoards],
+  );
+  const cropBoardDateMarkers = useMemo(
+    () => buildCropBoardDateMarkers(cropBoardDateMarkerRows),
+    [cropBoardDateMarkerRows],
   );
   const filteredPolicies = useMemo(
     () => hedgePolicies.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
@@ -7280,8 +7409,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         policies: filteredPolicies,
         physicalValueGetter: getPhysicalVolumeValue,
         derivativeValueGetter: derivativeStandardVolumeGetter,
+        dateMarkers: cropBoardDateMarkers,
       }),
-    [bolsaDerivatives, derivativeStandardVolumeGetter, filteredPolicies, filteredSales, netProductionBase],
+    [bolsaDerivatives, cropBoardDateMarkers, derivativeStandardVolumeGetter, filteredPolicies, filteredSales, netProductionBase],
   );
   const hedgeSummaryTodayIndex = useMemo(
     () => getHedgeTodayIndex(hedgeSummaryChartState.points),
@@ -7496,8 +7626,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         netProductionBase,
         hedgeSummaryActivePoint?.minValue,
         hedgeSummaryActivePoint?.maxValue,
+        "SC",
       ),
-      formatHedgeSummaryPolicyDeviation(activeTotalValue, hedgeSummaryActivePoint?.minValue, hedgeSummaryActivePoint?.maxValue, "SC"),
     ].filter(Boolean);
   }, [
     hedgeSummaryActivePoint,
@@ -7982,8 +8112,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       insightMessage={
         <SummaryInsightCopy
           paragraphs={[
-            "A primeira linha resume o percentual atual do hedge em relação à política.",
-            "Quando o hedge estiver acima ou abaixo da política, a segunda linha mostra apenas o volume excedente ou faltante. As linhas seguintes mostram os limites mínimo e máximo da política aplicável ao ponto atual.",
+            "A linha principal resume o percentual atual do hedge em relação à política e, quando houver desvio, traz o volume excedente ou faltante entre parênteses.",
+            "As linhas seguintes mostram os limites mínimo e máximo da política aplicável ao ponto atual.",
           ]}
         />
       }
@@ -8026,6 +8156,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       onFocusToggle={() => navigateFromSummary(navigate, "/dashboard/politica-hedge", "Política de Hedge")}
       onOpenResourceRow={openCommercialRiskResourceRow}
       showFloatingCard={false}
+      dateMarkers={cropBoardDateMarkers}
       insightTitle="Hedge produção líquida"
       insightMessage={
         <SummaryInsightCopy
@@ -8090,7 +8221,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
                 {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
               </strong>
             </article>
-            <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} usdBrlRate={getUsdBrlQuoteValue(marketQuotes)} />
+            <UpcomingMaturitiesCard rows={upcomingMaturityDisplayRows} onOpenItem={openMaturityForm} usdBrlRate={getUsdBrlQuoteValue(marketQuotes)} />
           </>
         ) : (
           Array.from({ length: 3 }).map((_, index) => (
@@ -8832,7 +8963,14 @@ function buildHedgePolicyChartState({
   showPhysical = true,
   showDerivatives = true,
   simulatedIncrement = 0,
+  dateMarkers = [],
 }) {
+  const normalizedDateMarkers = (dateMarkers || [])
+    .map((item) => ({
+      ...item,
+      date: startOfDashboardDay(item?.date),
+    }))
+    .filter((item) => item.date);
   const policyRows = (policies || [])
     .map((item) => ({
       ...item,
@@ -8887,6 +9025,7 @@ function buildHedgePolicyChartState({
     ...physicalSeries.map((item) => item.date),
     ...derivativeSeries.flatMap((item) => [item.startDate, item.endDate]),
     ...comparisonSeries.map((item) => item.date),
+    ...normalizedDateMarkers.map((item) => item.date),
   ].filter(Boolean);
 
   const today = startOfDashboardDay(new Date());
@@ -8968,6 +9107,9 @@ function buildHedgePolicyChartState({
     comparisonDataset: points.map((item) => item.comparisonRaw),
     totalDataset,
     totalPctDataset: points.map((item) => item.totalPct * 100),
+    dateMarkers: normalizedDateMarkers,
+    domainStart: startDate,
+    domainEnd: endDate,
   };
 }
 
@@ -8999,6 +9141,7 @@ function HedgePolicyChart({
   insightTitle = "",
   insightMessage = null,
   precomputedChartState = null,
+  dateMarkers = [],
 }) {
   const [internalActiveIndex, setInternalActiveIndex] = useState(0);
   const [detailIndex, setDetailIndex] = useState(null);
@@ -9028,10 +9171,12 @@ function HedgePolicyChart({
         showPhysical,
         showDerivatives,
         simulatedIncrement,
+        dateMarkers,
       });
     },
     [
       baseValue,
+      dateMarkers,
       derivativeRows,
       derivativeValueGetter,
       frequency,
@@ -9148,7 +9293,7 @@ function HedgePolicyChart({
   const nativeChart = (() => {
     const width = 1000;
     const height = 360;
-    const plot = { left: 64, right: 24, top: 24, bottom: 44 };
+    const plot = { left: 64, right: 24, top: 24, bottom: 32 };
     const plotWidth = width - plot.left - plot.right;
     const plotHeight = height - plot.top - plot.bottom;
     const points = chartState.points || [];
@@ -9163,6 +9308,17 @@ function HedgePolicyChart({
     const yMax = Math.max(1, ...values, Number(baseValue || 0));
     const scaleMax = yMax * 1.08;
     const xForIndex = (index) => plot.left + (plotWidth * index) / Math.max(points.length - 1, 1);
+    const xForDate = (value) => {
+      const date = startOfDashboardDay(value);
+      const domainStart = startOfDashboardDay(chartState.domainStart || points[0]?.date);
+      const domainEnd = startOfDashboardDay(chartState.domainEnd || points.at(-1)?.date);
+      if (!date || !domainStart || !domainEnd) return null;
+      const startTime = domainStart.getTime();
+      const endTime = domainEnd.getTime();
+      if (startTime === endTime) return xForIndex(0);
+      const x = plot.left + ((date.getTime() - startTime) / (endTime - startTime)) * plotWidth;
+      return Math.min(Math.max(x, plot.left), width - plot.right);
+    };
     const yForValue = (value) => plot.top + plotHeight - (Math.max(0, Number(value || 0)) / scaleMax) * plotHeight;
     const baselineY = yForValue(0);
     const buildLinePath = (dataset) => {
@@ -9208,14 +9364,6 @@ function HedgePolicyChart({
     const todayX = points[todayIndex] ? xForIndex(todayIndex) : null;
     const derivativeAreaPath = buildAreaPath(chartState.derivativeDataset);
     const hasDerivativeArea = chartState.derivativeDataset.some((value) => Number(value || 0) > 0);
-    const axisLabels = tickValues.map((tick, index) => ({
-      key: `${tick}-${index}`,
-      xPercent: `${((plot.left - 10) / width) * 100}%`,
-      yPercent: `${((yForValue(tick) + 4) / height) * 100}%`,
-      anchor: "end",
-      label: formatHedgeAxisValue(tick, unit),
-      variant: "y",
-    }));
     const xAxisLabels = points
       .map((point, index) => {
         const shouldShowLabel = index === 0 || index === points.length - 1 || index % labelEvery === 0;
@@ -9226,7 +9374,6 @@ function HedgePolicyChart({
           yPercent: `${((height - 10) / height) * 100}%`,
           anchor: index === 0 ? "start" : index === points.length - 1 ? "end" : "middle",
           label: point.label,
-          variant: "x",
         };
       })
       .filter(Boolean);
@@ -9234,7 +9381,6 @@ function HedgePolicyChart({
       ? {
           xPercent: `${((todayX + 6) / width) * 100}%`,
           yPercent: `${((plot.top + 14) / height) * 100}%`,
-          anchor: "start",
           label: "Hoje",
         }
       : null;
@@ -9259,6 +9405,22 @@ function HedgePolicyChart({
         };
       })
       .filter(Boolean);
+    const cropDateMarkers = (chartState.dateMarkers || [])
+      .map((marker, index) => {
+        const x = xForDate(marker.date);
+        if (x == null) return null;
+        const anchor = x > width - plot.right - 90 ? "end" : "start";
+        return {
+          ...marker,
+          key: marker.key || `${marker.label}-${index}`,
+          x,
+          labelX: anchor === "end" ? x - 7 : x + 7,
+          labelY: plot.top + 18 + index * 18,
+          anchor,
+          color: marker.color || "#0f766e",
+        };
+      })
+      .filter(Boolean);
 
     return {
       width,
@@ -9268,13 +9430,14 @@ function HedgePolicyChart({
       plotHeight,
       points,
       xForIndex,
+      xForDate,
       yForValue,
       tickValues,
       labelEvery,
-      axisLabels,
       xAxisLabels,
       todayLabel,
       totalDataLabels,
+      cropDateMarkers,
       hoverX,
       todayX,
       minPath: buildLinePath(chartState.minDataset),
@@ -9382,6 +9545,9 @@ function HedgePolicyChart({
               return (
                 <g key={`${tick}-${index}`}>
                   <line x1={nativeChart.plot.left} x2={nativeChart.width - nativeChart.plot.right} y1={y} y2={y} className="hedge-chart-svg-grid" />
+                  <text x={nativeChart.plot.left - 10} y={y + 4} textAnchor="end" className="hedge-chart-svg-axis">
+                    {formatHedgeAxisValue(tick, unit)}
+                  </text>
                 </g>
               );
             })}
@@ -9393,6 +9559,27 @@ function HedgePolicyChart({
             {nativeChart.maxPath ? <path d={nativeChart.maxPath} className="hedge-chart-svg-policy-line" /> : null}
             {nativeChart.comparisonPath ? <path d={nativeChart.comparisonPath} className="hedge-chart-svg-comparison-line" /> : null}
             {nativeChart.totalPath ? <path d={nativeChart.totalPath} className="hedge-chart-svg-total-line" /> : null}
+            {nativeChart.cropDateMarkers.map((marker) => (
+              <g key={marker.key} className="hedge-chart-svg-crop-marker">
+                <line
+                  x1={marker.x}
+                  x2={marker.x}
+                  y1={nativeChart.plot.top}
+                  y2={nativeChart.plot.top + nativeChart.plotHeight}
+                  className="hedge-chart-svg-crop-marker-line"
+                  stroke={marker.color}
+                />
+                <text
+                  x={marker.labelX}
+                  y={marker.labelY}
+                  textAnchor={marker.anchor}
+                  className="hedge-chart-svg-crop-marker-label"
+                  fill={marker.color}
+                >
+                  {marker.label}
+                </text>
+              </g>
+            ))}
             {nativeChart.todayX != null ? (
               <g>
                 <line
@@ -9416,7 +9603,6 @@ function HedgePolicyChart({
             {nativeChart.points.map((point, index) => {
               const x = nativeChart.xForIndex(index);
               const bandWidth = nativeChart.plotWidth / Math.max(nativeChart.points.length, 1);
-              const shouldShowLabel = index === 0 || index === nativeChart.points.length - 1 || index % nativeChart.labelEvery === 0;
               return (
                 <g key={`${point.label}-${index}`}>
                   <rect
@@ -9434,10 +9620,10 @@ function HedgePolicyChart({
             })}
             </svg>
             <div className="hedge-chart-label-layer" aria-hidden="true">
-              {[...nativeChart.axisLabels, ...nativeChart.xAxisLabels].map((label) => (
+              {nativeChart.xAxisLabels.map((label) => (
                 <span
                   key={label.key}
-                  className={`hedge-chart-axis-label hedge-chart-axis-label--${label.variant} hedge-chart-label--${label.anchor}`}
+                  className={`hedge-chart-x-axis-label hedge-chart-x-axis-label--${label.anchor}`}
                   style={{ left: label.xPercent, top: label.yPercent }}
                 >
                   {label.label}
@@ -9445,7 +9631,7 @@ function HedgePolicyChart({
               ))}
               {nativeChart.todayLabel ? (
                 <span
-                  className="hedge-chart-today-label hedge-chart-label--start"
+                  className="hedge-chart-today-overlay-label"
                   style={{ left: nativeChart.todayLabel.xPercent, top: nativeChart.todayLabel.yPercent }}
                 >
                   {nativeChart.todayLabel.label}
@@ -9454,7 +9640,7 @@ function HedgePolicyChart({
               {nativeChart.totalDataLabels.map((label) => (
                 <span
                   key={label.key}
-                  className={`hedge-chart-total-label hedge-chart-label--${label.anchor}`}
+                  className={`hedge-chart-total-label hedge-chart-total-label--${label.anchor}`}
                   style={{ left: label.xPercent, top: label.yPercent }}
                 >
                   {label.label}
@@ -9913,6 +10099,14 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     () => cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
     [cropBoards, dashboardFilter, matchesDashboardFilter],
   );
+  const cropBoardDateMarkerRows = useMemo(
+    () => (hasDashboardFilterSelection(dashboardFilter) ? filteredCropBoards : cropBoards),
+    [cropBoards, dashboardFilter, filteredCropBoards],
+  );
+  const cropBoardDateMarkers = useMemo(
+    () => buildCropBoardDateMarkers(cropBoardDateMarkerRows),
+    [cropBoardDateMarkerRows],
+  );
   const filteredPhysicalSales = useMemo(
     () => physicalSales.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, physicalSales],
@@ -9982,8 +10176,9 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         comparisonDateGetter: (item) => item.data_travamento,
         comparisonValueGetter: (item) => convertValueToBrl(item.valor, item.moeda, usdBrlRate),
         simulatedIncrement: simulatedCostValue,
+        dateMarkers: cropBoardDateMarkers,
       }),
-    [costBase, filteredActualCosts, filteredDerivatives, filteredPhysicalSales, filteredPolicies, frequency, simulatedCostValue, usdBrlRate],
+    [costBase, cropBoardDateMarkers, filteredActualCosts, filteredDerivatives, filteredPhysicalSales, filteredPolicies, frequency, simulatedCostValue, usdBrlRate],
   );
   const productionChartState = useMemo(
     () =>
@@ -9997,8 +10192,10 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         physicalValueGetter: getPhysicalVolumeValue,
         derivativeValueGetter: derivativeStandardVolumeGetter,
         simulatedIncrement: parsedSimulationVolume,
+        dateMarkers: cropBoardDateMarkers,
       }),
     [
+      cropBoardDateMarkers,
       derivativeStandardVolumeGetter,
       filteredCommodityDerivatives,
       filteredPhysicalSales,
@@ -10219,8 +10416,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     const policyMaxPercent = activePoint?.maxPct != null ? activePoint.maxPct * 100 : null;
     const tone = getHedgeBandTone(totalPercent, policyMinPercent, policyMaxPercent);
     const summaryLines = [
-      formatHedgeSummaryPolicyHeadline(totalValue, baseValue, activePoint?.minValue, activePoint?.maxValue),
-      formatHedgeSummaryPolicyDeviation(totalValue, activePoint?.minValue, activePoint?.maxValue, unit),
+      formatHedgeSummaryPolicyHeadline(totalValue, baseValue, activePoint?.minValue, activePoint?.maxValue, unit),
     ].filter(Boolean);
 
     return {
@@ -10231,7 +10427,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         <SummaryInsightCopy
           paragraphs={[
             `A primeira linha resume o percentual atual do hedge${isCost ? " sobre o custo" : " sobre a produção"} em relação à política.`,
-            "Quando o hedge estiver acima ou abaixo da política, a segunda linha mostra apenas o valor excedente ou faltante. As linhas abaixo mostram os limites mínimo e máximo da política aplicável ao ponto selecionado.",
+            "Quando o hedge estiver acima ou abaixo da política, o valor excedente ou faltante aparece entre parênteses. As linhas abaixo mostram os limites mínimo e máximo da política aplicável ao ponto selecionado.",
           ]}
         />
       ),
@@ -10287,6 +10483,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       simulatedIncrement={simulatedCostValue}
       simulatedLabel={simulationLabel}
       showFloatingCard={focusedChart !== "cost"}
+      dateMarkers={cropBoardDateMarkers}
       extraActions={
         <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
           <option value="daily">Diario</option>
@@ -10328,6 +10525,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       simulatedIncrement={parsedSimulationVolume}
       simulatedLabel="adicionado em volume"
       showFloatingCard={focusedChart !== "production"}
+      dateMarkers={cropBoardDateMarkers}
       insightTitle="Hedge produção líquida"
       insightMessage={
         <SummaryInsightCopy
