@@ -6976,12 +6976,16 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [hedgePolicies, setHedgePolicies] = useState(() => initialDashboardCache?.hedgePolicies || []);
   const [physicalPayments, setPhysicalPayments] = useState(() => initialDashboardCache?.physicalPayments || []);
   const [cashPayments, setCashPayments] = useState(() => initialDashboardCache?.cashPayments || []);
+  const [budgetCosts, setBudgetCosts] = useState(() => initialDashboardCache?.budgetCosts || []);
+  const [actualCosts, setActualCosts] = useState(() => initialDashboardCache?.actualCosts || []);
+  const [hedgePolicyUsdBrlRate, setHedgePolicyUsdBrlRate] = useState(() => initialDashboardCache?.hedgePolicyUsdBrlRate || 0);
   const [strategyTriggers, setStrategyTriggers] = useState(() => initialDashboardCache?.strategyTriggers || []);
   const [triggerQuotes, setTriggerQuotes] = useState(() => initialDashboardCache?.triggerQuotes || []);
   const [triggerExchanges, setTriggerExchanges] = useState(() => initialDashboardCache?.triggerExchanges || []);
   const [summaryData, setSummaryData] = useState(() => initialDashboardCache?.summaryData || DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA);
   const [summaryLoading, setSummaryLoading] = useState(() => !initialDashboardCache?.summaryData);
   const [analyticsReady, setAnalyticsReady] = useState(() => Boolean(initialDashboardCache?.analyticsReady));
+  const [summaryHedgeChartMode, setSummaryHedgeChartMode] = useState("production");
   const [selectedMarketNewsPost, setSelectedMarketNewsPost] = useState(null);
   const [selectedMarketNewsAttachments, setSelectedMarketNewsAttachments] = useState([]);
   const [selectedMarketNewsAttachmentsLoading, setSelectedMarketNewsAttachmentsLoading] = useState(false);
@@ -7037,6 +7041,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       setHedgePolicies(cachedDashboard.hedgePolicies || []);
       setPhysicalPayments(cachedDashboard.physicalPayments || []);
       setCashPayments(cachedDashboard.cashPayments || []);
+      setBudgetCosts(cachedDashboard.budgetCosts || []);
+      setActualCosts(cachedDashboard.actualCosts || []);
+      setHedgePolicyUsdBrlRate(cachedDashboard.hedgePolicyUsdBrlRate || 0);
       setStrategyTriggers(cachedDashboard.strategyTriggers || []);
       setTriggerQuotes(cachedDashboard.triggerQuotes || []);
       setTriggerExchanges(cachedDashboard.triggerExchanges || []);
@@ -7048,6 +7055,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       setHedgePolicies([]);
       setPhysicalPayments([]);
       setCashPayments([]);
+      setBudgetCosts([]);
+      setActualCosts([]);
+      setHedgePolicyUsdBrlRate(0);
       setStrategyTriggers([]);
       setTriggerQuotes([]);
       setTriggerExchanges([]);
@@ -7062,6 +7072,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         resourceService.listAll("hedge-policies").catch(() => []),
         resourceService.listAll("physical-payments").catch(() => []),
         resourceService.listAll("cash-payments").catch(() => []),
+        resourceService.listAll("budget-costs").catch(() => []),
+        resourceService.listAll("actual-costs").catch(() => []),
         resourceService.listAll("strategy-triggers").catch(() => []),
         resourceService.listTradingviewQuotes().catch(() => []),
         resourceService.listAll("exchanges").catch(() => []),
@@ -7073,6 +7085,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           policiesResponse,
           physicalPaymentsResponse,
           cashPaymentsResponse,
+          budgetCostsResponse,
+          actualCostsResponse,
           strategyTriggersResponse,
           triggerQuotesResponse,
           triggerExchangesResponse,
@@ -7084,6 +7098,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           setHedgePolicies(policiesResponse || []);
           setPhysicalPayments(physicalPaymentsResponse || []);
           setCashPayments(cashPaymentsResponse || []);
+          setBudgetCosts(budgetCostsResponse || []);
+          setActualCosts(actualCostsResponse || []);
           setStrategyTriggers(strategyTriggersResponse || []);
           setTriggerQuotes(triggerQuotesResponse || []);
           setTriggerExchanges(triggerExchangesResponse || []);
@@ -7094,6 +7110,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
             hedgePolicies: policiesResponse || [],
             physicalPayments: physicalPaymentsResponse || [],
             cashPayments: cashPaymentsResponse || [],
+            budgetCosts: budgetCostsResponse || [],
+            actualCosts: actualCostsResponse || [],
             strategyTriggers: strategyTriggersResponse || [],
             triggerQuotes: triggerQuotesResponse || [],
             triggerExchanges: triggerExchangesResponse || [],
@@ -7118,6 +7136,24 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   }, [dashboardCacheKey]);
 
   useEffect(() => {
+    let isMounted = true;
+    resourceService
+      .fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL)
+      .then((sheetyResponse) => {
+        if (!isMounted) return;
+        const usdBrlRow = (sheetyResponse?.planilha1 || []).find((item) => normalizeText(item.ctrbolsa) === "usdbrl");
+        const nextUsdBrlRate = Number(usdBrlRow?.cotacao);
+        if (Number.isFinite(nextUsdBrlRate) && nextUsdBrlRate > 0) {
+          setHedgePolicyUsdBrlRate(nextUsdBrlRate);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!analyticsReady || summaryReadyEventDispatchedRef.current || typeof window === "undefined") {
       return;
     }
@@ -7139,18 +7175,24 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       hedgePolicies,
       physicalPayments,
       cashPayments,
+      budgetCosts,
+      actualCosts,
+      hedgePolicyUsdBrlRate,
       strategyTriggers,
       triggerQuotes,
       triggerExchanges,
       analyticsReady: true,
     });
   }, [
+    actualCosts,
     analyticsReady,
+    budgetCosts,
     cashPayments,
     cropBoards,
     dashboardCacheKey,
     derivatives,
     hedgePolicies,
+    hedgePolicyUsdBrlRate,
     physicalPayments,
     physicalSales,
     strategyTriggers,
@@ -7195,6 +7237,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const upcomingMaturityRows = Array.isArray(summaryData?.upcomingMaturityRows) ? summaryData.upcomingMaturityRows : [];
   const formCompletionRows = Array.isArray(summaryData?.formCompletionRows) ? summaryData.formCompletionRows : [];
   const formCompletionSummary = summaryData?.formCompletionSummary || {};
+  const summaryUsdBrlRate = hedgePolicyUsdBrlRate || getUsdBrlQuoteValue(triggerQuotes) || getUsdBrlQuoteValue(marketQuotes);
   const upcomingMaturityDisplayRows = useMemo(
     () =>
       upcomingMaturityRows.map((item) => {
@@ -7229,6 +7272,14 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const filteredPolicies = useMemo(
     () => hedgePolicies.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, hedgePolicies],
+  );
+  const filteredBudgetCosts = useMemo(
+    () => budgetCosts.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
+    [budgetCosts, dashboardFilter],
+  );
+  const filteredActualCosts = useMemo(
+    () => actualCosts.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter)),
+    [actualCosts, dashboardFilter],
   );
   const filteredPhysicalPayments = useMemo(
     () =>
@@ -7397,6 +7448,28 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const netProductionBase = useMemo(
     () => getNetProductionValue(filteredCropBoards, filteredPhysicalPayments, (item) => item.producao_total, (item) => item.volume),
     [filteredCropBoards, filteredPhysicalPayments],
+  );
+  const hedgeCostBase = useMemo(
+    () => filteredBudgetCosts.reduce((sum, item) => sum + convertValueToBrl(item.valor, item.moeda, summaryUsdBrlRate), 0),
+    [filteredBudgetCosts, summaryUsdBrlRate],
+  );
+  const hedgeCostSummaryChartState = useMemo(
+    () =>
+      buildHedgePolicyChartState({
+        unit: "BRL",
+        frequency: "monthly",
+        baseValue: hedgeCostBase,
+        physicalRows: filteredSales,
+        derivativeRows: filteredDerivatives,
+        policies: filteredPolicies,
+        physicalValueGetter: (item) => getPhysicalCostValue(item, summaryUsdBrlRate),
+        derivativeValueGetter: (item) => getDerivativeCostValue(item, summaryUsdBrlRate),
+        comparisonRows: filteredActualCosts,
+        comparisonDateGetter: (item) => item.data_travamento,
+        comparisonValueGetter: (item) => convertValueToBrl(item.valor, item.moeda, summaryUsdBrlRate),
+        dateMarkers: cropBoardDateMarkers,
+      }),
+    [cropBoardDateMarkers, filteredActualCosts, filteredDerivatives, filteredPolicies, filteredSales, hedgeCostBase, summaryUsdBrlRate],
   );
   const hedgeSummaryChartState = useMemo(
     () =>
@@ -8139,9 +8212,56 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     </section>
   );
 
+  const hedgePolicyChartSelector = (
+    <select
+      value={summaryHedgeChartMode}
+      onChange={(event) => setSummaryHedgeChartMode(event.target.value)}
+      className="hedge-chart-title-select"
+      aria-label="Escolher grafico de politica de hedge"
+    >
+      <option value="production">Gráfico 2 - Hedge produção liquida (sc)</option>
+      <option value="cost">Gráfico 1 - Hedge sobre o custo (R$)</option>
+    </select>
+  );
+
+  const hedgeCostChartNode = (
+    <HedgePolicyChart
+      key="summary-hedge-cost-chart"
+      title="Gráfico 1 — Hedge sobre o custo (R$)"
+      unit="BRL"
+      frequency="monthly"
+      baseValue={hedgeCostBase}
+      physicalRows={filteredSales}
+      derivativeRows={filteredDerivatives}
+      policies={filteredPolicies}
+      physicalValueGetter={(item) => getPhysicalCostValue(item, summaryUsdBrlRate)}
+      derivativeValueGetter={(item) => getDerivativeCostValue(item, summaryUsdBrlRate)}
+      comparisonSeriesName="Custo Realizado"
+      comparisonRows={filteredActualCosts}
+      comparisonDateGetter={(item) => item.data_travamento}
+      comparisonValueGetter={(item) => convertValueToBrl(item.valor, item.moeda, summaryUsdBrlRate)}
+      onFocusToggle={() => navigateFromSummary(navigate, "/dashboard/politica-hedge", "Política de Hedge")}
+      onOpenResourceRow={openCommercialRiskResourceRow}
+      showFloatingCard={false}
+      dateMarkers={cropBoardDateMarkers}
+      titleControl={hedgePolicyChartSelector}
+      insightTitle="Hedge sobre o custo"
+      insightMessage={
+        <SummaryInsightCopy
+          paragraphs={[
+            `Este gráfico compara o hedge realizado sobre o custo total da operação. A base usada para o cálculo é de R$ ${formatCurrency2(hedgeCostBase)}.`,
+            "A linha preta mostra quanto desse custo já está protegido via vendas físicas e derivativos, enquanto a faixa verde indica a política mínima e máxima desejada.",
+          ]}
+        />
+      }
+      precomputedChartState={hedgeCostSummaryChartState}
+    />
+  );
+
   const hedgeProductionChartNode = (
     <HedgePolicyChart
-      title="Hedge produção liquida (sc)"
+      key="summary-hedge-production-chart"
+      title="Gráfico 2 — Hedge produção liquida (sc)"
       unit="SC"
       frequency="monthly"
       baseValue={netProductionBase}
@@ -8157,6 +8277,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       onOpenResourceRow={openCommercialRiskResourceRow}
       showFloatingCard={false}
       dateMarkers={cropBoardDateMarkers}
+      titleControl={hedgePolicyChartSelector}
       insightTitle="Hedge produção líquida"
       insightMessage={
         <SummaryInsightCopy
@@ -8171,7 +8292,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   );
 
   return (
-    <section className="risk-kpi-shell">
+    <section className="risk-kpi-shell risk-kpi-shell--summary">
       {!summaryLoading ? (
         <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
       ) : (
@@ -8242,7 +8363,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
               {hedgeSummaryCardsRow}
             </div>
             <div className="risk-kpi-hedge-chart-col">
-              {hedgeProductionChartNode}
+              {summaryHedgeChartMode === "cost" ? hedgeCostChartNode : hedgeProductionChartNode}
             </div>
           </section>
 
@@ -9133,6 +9254,7 @@ function HedgePolicyChart({
   onFocusToggle,
   focusButtonIcon = "⛶",
   focusButtonTitle = "Destacar gráfico",
+  titleControl = null,
   extraActions = null,
   simulatedIncrement = 0,
   simulatedLabel = null,
@@ -9142,6 +9264,9 @@ function HedgePolicyChart({
   insightMessage = null,
   precomputedChartState = null,
   dateMarkers = [],
+  externalSliderStart = null,
+  externalSliderEnd = null,
+  onExternalSliderChange = null,
 }) {
   const [internalActiveIndex, setInternalActiveIndex] = useState(0);
   const [detailIndex, setDetailIndex] = useState(null);
@@ -9150,6 +9275,8 @@ function HedgePolicyChart({
   const [detailPhysicalSearch, setDetailPhysicalSearch] = useState("");
   const [detailDerivativeSearch, setDetailDerivativeSearch] = useState("");
   const [hoverSnapshot, setHoverSnapshot] = useState(null);
+  const [sliderStart, setSliderStart] = useState(0);
+  const [sliderEnd, setSliderEnd] = useState(null);
 
   const chartState = useMemo(
     () => {
@@ -9194,6 +9321,63 @@ function HedgePolicyChart({
       unit,
     ],
   );
+  const extendedChartState = useMemo(() => {
+    if (!chartState.points.length || !frequency) return chartState;
+    const firstDate = chartState.domainStart || chartState.points[0]?.date;
+    const lastDate = chartState.domainEnd || chartState.points.at(-1)?.date;
+    if (!firstDate || !lastDate) return chartState;
+    const twoYearsMs = 2 * 365.25 * 24 * 3600 * 1000;
+    const extStart = new Date(firstDate.getTime() - twoYearsMs);
+    const extEnd = new Date(lastDate.getTime() + twoYearsMs);
+    const extBuckets = buildHedgeBuckets(extStart, extEnd, frequency);
+    const pointsByKey = new Map(chartState.points.map((p) => [p.key, p]));
+    const lastOrigTime = lastDate.getTime();
+    const lastPoint = chartState.points.at(-1);
+    const extPoints = extBuckets.map((bucket) => {
+      const existing = pointsByKey.get(bucket.key);
+      if (existing) return existing;
+      const bucketTime = bucket.date.getTime();
+      if (bucketTime > lastOrigTime && lastPoint) {
+        // Pós-data: carregar os últimos valores acumulados
+        // Físico não diminui; derivativos ficam no último saldo (os vencidos já foram descontados)
+        return {
+          ...bucket,
+          physicalRaw: lastPoint.physicalRaw,
+          derivativeRaw: lastPoint.derivativeRaw,
+          comparisonRaw: lastPoint.comparisonRaw,
+          physicalVisible: lastPoint.physicalVisible,
+          derivativeVisible: lastPoint.derivativeVisible,
+          minValue: lastPoint.minValue ?? null,
+          maxValue: lastPoint.maxValue ?? null,
+          minPct: lastPoint.minPct ?? null,
+          maxPct: lastPoint.maxPct ?? null,
+          total: lastPoint.total,
+          totalPct: lastPoint.totalPct,
+        };
+      }
+      // Pré-data: ainda não havia dados
+      return {
+        ...bucket,
+        physicalRaw: 0, derivativeRaw: 0, comparisonRaw: 0,
+        physicalVisible: 0, derivativeVisible: 0,
+        minValue: null, maxValue: null, minPct: null, maxPct: null,
+        total: 0, totalPct: 0,
+      };
+    });
+    return {
+      ...chartState,
+      points: extPoints,
+      minDataset: extPoints.map((p) => p.minValue ?? null),
+      maxDataset: extPoints.map((p) => p.maxValue ?? null),
+      derivativeDataset: extPoints.map((p) => p.derivativeVisible),
+      physicalDataset: extPoints.map((p) => p.derivativeVisible + p.physicalVisible),
+      comparisonDataset: extPoints.map((p) => p.comparisonRaw),
+      totalDataset: extPoints.map((p) => p.total),
+      domainStart: extStart,
+      domainEnd: extEnd,
+    };
+  }, [chartState, frequency]);
+
   const todayIndex = useMemo(() => getHedgeTodayIndex(chartState.points), [chartState.points]);
   const activeIndex = controlledActiveIndex != null ? controlledActiveIndex : internalActiveIndex;
 
@@ -9227,6 +9411,24 @@ function HedgePolicyChart({
       onActiveIndexChange(todayIndex);
     }
   }, [chartState.points.length, frequency, todayIndex]);
+
+  useEffect(() => {
+    if (!extendedChartState.points.length || !chartState.points.length) {
+      setSliderStart(0);
+      setSliderEnd(null);
+      return;
+    }
+    const keys = extendedChartState.points.map((p) => p.key);
+    const startIdx = keys.indexOf(chartState.points[0]?.key);
+    const endIdx = keys.lastIndexOf(chartState.points.at(-1)?.key);
+    setSliderStart(startIdx >= 0 ? startIdx : 0);
+    setSliderEnd(endIdx >= 0 ? endIdx : extendedChartState.points.length - 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartState.points.length]);
+
+  const isExternalSlider = typeof onExternalSliderChange === "function";
+  const effectiveSliderStart = isExternalSlider && externalSliderStart != null ? externalSliderStart : sliderStart;
+  const effectiveSliderEnd = isExternalSlider && externalSliderEnd != null ? externalSliderEnd : sliderEnd;
 
   const activePoint = hoverSnapshot?.point || chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
@@ -9293,25 +9495,32 @@ function HedgePolicyChart({
   const nativeChart = (() => {
     const width = 1000;
     const height = 360;
-    const plot = { left: 64, right: 24, top: 24, bottom: 32 };
+    const plot = { left: 8, right: 8, top: 16, bottom: 32 };
     const plotWidth = width - plot.left - plot.right;
     const plotHeight = height - plot.top - plot.bottom;
-    const points = chartState.points || [];
+    const allPoints = extendedChartState.points || [];
+    const rangeStart = effectiveSliderStart;
+    const rangeEnd = effectiveSliderEnd !== null ? Math.min(effectiveSliderEnd, Math.max(0, allPoints.length - 1)) : Math.max(0, allPoints.length - 1);
+    const points = allPoints.slice(rangeStart, rangeEnd + 1);
+    const sd = (arr) => (arr || []).slice(rangeStart, rangeEnd + 1);
+    // Offset of original data within extended points (for todayIndex mapping)
+    const dataOffset = allPoints.findIndex((p) => p.key === (chartState.points[0]?.key));
+    const extTodayIndex = dataOffset >= 0 ? dataOffset + todayIndex : todayIndex;
     const values = [
-      ...chartState.minDataset,
-      ...chartState.maxDataset,
-      ...chartState.derivativeDataset,
-      ...chartState.physicalDataset,
-      ...chartState.comparisonDataset,
-      ...chartState.totalDataset,
+      ...sd(extendedChartState.minDataset),
+      ...sd(extendedChartState.maxDataset),
+      ...sd(extendedChartState.derivativeDataset),
+      ...sd(extendedChartState.physicalDataset),
+      ...sd(extendedChartState.comparisonDataset),
+      ...sd(extendedChartState.totalDataset),
     ].filter((value) => Number.isFinite(Number(value)));
     const yMax = Math.max(1, ...values, Number(baseValue || 0));
     const scaleMax = yMax * 1.08;
     const xForIndex = (index) => plot.left + (plotWidth * index) / Math.max(points.length - 1, 1);
     const xForDate = (value) => {
       const date = startOfDashboardDay(value);
-      const domainStart = startOfDashboardDay(chartState.domainStart || points[0]?.date);
-      const domainEnd = startOfDashboardDay(chartState.domainEnd || points.at(-1)?.date);
+      const domainStart = startOfDashboardDay(points[0]?.date);
+      const domainEnd = startOfDashboardDay(points.at(-1)?.date);
       if (!date || !domainStart || !domainEnd) return null;
       const startTime = domainStart.getTime();
       const endTime = domainEnd.getTime();
@@ -9359,11 +9568,13 @@ function HedgePolicyChart({
     const tickValues = [0, scaleMax * 0.25, scaleMax * 0.5, scaleMax * 0.75, scaleMax];
     const labelEvery = Math.max(1, Math.ceil(points.length / 7));
     const dataLabelEvery = points.length <= 18 ? 1 : Math.max(1, Math.ceil(points.length / 12));
-    const hoverIndex = hoverSnapshot?.index ?? activeIndex;
-    const hoverX = Number.isInteger(hoverIndex) && points[hoverIndex] ? xForIndex(hoverIndex) : null;
-    const todayX = points[todayIndex] ? xForIndex(todayIndex) : null;
-    const derivativeAreaPath = buildAreaPath(chartState.derivativeDataset);
-    const hasDerivativeArea = chartState.derivativeDataset.some((value) => Number(value || 0) > 0);
+    const globalHoverExtIndex = hoverSnapshot?.extendedIndex ?? extTodayIndex;
+    const localHoverIndex = globalHoverExtIndex - rangeStart;
+    const hoverX = Number.isInteger(localHoverIndex) && localHoverIndex >= 0 && localHoverIndex < points.length ? xForIndex(localHoverIndex) : null;
+    const localTodayIndex = extTodayIndex - rangeStart;
+    const todayX = localTodayIndex >= 0 && localTodayIndex < points.length ? xForIndex(localTodayIndex) : null;
+    const derivativeAreaPath = buildAreaPath(sd(extendedChartState.derivativeDataset));
+    const hasDerivativeArea = sd(extendedChartState.derivativeDataset).some((value) => Number(value || 0) > 0);
     const xAxisLabels = points
       .map((point, index) => {
         const shouldShowLabel = index === 0 || index === points.length - 1 || index % labelEvery === 0;
@@ -9384,14 +9595,14 @@ function HedgePolicyChart({
           label: "Hoje",
         }
       : null;
-    const totalDataLabels = chartState.totalDataset
+    const totalDataLabels = sd(extendedChartState.totalDataset)
       .map((value, index) => {
         const numericValue = Number(value);
         const shouldShow =
           Number(baseValue || 0) > 0 &&
           Number.isFinite(numericValue) &&
           numericValue > 0 &&
-          (index === points.length - 1 || index === todayIndex || index % dataLabelEvery === 0);
+          (index === points.length - 1 || index === localTodayIndex || index % dataLabelEvery === 0);
         if (!shouldShow) return null;
         const x = Math.min(Math.max(xForIndex(index), plot.left + 10), width - plot.right - 10);
         const lineY = yForValue(numericValue);
@@ -9440,31 +9651,36 @@ function HedgePolicyChart({
       cropDateMarkers,
       hoverX,
       todayX,
-      minPath: buildLinePath(chartState.minDataset),
-      maxPath: buildLinePath(chartState.maxDataset),
+      minPath: buildLinePath(sd(extendedChartState.minDataset)),
+      maxPath: buildLinePath(sd(extendedChartState.maxDataset)),
       derivativeAreaPath,
       derivativeBorderPath: hasDerivativeArea ? derivativeAreaPath : "",
-      physicalAreaPath: buildBetweenAreaPath(chartState.physicalDataset, chartState.derivativeDataset),
-      policyBandPath: buildBetweenAreaPath(chartState.maxDataset, chartState.minDataset),
-      comparisonPath: buildLinePath(chartState.comparisonDataset),
-      totalPath: buildLinePath(chartState.totalDataset),
+      physicalAreaPath: buildBetweenAreaPath(sd(extendedChartState.physicalDataset), sd(extendedChartState.derivativeDataset)),
+      policyBandPath: buildBetweenAreaPath(sd(extendedChartState.maxDataset), sd(extendedChartState.minDataset)),
+      comparisonPath: buildLinePath(sd(extendedChartState.comparisonDataset)),
+      totalPath: buildLinePath(sd(extendedChartState.totalDataset)),
     };
   })();
 
   const handleNativeChartPoint = useCallback(
-    (index) => {
-      const point = chartState.points[index];
-      if (!point) return;
-      const x = nativeChart.xForIndex(index);
+    (localIndex) => {
+      const extendedIndex = localIndex + effectiveSliderStart;
+      const extPoint = extendedChartState.points[extendedIndex];
+      if (!extPoint) return;
+      const x = nativeChart.xForIndex(localIndex);
+      const origIndex = chartState.points.findIndex((p) => p.key === extPoint.key);
       setHoverSnapshot({
-        index,
-        point,
+        extendedIndex,
+        index: origIndex >= 0 ? origIndex : 0,
+        point: origIndex >= 0 ? chartState.points[origIndex] : extPoint,
         x,
-        label: point?.date ? formatHedgeTitleDate(point.date) : null,
+        label: extPoint?.date ? formatHedgeTitleDate(extPoint.date) : null,
       });
-      updateActiveIndex(index);
+      if (origIndex >= 0) {
+        updateActiveIndex(origIndex);
+      }
     },
-    [chartState.points, nativeChart, updateActiveIndex],
+    [chartState.points, extendedChartState.points, nativeChart, updateActiveIndex, effectiveSliderStart],
   );
 
   const clearNativeChartHover = useCallback(() => {
@@ -9475,7 +9691,7 @@ function HedgePolicyChart({
   return (
     <article className={`hedge-chart-card${showFloatingCard && activePoint ? " has-floating-card" : " is-chart-fill"}`}>
       <div className="hedge-chart-card-header">
-        <h2>{title}</h2>
+        {titleControl || <h2>{title}</h2>}
         <div className="hedge-chart-actions">
           {extraActions}
           {insightMessage ? (
@@ -9545,9 +9761,6 @@ function HedgePolicyChart({
               return (
                 <g key={`${tick}-${index}`}>
                   <line x1={nativeChart.plot.left} x2={nativeChart.width - nativeChart.plot.right} y1={y} y2={y} className="hedge-chart-svg-grid" />
-                  <text x={nativeChart.plot.left - 10} y={y + 4} textAnchor="end" className="hedge-chart-svg-axis">
-                    {formatHedgeAxisValue(tick, unit)}
-                  </text>
                 </g>
               );
             })}
@@ -9555,8 +9768,6 @@ function HedgePolicyChart({
             {nativeChart.derivativeAreaPath ? <path d={nativeChart.derivativeAreaPath} className="hedge-chart-svg-derivative-area" /> : null}
             {nativeChart.physicalAreaPath ? <path d={nativeChart.physicalAreaPath} className="hedge-chart-svg-physical-area" /> : null}
             {nativeChart.derivativeBorderPath ? <path d={nativeChart.derivativeBorderPath} className="hedge-chart-svg-derivative-border" /> : null}
-            {nativeChart.minPath ? <path d={nativeChart.minPath} className="hedge-chart-svg-policy-line" /> : null}
-            {nativeChart.maxPath ? <path d={nativeChart.maxPath} className="hedge-chart-svg-policy-line" /> : null}
             {nativeChart.comparisonPath ? <path d={nativeChart.comparisonPath} className="hedge-chart-svg-comparison-line" /> : null}
             {nativeChart.totalPath ? <path d={nativeChart.totalPath} className="hedge-chart-svg-total-line" /> : null}
             {nativeChart.cropDateMarkers.map((marker) => (
@@ -9653,6 +9864,47 @@ function HedgePolicyChart({
         )}
       </div>
 
+      {!isExternalSlider && extendedChartState.points.length > 2 ? (() => {
+        const totalCount = extendedChartState.points.length;
+        const effEnd = effectiveSliderEnd ?? totalCount - 1;
+        const startPct = (effectiveSliderStart / Math.max(totalCount - 1, 1)) * 100;
+        const endPct = (effEnd / Math.max(totalCount - 1, 1)) * 100;
+        return (
+          <div className="hedge-slider-wrap">
+            <div className="hedge-slider-dates">
+              <span>{extendedChartState.points[effectiveSliderStart]?.label || ""}</span>
+              <span>{extendedChartState.points[effEnd]?.label || ""}</span>
+            </div>
+            <div className="hedge-slider-track">
+              <div className="hedge-slider-track-bg" />
+              <div className="hedge-slider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
+              <input
+                type="range"
+                className="hedge-slider-input"
+                min={0}
+                max={totalCount - 1}
+                value={effectiveSliderStart}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v < effEnd) setSliderStart(v);
+                }}
+              />
+              <input
+                type="range"
+                className="hedge-slider-input"
+                min={0}
+                max={totalCount - 1}
+                value={effEnd}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (v > effectiveSliderStart) setSliderEnd(v);
+                }}
+              />
+            </div>
+          </div>
+        );
+      })() : null}
+
       <div className="hedge-legend">
         <button
           type="button"
@@ -9670,6 +9922,10 @@ function HedgePolicyChart({
           <span className="hedge-legend-swatch fisico" />
           Vendas via Fisico
         </button>
+        <span className="hedge-legend-item">
+          <span className="hedge-legend-swatch" style={{ background: "rgba(22, 163, 74, 0.24)", border: "1.5px solid rgba(22, 163, 74, 0.6)" }} />
+          Politica de Hedge
+        </span>
         {comparisonSeriesName ? (
           <span className="hedge-legend-item">
             <span className="hedge-legend-swatch" style={{ background: "#2563eb" }} />
@@ -10208,6 +10464,34 @@ function HedgePolicyDashboard({ dashboardFilter }) {
   const costTodayIndex = useMemo(() => getHedgeTodayIndex(costChartState.points), [costChartState.points]);
   const productionTodayIndex = useMemo(() => getHedgeTodayIndex(productionChartState.points), [productionChartState.points]);
 
+  // Slider compartilhado entre os dois gráficos
+  const [sharedSliderStart, setSharedSliderStart] = useState(0);
+  const [sharedSliderEnd, setSharedSliderEnd] = useState(null);
+  const sharedExtendedPoints = useMemo(() => {
+    const state = productionChartState;
+    if (!state.points.length) return state.points;
+    const firstDate = state.domainStart || state.points[0]?.date;
+    const lastDate = state.domainEnd || state.points.at(-1)?.date;
+    if (!firstDate || !lastDate) return state.points;
+    const twoYearsMs = 2 * 365.25 * 24 * 3600 * 1000;
+    const extStart = new Date(firstDate.getTime() - twoYearsMs);
+    const extEnd = new Date(lastDate.getTime() + twoYearsMs);
+    return buildHedgeBuckets(extStart, extEnd, frequency);
+  }, [productionChartState, frequency]);
+  useEffect(() => {
+    if (!sharedExtendedPoints.length || !productionChartState.points.length) {
+      setSharedSliderStart(0);
+      setSharedSliderEnd(null);
+      return;
+    }
+    const keys = sharedExtendedPoints.map((p) => p.key);
+    const startIdx = keys.indexOf(productionChartState.points[0]?.key);
+    const endIdx = keys.lastIndexOf(productionChartState.points.at(-1)?.key);
+    setSharedSliderStart(startIdx >= 0 ? startIdx : 0);
+    setSharedSliderEnd(endIdx >= 0 ? endIdx : sharedExtendedPoints.length - 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productionChartState.points.length, sharedExtendedPoints.length]);
+
   useEffect(() => {
     setCostActiveIndex(costTodayIndex);
   }, [costTodayIndex]);
@@ -10502,6 +10786,9 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         />
       }
       precomputedChartState={costChartState}
+      externalSliderStart={sharedSliderStart}
+      externalSliderEnd={sharedSliderEnd}
+      onExternalSliderChange={(s, e) => { setSharedSliderStart(s); setSharedSliderEnd(e); }}
     />
   );
 
@@ -10536,8 +10823,52 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         />
       }
       precomputedChartState={productionChartState}
+      externalSliderStart={sharedSliderStart}
+      externalSliderEnd={sharedSliderEnd}
+      onExternalSliderChange={(s, e) => { setSharedSliderStart(s); setSharedSliderEnd(e); }}
     />
   );
+
+  const sharedSliderNode = sharedExtendedPoints.length > 2 ? (() => {
+    const totalCount = sharedExtendedPoints.length;
+    const effEnd = sharedSliderEnd ?? totalCount - 1;
+    const startPct = (sharedSliderStart / Math.max(totalCount - 1, 1)) * 100;
+    const endPct = (effEnd / Math.max(totalCount - 1, 1)) * 100;
+    return (
+      <div className="hedge-shared-slider">
+        <div className="hedge-slider-dates">
+          <span>{sharedExtendedPoints[sharedSliderStart]?.label || ""}</span>
+          <span>{sharedExtendedPoints[effEnd]?.label || ""}</span>
+        </div>
+        <div className="hedge-slider-track">
+          <div className="hedge-slider-track-bg" />
+          <div className="hedge-slider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
+          <input
+            type="range"
+            className="hedge-slider-input"
+            min={0}
+            max={totalCount - 1}
+            value={sharedSliderStart}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (v < effEnd) setSharedSliderStart(v);
+            }}
+          />
+          <input
+            type="range"
+            className="hedge-slider-input"
+            min={0}
+            max={totalCount - 1}
+            value={effEnd}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (v > sharedSliderStart) setSharedSliderEnd(v);
+            }}
+          />
+        </div>
+      </div>
+    );
+  })() : null;
 
   const resetSimulation = () => {
     setSimulationVolume("");
@@ -10594,6 +10925,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
           </div>
         </div>
       ) : null}
+      {!focusedChart ? sharedSliderNode : null}
       <section className={`hedge-dashboard-grid${focusedChart ? " single-visible" : ""}`}>
         {!focusedChart ? costChartNode : null}
         {!focusedChart ? (productionChartMounted ? productionChartNode : <HedgePolicyChartPlaceholder title="Gráfico 2 — Hedge produção liquida (sc)" />) : null}

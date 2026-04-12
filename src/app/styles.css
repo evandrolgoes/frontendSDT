@@ -4357,6 +4357,20 @@ textarea {
 
 .risk-kpi-hedge-chart-col > * {
   flex: 1;
+  min-height: 0;
+}
+
+.risk-kpi-hedge-chart-col > .hedge-chart-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.risk-kpi-hedge-chart-col > .hedge-chart-card .hedge-chart-wrap {
+  flex: 1;
+  height: auto;
+  min-height: 120px;
 }
 
 .risk-kpi-hedge-cards-col {
@@ -4378,6 +4392,18 @@ textarea {
   max-height: none;
   height: auto;
   min-height: 0;
+}
+
+.risk-kpi-shell--summary {
+  --risk-kpi-equal-card-height: var(--risk-kpi-summary-card-height, 164px);
+}
+
+.risk-kpi-shell--summary .risk-kpi-grid-three > .hedge-culture-chart-card,
+.risk-kpi-shell--summary .risk-kpi-hedge-cards-col .risk-kpi-gauge-card,
+.risk-kpi-shell--summary .risk-kpi-hedge-cards-col .risk-kpi-distribution-card {
+  min-height: var(--risk-kpi-equal-card-height);
+  height: var(--risk-kpi-equal-card-height);
+  max-height: var(--risk-kpi-equal-card-height);
 }
 
 .risk-kpi-long-short-grid {
@@ -5739,7 +5765,7 @@ textarea {
 .hedge-chart-card {
   display: grid;
   gap: 4px;
-  padding: 8px 10px 8px;
+  padding: 8px 4px 8px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 24px;
@@ -5759,6 +5785,23 @@ textarea {
   margin: 0;
   font-size: 0.86rem;
   line-height: 1.05;
+}
+
+.hedge-chart-title-select {
+  margin: 0;
+  max-width: min(100%, 520px);
+  min-width: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 5px 34px 5px 10px;
+  background: #fff;
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: 0;
+  cursor: pointer;
 }
 
 .hedge-chart-actions {
@@ -5818,7 +5861,7 @@ textarea {
 }
 
 .hedge-chart-svg-policy-band {
-  fill: rgba(34, 197, 94, 0.14);
+  fill: rgba(22, 163, 74, 0.24);
 }
 
 .hedge-chart-svg-policy-line {
@@ -6179,6 +6222,92 @@ textarea {
 
 .hedge-legend-swatch.fisico {
   background: rgba(250, 204, 21, 0.22);
+}
+
+.hedge-slider-wrap {
+  padding: 2px 8px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hedge-slider-dates {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: #64748b;
+  font-weight: 600;
+  user-select: none;
+}
+
+.hedge-slider-track {
+  position: relative;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.hedge-slider-track-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.hedge-slider-fill {
+  position: absolute;
+  height: 4px;
+  background: rgba(22, 163, 74, 0.45);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.hedge-slider-input {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  background: transparent;
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: none;
+}
+
+.hedge-slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #16a34a;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  pointer-events: all;
+}
+
+.hedge-slider-input::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #16a34a;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  pointer-events: all;
+  border: none;
+}
+
+.hedge-shared-slider {
+  width: 100%;
+  padding: 6px 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .hedge-detail-backdrop {
