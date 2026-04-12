@@ -903,9 +903,188 @@ function MarketNewsPreviewModal({ post, attachments, attachmentsLoading, onClose
   );
 }
 
-function UpcomingMaturitiesCard({ rows, onOpenItem }) {
-  const [expanded, setExpanded] = useState(false);
+const MATURITY_APP_COLORS = {
+  "Derivativos": "#2563eb",
+  "Vendas Fisico": "#0f766e",
+  "Empréstimos": "#dc2626",
+  "Pgtos Fisico": "#ea580c",
+};
 
+// Parse Brazilian-formatted value label back to number:
+// "+ U$ 6.125,00" → 6125 | "- R$ 3.000,00" → -3000 | "R$ 9.000.000,00" → 9000000
+const parseMaturityValueLabel = (label = "") => {
+  if (!label || label === "—") return 0;
+  const hasMinus = label.trimStart().startsWith("-");
+  const numStr = label
+    .replace(/[+\-]/g, "")
+    .replace(/[^0-9,.]/g, "")
+    .trim();
+  if (!numStr) return 0;
+  const normalized = numStr.replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(normalized);
+  return Number.isFinite(n) ? (hasMinus ? -n : n) : 0;
+};
+
+function UpcomingMaturitiesCard({ rows, onOpenItem, usdBrlRate = 0 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [hoveredDate, setHoveredDate] = useState(null);
+  const [hoveredItemKey, setHoveredItemKey] = useState(null);
+  const [currencyMode, setCurrencyMode] = useState("original"); // "original" | "brl"
+  const echartsRef = useRef(null);
+
+  const dates = useMemo(
+    () => [...new Set(rows.map((r) => r.dateText))].sort((a, b) => {
+      const parse = (d) => d.split("/").reverse().join("-");
+      return parse(a) < parse(b) ? -1 : 1;
+    }),
+    [rows],
+  );
+
+  const apps = useMemo(() => [...new Set(rows.map((r) => r.app))], [rows]);
+
+  // Converte valor numérico de uma row para a moeda selecionada
+  const resolveChartValue = useCallback((rawValue, valueLabel) => {
+    if (currencyMode === "brl") {
+      const isUsd = String(valueLabel || "").includes("U$");
+      return isUsd && usdBrlRate > 0 ? rawValue * usdBrlRate : rawValue;
+    }
+    return rawValue;
+  }, [currencyMode, usdBrlRate]);
+
+  const fmtChartValue = useCallback((v) => {
+    const n = Number(v || 0);
+    const abs = Math.abs(n);
+    const sign = n < 0 ? "−" : "+";
+    const symbol = currencyMode === "brl" ? "R$" : "";
+    if (abs >= 1_000_000) return `${sign} ${symbol} ${(abs / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`.trim();
+    if (abs >= 1_000) return `${sign} ${symbol} ${(abs / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} mil`.trim();
+    if (abs > 0) return `${sign} ${symbol} ${abs.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`.trim();
+    return `${symbol} 0`.trim();
+  }, [currencyMode]);
+
+  const chartOption = useMemo(() => {
+    if (!expanded || !rows.length) return null;
+
+    const appColorFallbacks = Object.values(MATURITY_APP_COLORS);
+    const yAxisLabel = currencyMode === "brl" ? "R$" : "";
+
+    return {
+      animationDuration: 220,
+      grid: { left: 8, right: 8, top: 36, bottom: 48, containLabel: true },
+      tooltip: {
+        trigger: "item",
+        backgroundColor: "#1e293b",
+        borderColor: "transparent",
+        padding: [10, 14],
+        textStyle: { color: "#f1f5f9", fontSize: 13 },
+        formatter: (params) => {
+          const row = rows.find((r) => r.dateText === params.name && r.app === params.seriesName);
+          const displayVal = currencyMode === "brl"
+            ? fmtChartValue(params.value)
+            : (row?.valueLabel || fmtChartValue(params.value));
+          const name = row?.summaryLabel || row?.title || "";
+          return [
+            `${params.marker} <b>${params.seriesName}</b>`,
+            `<span style="color:#94a3b8;font-size:11px">${params.name}</span>`,
+            name ? `<span style="color:#cbd5e1">${name}</span>` : "",
+            `<b style="font-size:14px">${displayVal}</b>`,
+          ].filter(Boolean).join("<br/>");
+        },
+      },
+      legend: {
+        show: true,
+        top: 6,
+        left: "center",
+        itemWidth: 14,
+        itemHeight: 10,
+        itemGap: 20,
+        textStyle: { color: "#334155", fontSize: 12, fontWeight: 700 },
+      },
+      xAxis: {
+        type: "category",
+        data: dates,
+        axisTick: { show: false },
+        axisLabel: {
+          color: "#64748b",
+          fontWeight: 600,
+          fontSize: 11,
+          rotate: dates.length > 8 ? 35 : 0,
+          interval: 0,
+          margin: 12,
+        },
+        axisLine: { lineStyle: { color: "rgba(148,163,184,0.2)" } },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: {
+          color: "#94a3b8",
+          fontSize: 11,
+          fontWeight: 600,
+          formatter: (v) => {
+            const abs = Math.abs(v);
+            const sign = v < 0 ? "−" : "";
+            const sym = yAxisLabel ? `${yAxisLabel} ` : "";
+            if (abs >= 1_000_000) return `${sign}${sym}${(abs / 1_000_000).toFixed(1)} mi`;
+            if (abs >= 1_000) return `${sign}${sym}${(abs / 1_000).toFixed(0)} mil`;
+            return v === 0 ? `${sym}0` : `${sign}${sym}${Math.abs(v).toFixed(0)}`;
+          },
+        },
+        splitLine: { lineStyle: { color: "rgba(148,163,184,0.12)", type: "dashed" } },
+        axisLine: { show: false },
+        axisTick: { show: false },
+      },
+      series: apps.map((app, i) => {
+        const color = MATURITY_APP_COLORS[app] || appColorFallbacks[i % appColorFallbacks.length];
+        return {
+          name: app,
+          type: "bar",
+          barMaxWidth: 40,
+          barGap: "10%",
+          barCategoryGap: "38%",
+          itemStyle: { color, borderRadius: [4, 4, 0, 0] },
+          emphasis: { itemStyle: { opacity: 0.8, shadowBlur: 8, shadowColor: `${color}55` } },
+          label: { show: false },
+          data: dates.map((date) => {
+            const item = rows.find((r) => r.dateText === date && r.app === app);
+            if (!item) return 0;
+            const raw = parseMaturityValueLabel(item.valueLabel);
+            return resolveChartValue(raw, item.valueLabel);
+          }),
+        };
+      }),
+    };
+  }, [expanded, rows, dates, apps, currencyMode, usdBrlRate, fmtChartValue, resolveChartValue]);
+
+  const chartEvents = useMemo(() => ({
+    mouseover: (params) => {
+      if (params.componentType === "series") {
+        setHoveredDate(params.name);
+        setHoveredItemKey(null); // hover vem do gráfico, destaca por data na lista
+      }
+    },
+    mouseout: () => { setHoveredDate(null); setHoveredItemKey(null); },
+    globalout: () => { setHoveredDate(null); setHoveredItemKey(null); },
+  }), []);
+
+  const handleListMouseEnter = useCallback((dateText, app, itemKey) => {
+    setHoveredDate(dateText);
+    setHoveredItemKey(itemKey);
+    const instance = echartsRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    const seriesIndex = apps.indexOf(app);
+    const dataIndex = dates.indexOf(dateText);
+    if (seriesIndex >= 0 && dataIndex >= 0) {
+      instance.dispatchAction({ type: "showTip", seriesIndex, dataIndex });
+    }
+  }, [apps, dates]);
+
+  const handleListMouseLeave = useCallback(() => {
+    setHoveredDate(null);
+    setHoveredItemKey(null);
+    echartsRef.current?.getEchartsInstance?.()?.dispatchAction({ type: "hideTip" });
+  }, []);
+
+  // Card list (compact, shown inside the card)
   const maturityList = (
     <div className="risk-kpi-maturity-list">
       {rows.length ? (
@@ -915,11 +1094,7 @@ function UpcomingMaturitiesCard({ rows, onOpenItem }) {
             key={`${item.app}-${item.dateKey}-${index}`}
             role="button"
             tabIndex={0}
-            onClick={() => {
-              if (item.recordId && onOpenItem) {
-                onOpenItem(item);
-              }
-            }}
+            onClick={() => { if (item.recordId && onOpenItem) onOpenItem(item); }}
             onKeyDown={(event) => {
               if ((event.key === "Enter" || event.key === " ") && item.recordId && onOpenItem) {
                 event.preventDefault();
@@ -964,19 +1139,99 @@ function UpcomingMaturitiesCard({ rows, onOpenItem }) {
         <h2 className="stat-card-primary-title risk-kpi-card-title">Próximos vencimentos</h2>
         {maturityList}
       </article>
+
       {expanded ? (
         <div className="hedge-culture-modal-backdrop" onClick={() => setExpanded(false)}>
-          <div className="hedge-culture-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="hedge-culture-modal maturity-expanded-modal" onClick={(e) => e.stopPropagation()}>
             <div className="hedge-culture-modal-header">
-              <h2>Próximos vencimentos</h2>
+              <div className="maturity-expanded-modal-title">
+                <h2>Próximos vencimentos</h2>
+                <span className="maturity-expanded-modal-badge">{rows.length} item{rows.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="maturity-expanded-modal-controls">
+                <select
+                  className="maturity-currency-select"
+                  value={currencyMode}
+                  onChange={(e) => setCurrencyMode(e.target.value)}
+                >
+                  <option value="original">Moeda original</option>
+                  <option value="brl">Converter tudo para R${usdBrlRate > 0 ? ` (USDBRL ${usdBrlRate.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })})` : ""}</option>
+                </select>
+              </div>
               <button type="button" className="hedge-culture-modal-close" onClick={() => setExpanded(false)} aria-label="Fechar">
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                   <path d="M18 6 6 18M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="hedge-culture-modal-body maturity-modal-body">
-              {maturityList}
+
+            <div className="maturity-expanded-body">
+              {/* Chart panel */}
+              <div className="maturity-expanded-chart-panel">
+                <div className="maturity-expanded-chart-head">
+                  <div>
+                    <h3>Valor por data de vencimento</h3>
+                    <p>Barras por tipo · passe o mouse para destacar na lista</p>
+                  </div>
+                </div>
+                {chartOption ? (
+                  <div className="maturity-expanded-chart-wrap">
+                    <ReactECharts
+                      ref={echartsRef}
+                      option={chartOption}
+                      style={{ height: "100%", width: "100%" }}
+                      opts={{ renderer: "svg" }}
+                      onEvents={chartEvents}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              {/* List panel */}
+              <div className="maturity-expanded-list-panel">
+                <div className="maturity-expanded-list-head">
+                  <span>Detalhes</span>
+                  <span>{rows.length} vencimento{rows.length !== 1 ? "s" : ""}</span>
+                </div>
+                <div className="maturity-expanded-list">
+                  {rows.map((item, index) => {
+                    const appColor = MATURITY_APP_COLORS[item.app] || "#94a3b8";
+                    const itemKey = `${item.app}-${item.dateKey}-${index}`;
+                    // hover da lista → só o item exato; hover do gráfico → todos da mesma data
+                    const isHl = hoveredItemKey ? hoveredItemKey === itemKey : hoveredDate === item.dateText;
+                    return (
+                      <div
+                        key={itemKey}
+                        className={`maturity-expanded-item${isHl ? " is-highlighted" : ""}`}
+                        role="button"
+                        tabIndex={0}
+                        onMouseEnter={() => handleListMouseEnter(item.dateText, item.app, itemKey)}
+                        onMouseLeave={handleListMouseLeave}
+                        onClick={() => { if (item.recordId && onOpenItem) onOpenItem(item); }}
+                        onKeyDown={(e) => {
+                          if ((e.key === "Enter" || e.key === " ") && item.recordId && onOpenItem) {
+                            e.preventDefault(); onOpenItem(item);
+                          }
+                        }}
+                      >
+                        <div className="maturity-expanded-item-accent" style={{ background: appColor }} />
+                        <div className="maturity-expanded-item-body">
+                          <div className="maturity-expanded-item-top">
+                            <span className="maturity-expanded-item-date">{item.dateText}</span>
+                            <span className="maturity-expanded-item-app" style={{ color: appColor }}>{item.app}</span>
+                          </div>
+                          <div className="maturity-expanded-item-name">{item.summaryLabel || item.title}</div>
+                        </div>
+                        <b className={`maturity-expanded-item-value${item.valueColor === "positive" ? " is-positive" : item.valueColor === "negative" ? " is-negative" : ""}`}>
+                          {currencyMode === "brl" && String(item.valueLabel || "").includes("U$") && usdBrlRate > 0
+                            ? fmtChartValue(resolveChartValue(parseMaturityValueLabel(item.valueLabel), item.valueLabel))
+                            : item.valueLabel}
+                        </b>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -6469,14 +6724,6 @@ function CommercialRiskAnalyticsSkeleton() {
         </article>
       </section>
 
-      <section className="risk-kpi-derivative-donuts">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <article key={`risk-donut-skeleton-${index}`} className="chart-card risk-kpi-skeleton-card risk-kpi-skeleton-donut-card">
-            <div className="risk-kpi-skeleton-donut" />
-            <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
-          </article>
-        ))}
-      </section>
     </>
   );
 }
@@ -7592,7 +7839,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
                 {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
               </strong>
             </article>
-            <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} />
+            <UpcomingMaturitiesCard rows={upcomingMaturityRows} onOpenItem={openMaturityForm} usdBrlRate={getUsdBrlQuoteValue(marketQuotes)} />
           </>
         ) : (
           Array.from({ length: 3 }).map((_, index) => (
@@ -7624,58 +7871,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
               referenceDate={hedgeSummaryReferenceDate}
               onOpenDetailTable={openCommercialRiskLongShortDetail}
             />
-          </section>
-
-          <section className="risk-kpi-derivative-donuts">
-            <DonutChart
-              centerLabel="Derivativos"
-              centerValue={`${derivativeStatusCounts.total} ops`}
-              slices={derivativeExchangeSlices}
-              onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "all")}
-              insightTitle="Distribuição de derivativos"
-              insightMessage={
-                <SummaryInsightCopy
-                  paragraphs={[
-                    `O número central de ${derivativeStatusCounts.total} ops representa a quantidade total de operações em derivativos dentro do filtro atual.`,
-                    "Cada fatia mostra quantas operações pertencem a cada grupo da distribuição. Quanto maior a fatia, maior a participação daquele grupo no total exibido.",
-                  ]}
-                />
-              }
-            />
-            <DonutChart
-              centerLabel="Em aberto"
-              centerValue={`${derivativeStatusCounts.open} ops`}
-              slices={derivativeExchangeOpenSlices}
-              onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "open")}
-              insightTitle="Derivativos em aberto"
-              insightMessage={
-                <SummaryInsightCopy
-                  paragraphs={[
-                    `O número central de ${derivativeStatusCounts.open} ops mostra apenas as operações ainda em aberto, ou seja, posições que continuam ativas.`,
-                    "As fatias indicam como essas posições ativas estão distribuídas entre os grupos do card, ajudando a enxergar onde o risco ainda está concentrado.",
-                  ]}
-                />
-              }
-            />
-            <DonutChart
-              centerLabel="Encerrado"
-              centerValue={`${derivativeStatusCounts.closed} ops`}
-              slices={derivativeExchangeClosedSlices}
-              onSliceClick={(sliceLabel) => openDerivativeExchangeDetail(sliceLabel, "closed")}
-              insightTitle="Derivativos encerrados"
-              insightMessage={
-                <SummaryInsightCopy
-                  paragraphs={[
-                    `O número central de ${derivativeStatusCounts.closed} ops representa as operações já encerradas dentro do recorte atual.`,
-                    "As fatias mostram como os encerramentos se distribuem entre os grupos do card, permitindo comparar o histórico concluído com as posições ainda abertas.",
-                  ]}
-                />
-              }
-            />
-          </section>
-
-          <section className="risk-kpi-executive-grid">
-            <CommercialRiskNewsSummaryCard rows={marketNewsPosts} onOpen={openBlogNewsPage} onOpenPost={openMarketNewsPreview} />
           </section>
 
         </>
@@ -14831,50 +15026,6 @@ function MtmDashboard({ dashboardFilter }) {
     });
   }, []);
 
-  const createMiniHorizontalBarOption = useCallback(
-    ({ rows, color = "#2563eb", valueFormatter = formatMtmCompactLabel, minValue = null }) => ({
-      animationDuration: 180,
-      grid: { left: 92, right: 14, top: 14, bottom: 14 },
-      tooltip: {
-        trigger: "axis",
-        axisPointer: { type: "shadow" },
-        formatter: (params) =>
-          params
-            .map((item) => `${item.marker}${item.name}: ${valueFormatter(item.value)}`)
-            .join("<br/>"),
-      },
-      xAxis: {
-        type: "value",
-        min: minValue,
-        axisLabel: { show: false },
-        splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-      },
-      yAxis: {
-        type: "category",
-        data: rows.map((item) => item.label),
-        axisTick: { show: false },
-        axisLine: { show: false },
-        axisLabel: { color: "#334155", fontWeight: 700, formatter: (value) => String(value).slice(0, 18) },
-      },
-      series: [
-        {
-          type: "bar",
-          barMaxWidth: 18,
-          itemStyle: { color, borderRadius: CHART_BAR_RADIUS },
-          label: {
-            show: true,
-            position: ({ value }) => (Number(value || 0) >= 0 ? "insideRight" : "insideLeft"),
-            color: "#ffffff",
-            fontWeight: 800,
-            formatter: ({ value }) => (Math.abs(Number(value || 0)) > 0 ? valueFormatter(value) : ""),
-          },
-          data: rows.map((item) => item.value),
-        },
-      ],
-    }),
-    [],
-  );
-
   const createMiniVerticalBarOption = useCallback(
     ({ rows, color = "#2563eb", valueFormatter = (value) => formatNumber0(value) }) => ({
       animationDuration: 180,
@@ -15034,21 +15185,6 @@ function MtmDashboard({ dashboardFilter }) {
     [],
   );
 
-  const positionRows = useMemo(() => {
-    const map = new Map();
-    normalizedRows.forEach((item) => {
-      const label = item?.posicao ? String(item.posicao).trim() : "Sem posição";
-      const current = map.get(label) || { label, total: 0, netBrl: 0, volume: 0, open: 0, rows: [] };
-      current.total += 1;
-      current.netBrl += item.mtmBrl;
-      current.volume += item.standardVolume || item.rawVolume || 0;
-      current.rows.push(item);
-      if (item.statusLabel === "Em aberto") current.open += 1;
-      map.set(label, current);
-    });
-    return Array.from(map.values()).sort((left, right) => right.total - left.total);
-  }, [normalizedRows]);
-
   const contractRows = useMemo(() => {
     const map = new Map();
     normalizedRows.forEach((item) => {
@@ -15076,29 +15212,6 @@ function MtmDashboard({ dashboardFilter }) {
     [normalizedRows],
   );
 
-  const openExchangePressureRows = useMemo(() => {
-    const map = new Map();
-    openRowsInView.forEach((item) => {
-      const current = map.get(item.exchangeLabel) || { label: item.exchangeLabel, value: 0, rows: [] };
-      current.value += item.mtmBrl;
-      current.rows.push(item);
-      map.set(item.exchangeLabel, current);
-    });
-    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
-  }, [openRowsInView]);
-
-  const openTypeExposureRows = useMemo(() => {
-    const map = new Map();
-    openRowsInView.forEach((item) => {
-      const label = item.derivativeType || "Outros";
-      const current = map.get(label) || { label, value: 0, rows: [] };
-      current.value += item.standardVolume || item.rawVolume || 0;
-      current.rows.push(item);
-      map.set(label, current);
-    });
-    return Array.from(map.values()).sort((left, right) => right.value - left.value).slice(0, 6);
-  }, [openRowsInView]);
-
   const openSettlementBandRows = useMemo(() => {
     const bands = [
       { label: "0-7d", match: (value) => value != null && value >= 0 && value <= 7 },
@@ -15115,47 +15228,6 @@ function MtmDashboard({ dashboardFilter }) {
     });
   }, [openRowsInView]);
 
-  const openPositionNetRows = useMemo(() => {
-    const map = new Map();
-    openRowsInView.forEach((item) => {
-      const label = item?.posicao ? String(item.posicao).trim() : "Sem posição";
-      const current = map.get(label) || { label, value: 0, rows: [] };
-      current.value += item.mtmBrl;
-      current.rows.push(item);
-      map.set(label, current);
-    });
-    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
-  }, [openRowsInView]);
-
-  const openDirectionSlices = useMemo(() => ([
-    { name: "Positivas", value: openRowsInView.filter((item) => item.direction === "positive").length, itemStyle: { color: "#16a34a" } },
-    { name: "Negativas", value: openRowsInView.filter((item) => item.direction === "negative").length, itemStyle: { color: "#dc2626" } },
-    { name: "Neutras", value: openRowsInView.filter((item) => item.direction === "neutral").length, itemStyle: { color: "#94a3b8" } },
-  ]).filter((item) => item.value > 0), [openRowsInView]);
-
-  const closedExchangeResultRows = useMemo(() => {
-    const map = new Map();
-    closedRowsInView.forEach((item) => {
-      const current = map.get(item.exchangeLabel) || { label: item.exchangeLabel, value: 0, rows: [] };
-      current.value += item.mtmBrl;
-      current.rows.push(item);
-      map.set(item.exchangeLabel, current);
-    });
-    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
-  }, [closedRowsInView]);
-
-  const closedTypeResultRows = useMemo(() => {
-    const map = new Map();
-    closedRowsInView.forEach((item) => {
-      const label = item.derivativeType || "Outros";
-      const current = map.get(label) || { label, value: 0, rows: [] };
-      current.value += item.mtmBrl;
-      current.rows.push(item);
-      map.set(label, current);
-    });
-    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
-  }, [closedRowsInView]);
-
   const closedSettlementMonthRows = useMemo(() => {
     const map = new Map();
     closedRowsInView.forEach((item) => {
@@ -15167,18 +15239,6 @@ function MtmDashboard({ dashboardFilter }) {
       map.set(label, current);
     });
     return Array.from(map.values()).slice(-8);
-  }, [closedRowsInView]);
-
-  const closedPositionResultRows = useMemo(() => {
-    const map = new Map();
-    closedRowsInView.forEach((item) => {
-      const label = item?.posicao ? String(item.posicao).trim() : "Sem posição";
-      const current = map.get(label) || { label, value: 0, rows: [] };
-      current.value += item.mtmBrl;
-      current.rows.push(item);
-      map.set(label, current);
-    });
-    return Array.from(map.values()).sort((left, right) => Math.abs(right.value) - Math.abs(left.value)).slice(0, 6);
   }, [closedRowsInView]);
 
   const closedDirectionSlices = useMemo(() => ([
@@ -15276,27 +15336,6 @@ function MtmDashboard({ dashboardFilter }) {
         option: createMiniLineOption({
           rows: monthlySettlementRows,
           color: "#7c3aed",
-        }),
-      },
-      {
-        key: "price-exchange",
-        title: "Preço médio por bolsa",
-        subtitle: "Preço ponderado das vendas físicas.",
-        option: createMiniHorizontalBarOption({
-          rows: salesExchangeRows.slice(0, 6).map((item) => ({ label: item.label, value: item.priceAvg })),
-          color: "#0f766e",
-          valueFormatter: (value) => `R$ ${formatCurrency2(value)}`,
-          minValue: 0,
-        }),
-      },
-      {
-        key: "sales-volume-exchange",
-        title: "Volume vendido por bolsa",
-        subtitle: "Sacas físicas já precificadas por bolsa.",
-        option: createMiniVerticalBarOption({
-          rows: salesExchangeRows.slice(0, 6).map((item) => ({ label: item.label, value: item.volume })),
-          color: "#6366f1",
-          valueFormatter: formatNumber0,
         }),
       },
       {
@@ -15413,17 +15452,12 @@ function MtmDashboard({ dashboardFilter }) {
   }, [
     closedPositiveRows,
     contractRows,
-    createMiniHorizontalBarOption,
     createMiniLineOption,
-    createMiniVerticalBarOption,
-    derivativeTypeRows,
     exchangeRows,
     monthlyContractRows,
     monthlySettlementRows,
-    normalizedRows,
     openMtmRowsModal,
     openRiskRows,
-    positionRows,
     salesCultureRows,
     salesExchangeRows,
   ]);
@@ -16434,30 +16468,6 @@ function MtmDashboard({ dashboardFilter }) {
     [normalizedRows, openMtmRowsModal],
   );
 
-  const openExchangePressureEvents = useMemo(
-    () => ({
-      click: (params) => {
-        if (params.componentType !== "series") return;
-        const row = openExchangePressureRows.find((item) => item.label === params.name);
-        if (!row) return;
-        openMtmRowsModal(`Em aberto · ${row.label}`, row.rows);
-      },
-    }),
-    [openExchangePressureRows, openMtmRowsModal],
-  );
-
-  const openTypeExposureEvents = useMemo(
-    () => ({
-      click: (params) => {
-        if (params.componentType !== "series") return;
-        const row = openTypeExposureRows.find((item) => item.label === params.name);
-        if (!row) return;
-        openMtmRowsModal(`Em aberto · ${row.label}`, row.rows);
-      },
-    }),
-    [openMtmRowsModal, openTypeExposureRows],
-  );
-
   const openSettlementBandEvents = useMemo(
     () => ({
       click: (params) => {
@@ -16470,54 +16480,6 @@ function MtmDashboard({ dashboardFilter }) {
     [openMtmRowsModal, openSettlementBandRows],
   );
 
-  const openPositionNetEvents = useMemo(
-    () => ({
-      click: (params) => {
-        if (params.componentType !== "series") return;
-        const row = openPositionNetRows.find((item) => item.label === params.name);
-        if (!row) return;
-        openMtmRowsModal(`Em aberto · ${row.label}`, row.rows);
-      },
-    }),
-    [openMtmRowsModal, openPositionNetRows],
-  );
-
-  const openDirectionEvents = useMemo(
-    () => ({
-      click: (params) => {
-        if (params.componentType !== "series") return;
-        const direction =
-          params.name === "Positivas" ? "positive" : params.name === "Negativas" ? "negative" : "neutral";
-        openMtmRowsModal(`Em aberto · ${params.name}`, openRowsInView.filter((item) => item.direction === direction));
-      },
-    }),
-    [openMtmRowsModal, openRowsInView],
-  );
-
-  const closedExchangeResultEvents = useMemo(
-    () => ({
-      click: (params) => {
-        if (params.componentType !== "series") return;
-        const row = closedExchangeResultRows.find((item) => item.label === params.name);
-        if (!row) return;
-        openMtmRowsModal(`Encerrado · ${row.label}`, row.rows);
-      },
-    }),
-    [closedExchangeResultRows, openMtmRowsModal],
-  );
-
-  const closedTypeResultEvents = useMemo(
-    () => ({
-      click: (params) => {
-        if (params.componentType !== "series") return;
-        const row = closedTypeResultRows.find((item) => item.label === params.name);
-        if (!row) return;
-        openMtmRowsModal(`Encerrado · ${row.label}`, row.rows);
-      },
-    }),
-    [closedTypeResultRows, openMtmRowsModal],
-  );
-
   const closedSettlementMonthEvents = useMemo(
     () => ({
       click: (params) => {
@@ -16528,18 +16490,6 @@ function MtmDashboard({ dashboardFilter }) {
       },
     }),
     [closedSettlementMonthRows, openMtmRowsModal],
-  );
-
-  const closedPositionResultEvents = useMemo(
-    () => ({
-      click: (params) => {
-        if (params.componentType !== "series") return;
-        const row = closedPositionResultRows.find((item) => item.label === params.name);
-        if (!row) return;
-        openMtmRowsModal(`Encerrado · ${row.label}`, row.rows);
-      },
-    }),
-    [closedPositionResultRows, openMtmRowsModal],
   );
 
   const closedDirectionEvents = useMemo(

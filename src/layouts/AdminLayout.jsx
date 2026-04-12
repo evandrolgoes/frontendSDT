@@ -513,7 +513,7 @@ function AdminLayoutShell({ children }) {
             type="button"
             className={`dashboard-floating-filter-trigger${hasActiveFilter ? "" : " is-empty"}`}
             onClick={handlePanelToggle}
-            aria-label="Abrir filtros dos dashboards"
+            aria-label={`Abrir filtros dos dashboards. ${filterSummary.join(" | ")}`}
             title={filterSummary.join(" | ")}
           >
             <span className="dashboard-floating-filter-copy">
