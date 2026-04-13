@@ -20,6 +20,7 @@ const loadConfigPageModule = () => import("../pages/ConfigPage");
 const loadAgendaConfigPageModule = () => import("../pages/AgendaConfigPage");
 const loadAgendaPageModule = () => import("../pages/AgendaPage");
 const loadAgendaClientsPageModule = () => import("../pages/AgendaClientsPage");
+const loadAsaasExtratePageModule = () => import("../pages/AsaasExtratePage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
 
@@ -53,6 +54,7 @@ const ConfigPage = lazyNamedExport(loadConfigPageModule, "ConfigPage");
 const AgendaConfigPage = lazyNamedExport(loadAgendaConfigPageModule, "AgendaConfigPage");
 const AgendaGooglePage = lazyNamedExport(loadAgendaPageModule, "AgendaPage");
 const AgendaClientsPage = lazyNamedExport(loadAgendaClientsPageModule, "AgendaClientsPage");
+const AsaasExtratePage = lazyNamedExport(loadAsaasExtratePageModule, "AsaasExtratePage");
 
 function LegacyBlogNewsRedirect() {
   const { postId } = useParams();
@@ -143,6 +145,7 @@ const baseNavigationSections = [
       { path: "/agenda", label: "Agenda Clientes", module: "agenda" },
       { path: "/agenda-google", label: "Agenda Google", module: "agenda" },
       { path: "/agenda-config", label: "Config Agenda Google", module: "agenda_config" },
+      { path: "/extrato-recebimentos", label: "Extrato Recebimentos", module: "admin_asaas_extrato" },
     ],
   },
   {
@@ -310,6 +313,7 @@ export const appRoutes = [
   { path: "/agenda-clientes", element: <AgendaClientsPage />, module: "agenda" },
   { path: "/agenda-google", element: <AgendaGooglePage />, module: "agenda" },
   { path: "/agenda-config", element: <AgendaConfigPage />, module: "agenda_config" },
+  { path: "/extrato-recebimentos", element: <AsaasExtratePage />, module: "admin_asaas_extrato" },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true },
   { path: "/copy-base", element: <CopyBasePage />, module: "sys_copy_base", superuserOnly: true },
 ];

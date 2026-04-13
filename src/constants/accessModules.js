@@ -47,6 +47,7 @@ export const moduleOptions = [
   { value: "sys_admin_invites", label: "Sistema: Convites Admin" },
   { value: "sys_accounts_payable", label: "Admin: Contas a Pagar" },
   { value: "sys_contracts", label: "Admin: Contratos" },
+  { value: "admin_asaas_extrato", label: "Admin: Extrato Asaas" },
   { value: "sys_logs", label: "Sistema: Logs" },
   { value: "sys_json_import", label: "Sistema: Importador JSON" },
   { value: "sys_copy_base", label: "Sistema: Copy Base" },

@@ -4565,7 +4565,7 @@ textarea {
   width: 100%;
   --hedge-culture-axis-font-size: 18px;
   --hedge-culture-season-font-size: 19px;
-  --hedge-culture-value-font-size: 25px;
+  --hedge-culture-value-font-size: 20px;
 }
 
 .hedge-culture-native-chart.is-large {
@@ -4624,7 +4624,7 @@ textarea {
 .hedge-culture-value-label {
   fill: #0f172a;
   font-size: var(--hedge-culture-value-font-size);
-  font-weight: 950;
+  font-weight: 400;
   paint-order: stroke;
   stroke: rgba(255, 255, 255, 0.95);
   stroke-linejoin: round;
@@ -5714,13 +5714,71 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* ── Política de Hedge: full-viewport layout ── */
+.main-area:has(.hedge-policy-fullscreen-page) {
+  padding: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.hedge-policy-fullscreen-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+  grid-template-rows: none;
+}
+
+.hedge-policy-fullscreen-page .hedge-dashboard-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.hedge-policy-fullscreen-page .hedge-dashboard-toolbar {
+  flex-shrink: 0;
+  padding: 6px 12px;
+}
+
+.hedge-policy-fullscreen-page .hedge-dashboard-grid {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  height: 100%;
+}
+
+.hedge-policy-fullscreen-page .hedge-chart-card {
+  padding: 4px 6px;
+  border-radius: 0;
+  box-shadow: none;
+  gap: 2px;
+}
+
+.hedge-policy-fullscreen-page .hedge-chart-wrap {
+  height: 100% !important;
+}
+
+@media (max-width: 768px) {
+  .main-area:has(.hedge-policy-fullscreen-page) {
+    padding: 0;
+    height: 100dvh;
+  }
+
+  .hedge-policy-fullscreen-page .hedge-dashboard-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .hedge-focus-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   gap: 14px;
   align-items: stretch;
-  height: calc(100dvh - 190px);
-  max-height: calc(100dvh - 190px);
+  height: 100%;
+  min-height: 0;
 }
 
 .hedge-focus-main,
@@ -15116,5 +15174,100 @@ tfoot td {
 
   .missing-fields-summary-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── Asaas Extrato de Recebimentos ── */
+
+.asaas-extrato-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.asaas-extrato-filters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex: 1 1 0;
+}
+
+.asaas-extrato-filters .field {
+  margin: 0;
+  min-width: 160px;
+}
+
+.asaas-extrato-toolbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.asaas-extrato-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.asaas-extrato-summary-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow);
+}
+
+.asaas-extrato-summary-card span {
+  font-size: 0.8rem;
+  color: #5f6f82;
+}
+
+.asaas-extrato-summary-card strong {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.asaas-extrato-summary-card--green strong {
+  color: #15803d;
+}
+
+.asaas-extrato-table-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.asaas-extrato-empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: #5f6f82;
+}
+
+.asaas-extrato-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.asaas-extrato-pagination-info {
+  font-size: 0.85rem;
+  color: #5f6f82;
+}
+
+@media (max-width: 768px) {
+  .asaas-extrato-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .asaas-extrato-filters {
+    flex-direction: column;
   }
 }

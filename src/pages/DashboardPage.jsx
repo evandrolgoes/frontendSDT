@@ -2969,7 +2969,7 @@ const buildHedgeBuckets = (startDate, endDate, frequency) => {
 };
 
 const getDerivativeCostValue = (item, usdBrlRate) => {
-  const original = Math.abs(Number(item.volume_financeiro_valor_moeda_original || 0));
+  const original = Math.abs(Number(item.volume_financeiro_valor_moeda_original ?? item.volume_financeiro_valor ?? 0));
   if (!original) return 0;
   return convertValueToBrl(
     original,
@@ -15175,6 +15175,8 @@ function MtmDashboard({ dashboardFilter }) {
   const [mtmFacet, setMtmFacet] = useState("all");
   const [operationFilterOpen, setOperationFilterOpen] = useState(false);
   const [selectedOperationNames, setSelectedOperationNames] = useState([]);
+  const [mtmTimelineSliderStart, setMtmTimelineSliderStart] = useState(null);
+  const [mtmTimelineSliderEnd, setMtmTimelineSliderEnd] = useState(null);
   const operationFilterRef = useRef(null);
 
   useEffect(() => {
@@ -15676,6 +15678,78 @@ function MtmDashboard({ dashboardFilter }) {
     }));
   }, [exchangeRows, normalizedRows]);
 
+  // === MTM Timeline: 180-day range chart with date labels and slider ===
+  const MTM_TIMELINE_HALF = 52; // ±52 weeks available for slider
+  const mtmTimelineAllBuckets = useMemo(() => {
+    const totalBuckets = MTM_TIMELINE_HALF * 2;
+    const exchanges = exchangeRows.slice(0, 12).map((item) => item.label);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const buckets = Array.from({ length: totalBuckets }, (_, index) => {
+      const weekOffset = index - MTM_TIMELINE_HALF;
+      const startDays = weekOffset * 7;
+      const startDate = new Date(today.getTime() + startDays * 24 * 3600 * 1000);
+      const label = startDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+      return {
+        key: `t${weekOffset >= 0 ? "+" : ""}${weekOffset}`,
+        label,
+        weekOffset,
+        startDays,
+        endDays: startDays + 6,
+        exchanges: new Map(exchanges.map((exLabel) => [exLabel, { label: exLabel, volume: 0, mtmBrl: 0, rows: [] }])),
+      };
+    });
+
+    allNormalizedRows
+      .filter((item) => item.daysToSettlement != null)
+      .forEach((item) => {
+        const weekOffset = Math.floor(item.daysToSettlement / 7);
+        const bucketIndex = weekOffset + MTM_TIMELINE_HALF;
+        if (bucketIndex < 0 || bucketIndex >= totalBuckets) return;
+        const bucket = buckets[bucketIndex];
+        const exNode = bucket.exchanges.get(item.exchangeLabel) || { label: item.exchangeLabel, volume: 0, mtmBrl: 0, rows: [] };
+        exNode.volume += item.standardVolume || item.rawVolume || 0;
+        exNode.mtmBrl += item.mtmBrl;
+        exNode.rows.push(item);
+        bucket.exchanges.set(item.exchangeLabel, exNode);
+      });
+
+    return buckets.map((bucket) => ({
+      ...bucket,
+      exchanges: Array.from(bucket.exchanges.values()),
+    }));
+  }, [allNormalizedRows, exchangeRows]);
+
+  useEffect(() => {
+    if (!mtmTimelineAllBuckets.length) return;
+    const defaultStart = mtmTimelineAllBuckets.findIndex((b) => b.weekOffset === -13);
+    const defaultEnd = mtmTimelineAllBuckets.findIndex((b) => b.weekOffset === 13);
+    setMtmTimelineSliderStart(defaultStart >= 0 ? defaultStart : MTM_TIMELINE_HALF - 13);
+    setMtmTimelineSliderEnd(defaultEnd >= 0 ? defaultEnd : MTM_TIMELINE_HALF + 13);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mtmTimelineAllBuckets.length]);
+
+  const mtmTimelineEffStart = mtmTimelineSliderStart ?? (MTM_TIMELINE_HALF - 13);
+  const mtmTimelineEffEnd = mtmTimelineSliderEnd ?? (MTM_TIMELINE_HALF + 13);
+
+  const mtmTimelineBuckets = useMemo(
+    () => mtmTimelineAllBuckets.slice(mtmTimelineEffStart, mtmTimelineEffEnd + 1),
+    [mtmTimelineAllBuckets, mtmTimelineEffStart, mtmTimelineEffEnd],
+  );
+
+  const mtmTimelineExchangeLabels = useMemo(
+    () => [...new Set(mtmTimelineBuckets.flatMap((b) => b.exchanges.map((e) => e.label)))],
+    [mtmTimelineBuckets],
+  );
+
+  const mtmTimelineExchangePalette = useMemo(
+    () => Object.fromEntries(
+      exchangeRows.slice(0, 12).map((item, index) => [item.label, COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length]]),
+    ),
+    [exchangeRows],
+  );
+
   const derivativeTypeRows = useMemo(() => {
     const typeMap = new Map();
     normalizedRows.forEach((item) => {
@@ -16090,31 +16164,12 @@ function MtmDashboard({ dashboardFilter }) {
   const extraInsightCards = useMemo(() => {
     const cards = [
       {
-        key: "contract-month",
-        title: "Contratações por mês",
-        subtitle: "Ritmo de montagem do book derivativo.",
-        option: createMiniLineOption({
-          rows: monthlyContractRows,
-          color: "#2563eb",
-          valueFormatter: formatNumber0,
-        }),
-      },
-      {
-        key: "settlement-month",
-        title: "Liquidações por mês",
-        subtitle: "Saldo mensal das liquidações do portfólio.",
-        option: createMiniLineOption({
-          rows: monthlySettlementRows,
-          color: "#7c3aed",
-        }),
-      },
-      {
         key: "basis-mtm-scatter",
         title: "Basis x MTM por bolsa",
         subtitle: "Cruza basis físico e saldo derivativo por bolsa.",
         option: {
           animationDuration: 180,
-          grid: { left: 38, right: 16, top: 18, bottom: 32 },
+          grid: { left: 56, right: 16, top: 18, bottom: 48 },
           tooltip: {
             formatter: (params) => {
               const point = salesExchangeRows.find((item) => item.label === params.name);
@@ -16125,12 +16180,20 @@ function MtmDashboard({ dashboardFilter }) {
           },
           xAxis: {
             type: "value",
+            name: "Basis médio",
+            nameLocation: "middle",
+            nameGap: 28,
+            nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
             axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
             splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
           },
           yAxis: {
             type: "value",
-            axisLabel: { show: false },
+            name: "MTM R$",
+            nameLocation: "middle",
+            nameGap: 44,
+            nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
+            axisLabel: { color: "#475569", formatter: (value) => `R$ ${Number(value).toLocaleString("pt-BR", { notation: "compact" })}` },
             splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
           },
           series: [
@@ -16147,20 +16210,6 @@ function MtmDashboard({ dashboardFilter }) {
               itemStyle: { color: "#f97316", shadowBlur: 10, shadowColor: "rgba(249, 115, 22, 0.28)" },
             },
           ],
-        },
-      },
-      {
-        key: "contract-table",
-        title: "Top contratos derivativos",
-        subtitle: "Contratos com maior peso no saldo absoluto.",
-        table: {
-          columns: ["Contrato", "Ops", "MTM"],
-          rows: contractRows.slice(0, 6).map((item) => ({
-            key: item.label,
-            cells: [item.label, formatNumber0(item.total), formatMtmIntegerLabel(item.netBrl)],
-            tone: item.netBrl >= 0 ? "positive" : "negative",
-            onClick: () => openMtmRowsModal(`Contrato ${item.label}`, item.rows),
-          })),
         },
       },
       {
@@ -16188,19 +16237,6 @@ function MtmDashboard({ dashboardFilter }) {
             cells: [item.operationName, item.exchangeLabel, formatMtmIntegerLabel(item.mtmBrl)],
             tone: "positive",
             onClick: () => openMtmRowsModal(`Operação ${item.operationName}`, [item]),
-          })),
-        },
-      },
-      {
-        key: "basis-exchange-table",
-        title: "Resumo basis por bolsa",
-        subtitle: "Liga basis, preço e volume vendido.",
-        table: {
-          columns: ["Bolsa", "Basis", "Preço", "Volume"],
-          rows: salesExchangeRows.slice(0, 6).map((item) => ({
-            key: item.label,
-            cells: [item.label, formatNumber2(item.basisAvg), `R$ ${formatCurrency2(item.priceAvg)}`, `${formatNumber0(item.volume)} sc`],
-            onClick: () => openMtmRowsModal(`Vendas físicas · ${item.label}`, item.rows, resourceDefinitions.physicalSales),
           })),
         },
       },
@@ -16404,6 +16440,108 @@ function MtmDashboard({ dashboardFilter }) {
       },
     }),
     [openMtmRowsModal, weeklySettlementBuckets],
+  );
+
+  const mtmTimelineOption = useMemo(() => {
+    const todayBucketIdx = mtmTimelineBuckets.findIndex((b) => b.weekOffset === 0);
+    const labelInterval = Math.max(0, Math.floor(mtmTimelineBuckets.length / 14) - 1);
+    return {
+      animationDuration: 220,
+      grid: { left: 72, right: 24, top: 72, bottom: 56, containLabel: true },
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (params) => {
+          const bucket = mtmTimelineBuckets.find((b) => b.label === params?.[0]?.axisValue);
+          const header = bucket ? bucket.label : params?.[0]?.axisValue || "";
+          const lines = params
+            .filter((item) => Number(item.value || 0) !== 0)
+            .map((item) => `${item.marker}${item.seriesName}: ${formatMtmCompactLabel(item.value)}`);
+          return [header, ...lines].join("<br/>");
+        },
+      },
+      legend: {
+        top: 8,
+        itemWidth: 18,
+        itemHeight: 12,
+        textStyle: { color: "#475569", fontSize: 13, fontWeight: 700 },
+      },
+      xAxis: {
+        type: "category",
+        data: mtmTimelineBuckets.map((b) => b.label),
+        axisTick: { show: false },
+        axisLabel: {
+          color: "#475569",
+          fontSize: 11,
+          fontWeight: 700,
+          rotate: 35,
+          interval: labelInterval,
+          margin: 14,
+        },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: {
+          color: "#475569",
+          fontSize: 12,
+          fontWeight: 700,
+          formatter: (value) => `R$ ${Number(value).toLocaleString("pt-BR", { notation: "compact" })}`,
+        },
+        splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
+      },
+      series: mtmTimelineExchangeLabels.map((exLabel, seriesIdx) => ({
+        name: exLabel,
+        type: "bar",
+        barMaxWidth: 24,
+        barGap: "18%",
+        barCategoryGap: "30%",
+        itemStyle: {
+          color: mtmTimelineExchangePalette[exLabel] || "#94a3b8",
+          borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0],
+        },
+        label: {
+          show: true,
+          position: ({ value }) => (Number(value || 0) >= 0 ? "top" : "bottom"),
+          distance: 6,
+          color: "#334155",
+          fontSize: 11,
+          fontWeight: 800,
+          formatter: ({ value }) => (Math.abs(Number(value || 0)) >= 25000 ? formatMtmCompactLabel(value) : ""),
+        },
+        data: mtmTimelineBuckets.map((b) => b.exchanges.find((e) => e.label === exLabel)?.mtmBrl || 0),
+        ...(seriesIdx === 0 && todayBucketIdx >= 0
+          ? {
+              markLine: {
+                silent: true,
+                symbol: "none",
+                lineStyle: { color: "#1d4ed8", type: "dashed", width: 2 },
+                label: {
+                  show: true,
+                  formatter: "Hoje",
+                  color: "#1d4ed8",
+                  fontWeight: 800,
+                  position: "insideStartTop",
+                },
+                data: [{ xAxis: mtmTimelineBuckets[todayBucketIdx].label }],
+              },
+            }
+          : {}),
+      })),
+    };
+  }, [mtmTimelineBuckets, mtmTimelineExchangeLabels, mtmTimelineExchangePalette]);
+
+  const mtmTimelineEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const bucket = mtmTimelineBuckets.find((b) => b.label === params.name);
+        if (!bucket) return;
+        const exNode = bucket.exchanges.find((e) => e.label === params.seriesName);
+        if (!exNode) return;
+        openMtmRowsModal(`MTM ${bucket.label} · ${params.seriesName}`, exNode.rows);
+      },
+    }),
+    [mtmTimelineBuckets, openMtmRowsModal],
   );
 
   const statusDonutOption = {
@@ -17556,42 +17694,63 @@ function MtmDashboard({ dashboardFilter }) {
           <h2>Em aberto</h2>
           <p>Recorte focado nas posições ainda ativas, com prioridade para vencimento próximo, exposição e monitoramento do resultado vivo.</p>
         </div>
-        <section className="mtm-chart-grid">
-          <article className="card mtm-chart-card">
-            <div className="mtm-chart-head">
-              <h3>Volume semanal até 90d</h3>
-              <p>Semanas S1 a S13, com colunas separadas por bolsa e tooltip com o intervalo completo.</p>
-            </div>
-            <ReactECharts option={weeklyVolumeByExchangeOption} onEvents={weeklyVolumeByExchangeEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
-          </article>
-          <article className="card mtm-chart-card">
-            <div className="mtm-chart-head">
-              <h3>MTM semanal até 90d</h3>
-              <p>Semanas S1 a S13, com colunas separadas por bolsa e leitura dos ajustes MTM em R$.</p>
-            </div>
-            <ReactECharts option={weeklyMtmByExchangeOption} onEvents={weeklyMtmByExchangeEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
-          </article>
-        </section>
-        <section className="mtm-extra-section">
-          <div className="mtm-section-head">
-            <h3>Painel operacional em aberto</h3>
-            <p>Leitura dedicada às posições em aberto, com foco na janela de vencimento do book vivo.</p>
+        <article className="card mtm-chart-card" style={{ gridColumn: "1 / -1" }}>
+          <div className="mtm-chart-head">
+            <h3>MTM R$ por data de vencimento · 180d</h3>
+            <p>Janela padrão de 180 dias (90d passados + 90d futuros), colunas por bolsa, agrupadas semanalmente. Use o seletor abaixo para ampliar o período.</p>
           </div>
-          <div className="mtm-extra-grid">
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Janela de vencimento</h4>
-                <p>Quantidade de posições abertas por faixa de dias.</p>
+          <ReactECharts option={mtmTimelineOption} onEvents={mtmTimelineEvents} style={{ height: 440, width: "100%" }} opts={{ renderer: "svg" }} />
+          {mtmTimelineAllBuckets.length > 2 ? (() => {
+            const totalCount = mtmTimelineAllBuckets.length;
+            const startPct = (mtmTimelineEffStart / Math.max(totalCount - 1, 1)) * 100;
+            const endPct = (mtmTimelineEffEnd / Math.max(totalCount - 1, 1)) * 100;
+            return (
+              <div className="hedge-slider-wrap">
+                <div className="hedge-slider-dates">
+                  <span>{mtmTimelineAllBuckets[mtmTimelineEffStart]?.label || ""}</span>
+                  <span>{mtmTimelineAllBuckets[mtmTimelineEffEnd]?.label || ""}</span>
+                </div>
+                <div className="hedge-slider-track">
+                  <div className="hedge-slider-track-bg" />
+                  <div className="hedge-slider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
+                  <input
+                    type="range"
+                    className="hedge-slider-input"
+                    min={0}
+                    max={totalCount - 1}
+                    value={mtmTimelineEffStart}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (v < mtmTimelineEffEnd) setMtmTimelineSliderStart(v);
+                    }}
+                  />
+                  <input
+                    type="range"
+                    className="hedge-slider-input"
+                    min={0}
+                    max={totalCount - 1}
+                    value={mtmTimelineEffEnd}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (v > mtmTimelineEffStart) setMtmTimelineSliderEnd(v);
+                    }}
+                  />
+                </div>
               </div>
-              <ReactECharts
-                option={createMiniVerticalBarOption({ rows: openSettlementBandRows, color: "#7c3aed", valueFormatter: formatNumber0 })}
-                onEvents={openSettlementBandEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
+            );
+          })() : null}
+          <div className="hedge-legend">
+            {mtmTimelineExchangeLabels.map((exLabel) => (
+              <span key={exLabel} className="hedge-legend-item">
+                <span
+                  className="hedge-legend-swatch"
+                  style={{ background: mtmTimelineExchangePalette[exLabel] || "#94a3b8" }}
+                />
+                {exLabel}
+              </span>
+            ))}
           </div>
-        </section>
+        </article>
       </section>
       ) : null}
 
@@ -17635,38 +17794,6 @@ function MtmDashboard({ dashboardFilter }) {
                 ))}
               </tbody>
             </table>
-          </div>
-        </section>
-        <section className="mtm-extra-section">
-          <div className="mtm-section-head">
-            <h3>Painel operacional encerrado</h3>
-            <p>Gráficos dedicados apenas às operações liquidadas, olhando captura de resultado, distribuição e composição do realizado.</p>
-          </div>
-          <div className="mtm-extra-grid">
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Liquidação por mês</h4>
-                <p>Ritmo mensal do MTM realizado no encerrado.</p>
-              </div>
-              <ReactECharts
-                option={createMiniLineOption({ rows: closedSettlementMonthRows, color: "#7c3aed" })}
-                onEvents={closedSettlementMonthEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
-            <article className="card mtm-mini-card">
-              <div className="mtm-mini-card-head">
-                <h4>Mix de sinal realizado</h4>
-                <p>Quantas encerradas fecharam positivas, negativas ou neutras.</p>
-              </div>
-              <ReactECharts
-                option={createMiniDonutOption({ rows: closedDirectionSlices, centerLabel: "Encerradas", centerValue: formatNumber0(closedRowsInView.length) })}
-                onEvents={closedDirectionEvents}
-                style={{ height: 290, width: "100%" }}
-                opts={{ renderer: "svg" }}
-              />
-            </article>
           </div>
         </section>
       </section>
@@ -18056,8 +18183,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
 
   if (kind === "hedgePolicy") {
     return (
-      <div className="resource-page dashboard-page">
-        <PageHeader title={content.title} description={content.description} />
+      <div className="resource-page dashboard-page hedge-policy-fullscreen-page">
         <HedgePolicyDashboard dashboardFilter={filter} />
       </div>
     );
