@@ -372,6 +372,7 @@ export function DataTable({
   onDuplicate,
   onDelete,
   onDeleteSelected,
+  onEditSelected,
   onRowClick,
   selectedId,
   getRowClassName,
@@ -386,6 +387,7 @@ export function DataTable({
   const canDuplicate = typeof onDuplicate === "function";
   const canDelete = typeof onDelete === "function";
   const canDeleteSelected = typeof onDeleteSelected === "function";
+  const canEditSelected = typeof onEditSelected === "function";
   const canRowClick = typeof onRowClick === "function";
   const visibleQuickActions = rowQuickActions.filter((action) => typeof action?.onClick === "function");
   const showActions = canEdit || canDuplicate || canDelete || visibleQuickActions.length > 0;
@@ -809,6 +811,16 @@ export function DataTable({
               disabled={isDeletingSelected}
             >
               {isDeletingSelected ? `Apagando (${selectedRows.length})...` : `Apagar linhas (${selectedRows.length})`}
+            </button>
+          ) : null}
+          {canEditSelected && selectedRows.length ? (
+            <button
+              className="bubble-btn bubble-btn-light"
+              type="button"
+              onClick={() => onEditSelected(selectedRows)}
+              disabled={isDeletingSelected}
+            >
+              {`Alterar em massa (${selectedRows.length})`}
             </button>
           ) : null}
           {selectedRows.length ? (

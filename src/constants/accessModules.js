@@ -54,6 +54,7 @@ export const moduleOptions = [
   { value: "sys_mass_update", label: "Sistema: Alteracao em Massa" },
   { value: "tool_market_summary", label: "Ferramentas: Criar Resumo de Mercado" },
   { value: "tool_missing_fields", label: "Ferramentas: Pendencias Cadastrais" },
+  { value: "admin_gaming", label: "Admin: Gaming" },
 ];
 
 export const allModuleCodes = moduleOptions.map((option) => option.value);

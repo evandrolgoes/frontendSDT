@@ -693,6 +693,7 @@ export function ResourceTable({
   onDuplicate,
   onDelete,
   onDeleteSelected,
+  onEditSelected,
   onRowClick,
   selectedId,
   rowQuickActions = [],
@@ -755,6 +756,7 @@ export function ResourceTable({
       onDuplicate={onDuplicate}
       onDelete={onDelete}
       onDeleteSelected={onDeleteSelected}
+      onEditSelected={onEditSelected}
       onRowClick={onRowClick}
       selectedId={selectedId}
       rowQuickActions={rowQuickActions}

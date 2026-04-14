@@ -9760,25 +9760,29 @@ function HedgePolicyChart({
             </div>
           </div>
           <div className="hedge-floating-line">
-            {formatHedgeTooltipLine("Vendas Fisico", activePoint.physicalRaw, unit, baseValue, areaBase)}
+            <strong>Vendas Fisico</strong>{`: ${formatHedgeTooltipLine("Vendas Fisico", activePoint.physicalRaw, unit, baseValue, areaBase).replace("Vendas Fisico: ", "")}`}
           </div>
           <div className="hedge-floating-line">
-            {formatHedgeTooltipLine("Derivativos", activePoint.derivativeRaw, unit, baseValue, areaBase)}
+            <strong>Derivativos</strong>{`: ${formatHedgeTooltipLine("Derivativos", activePoint.derivativeRaw, unit, baseValue, areaBase).replace("Derivativos: ", "")}`}
           </div>
           {comparisonSeriesName ? (
             <div className="hedge-floating-line">
-              {formatHedgeTooltipLine(comparisonSeriesName, activePoint.comparisonRaw, unit, baseValue, areaBase)}
+              <strong>{comparisonSeriesName}</strong>{`: ${formatHedgeTooltipLine(comparisonSeriesName, activePoint.comparisonRaw, unit, baseValue, areaBase).replace(`${comparisonSeriesName}: `, "")}`}
             </div>
           ) : null}
           <div className="hedge-floating-line">
-            {activePoint.minValue != null ? formatHedgeTooltipLine("Politica Min", activePoint.minValue, unit, baseValue, areaBase) : "Politica Min: —"}
+            {activePoint.minValue != null
+              ? <><strong>Politica Min</strong>{`: ${formatHedgeTooltipLine("Politica Min", activePoint.minValue, unit, baseValue, areaBase).replace("Politica Min: ", "")}`}</>
+              : <><strong>Politica Min</strong>{": —"}</>}
           </div>
           <div className="hedge-floating-line">
-            {activePoint.maxValue != null ? formatHedgeTooltipLine("Politica Max", activePoint.maxValue, unit, baseValue, areaBase) : "Politica Max: —"}
+            {activePoint.maxValue != null
+              ? <><strong>Politica Max</strong>{`: ${formatHedgeTooltipLine("Politica Max", activePoint.maxValue, unit, baseValue, areaBase).replace("Politica Max: ", "")}`}</>
+              : <><strong>Politica Max</strong>{": —"}</>}
           </div>
           {activeSimulation > 0 && simulatedLabel ? (
             <div className="hedge-floating-line">
-              Simulação: +{formatHedgeTooltipValue(activeSimulation, unit)} {simulatedLabel}
+              <strong>Simulação</strong>{`: +${formatHedgeTooltipValue(activeSimulation, unit)} ${simulatedLabel}`}
             </div>
           ) : null}
         </aside>

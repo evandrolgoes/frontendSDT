@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { BulkEditModal } from "../components/BulkEditModal";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceTable } from "../components/ResourceTable";
@@ -12,6 +13,20 @@ import { formatBrazilianDate, parseBrazilianDate } from "../utils/date";
 
 const definition = resourceDefinitions.derivativeOperations;
 const DERIVATIVE_ALERT_SESSION_KEY = "sdt_derivatives_deadline_alert_seen";
+
+const DERIVATIVE_BULK_EDIT_FIELDS = [
+  { name: "nome_da_operacao", label: "Nome da operação", type: "text" },
+  { name: "status_operacao", label: "Status", type: "text" },
+  { name: "bolsa_ref", label: "Bolsa", type: "text" },
+  { name: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
+  { name: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
+  { name: "ativo", label: "Ativo", type: "relation", resource: "crops", labelKey: "ativo" },
+  { name: "safra", label: "Safra", type: "relation", resource: "seasons", labelKey: "safra" },
+  { name: "contraparte", label: "Contraparte", type: "relation", resource: "counterparties", labelKey: "contraparte" },
+  { name: "data_contratacao", label: "Data contratação", type: "date" },
+  { name: "data_liquidacao", label: "Data liquidação", type: "date" },
+  { name: "contrato_derivativo", label: "Contrato bolsa", type: "text" },
+];
 
 const toLocalIsoDate = (value = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
@@ -177,7 +192,8 @@ export function DerivativeOperationsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { rows, loading, filters, setFilters, error, setError, remove, upsertRows, removeRowsById } = useResourceCrud(definition.resource, { page: 1 });
+  const { rows, loading, filters, setFilters, error, setError, remove, upsertRows, removeRowsById, load } = useResourceCrud(definition.resource, { page: 1 });
+  const [bulkEditItems, setBulkEditItems] = useState(null);
   const [current, setCurrent] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [attachments, setAttachments] = useState([]);
@@ -397,6 +413,19 @@ export function DerivativeOperationsPage() {
     }
   };
 
+  const handleBulkEditSubmit = async (payload) => {
+    try {
+      for (const item of bulkEditItems) {
+        await resourceService.update(definition.resource, item.id, payload);
+      }
+      await load({ force: true });
+      setBulkEditItems(null);
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "Não foi possível alterar as linhas selecionadas.");
+      throw requestError;
+    }
+  };
+
   return (
     <div className="resource-page">
       <PageHeader title={definition.title} description={definition.description} />
@@ -446,8 +475,18 @@ export function DerivativeOperationsPage() {
             : undefined
         }
         onDeleteSelected={user?.is_superuser ? handleDeleteSelected : undefined}
+        onEditSelected={user?.is_superuser ? (items) => setBulkEditItems(items) : undefined}
         selectedId={current?.id}
       />
+
+      {bulkEditItems ? (
+        <BulkEditModal
+          fields={DERIVATIVE_BULK_EDIT_FIELDS}
+          items={bulkEditItems}
+          onClose={() => setBulkEditItems(null)}
+          onSubmit={handleBulkEditSubmit}
+        />
+      ) : null}
 
       <DerivativeDeadlineAlertModal
         alertState={alertState}

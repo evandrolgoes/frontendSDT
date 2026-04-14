@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { BulkEditModal } from "../components/BulkEditModal";
 import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceTable, usePreparedResourceTable } from "../components/ResourceTable";
@@ -535,6 +536,7 @@ export function ResourcePage({ definition }) {
   const [isMarqueeInteracting, setIsMarqueeInteracting] = useState(false);
   const [isMarqueeHovered, setIsMarqueeHovered] = useState(false);
   const [isPendingAccessOpen, setIsPendingAccessOpen] = useState(false);
+  const [bulkEditItems, setBulkEditItems] = useState(null);
   const [lookupOptions, setLookupOptions] = useState({});
   const [logFilters, setLogFilters] = useState({
     tenant: "",
@@ -1229,6 +1231,27 @@ export function ResourcePage({ definition }) {
     }
   };
 
+  const handleEditSelected = (items) => {
+    setBulkEditItems(items);
+  };
+
+  const handleBulkEditSubmit = async (payload) => {
+    setModalBusyMessage(`Alterando ${bulkEditItems.length} ${bulkEditItems.length === 1 ? "linha" : "linhas"}...`);
+    try {
+      for (const item of bulkEditItems) {
+        await resourceService.update(definition.resource, item.id, payload);
+      }
+      await load({ force: true });
+      await refreshProfile();
+      setBulkEditItems(null);
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "Não foi possível alterar as linhas selecionadas.");
+      throw requestError;
+    } finally {
+      setModalBusyMessage("");
+    }
+  };
+
   const handleReadonlyOpen = (item) => {
     setDetailItem(item);
   };
@@ -1560,6 +1583,7 @@ export function ResourcePage({ definition }) {
           onDuplicate={definition.readonly || definition.allowDuplicate === false ? undefined : handleDuplicate}
           onDelete={definition.allowDelete === false || !user?.is_superuser || (definition.readonly && definition.allowDelete !== true) ? undefined : handleDelete}
           onDeleteSelected={definition.allowDelete === false || !user?.is_superuser || (definition.readonly && definition.allowDelete !== true) ? undefined : handleDeleteSelected}
+          onEditSelected={definition.allowEdit === false || definition.readonly || !user?.is_superuser ? undefined : handleEditSelected}
           onRowClick={definition.readonly ? (definition.disableReadonlyDetails ? undefined : handleReadonlyOpen) : undefined}
           selectedId={current?.id}
           rowQuickActions={rowQuickActions}
@@ -1568,6 +1592,15 @@ export function ResourcePage({ definition }) {
           tableHeight={definition.tableHeight}
         />
       )}
+
+      {bulkEditItems ? (
+        <BulkEditModal
+          fields={definition.fields.filter((field) => !field.readOnly && !["file-multi", "file", "localidade-list", "json", "json-list"].includes(field.type) && !field.accessManager && !field.checkboxList)}
+          items={bulkEditItems}
+          onClose={() => setBulkEditItems(null)}
+          onSubmit={handleBulkEditSubmit}
+        />
+      ) : null}
 
       {isModalOpen && !definition.readonly && definition.customForm === "derivative-operation" ? (
         <DerivativeOperationForm

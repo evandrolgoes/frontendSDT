@@ -5716,6 +5716,7 @@ textarea {
   grid-template-columns: minmax(0, 1fr);
 }
 
+
 /* ── Política de Hedge: full-viewport layout ── */
 .main-area:has(.hedge-policy-fullscreen-page) {
   padding: 0;
@@ -6180,6 +6181,11 @@ textarea {
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.1);
   backdrop-filter: blur(10px);
+}
+
+.hedge-floating-card .hedge-floating-line {
+  justify-content: flex-start;
+  gap: 4px;
 }
 
 .hedge-floating-topline {
