@@ -10974,7 +10974,6 @@ function HedgePolicyDashboard({ dashboardFilter }) {
           </div>
         </div>
       ) : null}
-      {!focusedChart ? sharedSliderNode : null}
       <section className={`hedge-dashboard-grid${focusedChart ? " single-visible" : ""}`}>
         {!focusedChart ? costChartNode : null}
         {!focusedChart ? (productionChartMounted ? productionChartNode : <HedgePolicyChartPlaceholder title="Gráfico 2 — Hedge produção liquida (sc)" />) : null}
@@ -10992,6 +10991,11 @@ function HedgePolicyDashboard({ dashboardFilter }) {
           </div>
         ) : null}
       </section>
+      {!focusedChart ? (
+        <div className="hedge-shared-slider-wrap">
+          {sharedSliderNode}
+        </div>
+      ) : null}
     </section>
   );
 }
