@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { useAuth } from "../contexts/AuthContext";
 import { resourceDefinitions } from "../modules/resourceDefinitions";
+import { resourceService } from "../services/resourceService";
 import {
   getTableColumnPreference,
   resetTableColumnPreference,
@@ -77,9 +79,29 @@ const normalizeDraftColumns = (columns, preference) => {
 };
 
 export function TableColumnsConfigPanel() {
+  const { user } = useAuth();
+  const isSuperuser = Boolean(user?.is_superuser);
+
   const [selectedDefinitionKey, setSelectedDefinitionKey] = useState(DEFAULT_DEFINITION_KEY);
   const [draftColumns, setDraftColumns] = useState([]);
   const [statusMessage, setStatusMessage] = useState("");
+  const [tenants, setTenants] = useState([]);
+  const [selectedTenantIds, setSelectedTenantIds] = useState([]);
+
+  useEffect(() => {
+    if (!isSuperuser) return;
+    resourceService.listAll("tenants").then((items) => {
+      setTenants(Array.isArray(items) ? items : []);
+      setSelectedTenantIds(Array.isArray(items) ? items.map((t) => t.id) : []);
+    }).catch(() => {});
+  }, [isSuperuser]);
+
+  const toggleTenant = (tenantId) => {
+    setSelectedTenantIds((ids) =>
+      ids.includes(tenantId) ? ids.filter((id) => id !== tenantId) : [...ids, tenantId],
+    );
+  };
+
   const selectedDefinition = resourceDefinitions[selectedDefinitionKey] || resourceDefinitions[DEFAULT_DEFINITION_KEY];
   const { effectiveTableColumns: availableColumns } = usePreparedResourceTable(selectedDefinition, EMPTY_ROWS, {
     applyColumnConfig: false,
@@ -138,31 +160,52 @@ export function TableColumnsConfigPanel() {
     setStatusMessage("");
   };
 
-  const saveColumns = () => {
-    if (!selectedDefinition?.resource) {
-      return;
-    }
+  const [isSaving, setIsSaving] = useState(false);
 
+  const saveColumns = async () => {
+    if (!selectedDefinition?.resource) return;
     if (!visibleCount) {
       setStatusMessage("Mantenha pelo menos uma coluna visivel.");
       return;
     }
-
-    saveTableColumnPreference(selectedDefinition.resource, {
-      orderedKeys: draftColumns.map((column) => column.key),
-      hiddenKeys: draftColumns.filter((column) => !column.visible).map((column) => column.key),
-    });
-    setStatusMessage("Colunas salvas para esta tabela.");
+    setIsSaving(true);
+    try {
+      const preference = {
+        orderedKeys: draftColumns.map((column) => column.key),
+        hiddenKeys: draftColumns.filter((column) => !column.visible).map((column) => column.key),
+      };
+      if (isSuperuser && selectedTenantIds.length > 0) {
+        await Promise.all(
+          selectedTenantIds.map((tenantId) =>
+            saveTableColumnPreference(selectedDefinition.resource, preference, tenantId),
+          ),
+        );
+        setStatusMessage(`Colunas salvas para ${selectedTenantIds.length} tenant(s).`);
+      } else {
+        await saveTableColumnPreference(selectedDefinition.resource, preference);
+        setStatusMessage("Colunas salvas para esta tabela.");
+      }
+    } catch (err) {
+      console.error("Erro ao salvar colunas:", err?.response?.data || err?.message || err);
+      const detail = err?.response?.data?.detail || err?.response?.statusText || err?.message;
+      setStatusMessage(detail ? `Erro: ${detail}` : "Erro ao salvar. Tente novamente.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const resetColumns = () => {
-    if (!selectedDefinition?.resource) {
-      return;
+  const resetColumns = async () => {
+    if (!selectedDefinition?.resource) return;
+    setIsSaving(true);
+    try {
+      await resetTableColumnPreference(selectedDefinition.resource);
+      setDraftColumns(normalizeDraftColumns(availableColumns, {}));
+      setStatusMessage("Padrao restaurado para esta tabela.");
+    } catch {
+      setStatusMessage("Erro ao restaurar. Tente novamente.");
+    } finally {
+      setIsSaving(false);
     }
-
-    resetTableColumnPreference(selectedDefinition.resource);
-    setDraftColumns(normalizeDraftColumns(availableColumns, {}));
-    setStatusMessage("Padrao restaurado para esta tabela.");
   };
 
   return (
@@ -208,17 +251,35 @@ export function TableColumnsConfigPanel() {
               </p>
             </div>
             <div className="table-columns-config-actions">
-              <button type="button" className="btn btn-secondary" onClick={showAllColumns}>
+              <button type="button" className="btn btn-secondary" onClick={showAllColumns} disabled={isSaving}>
                 Mostrar todas
               </button>
-              <button type="button" className="btn btn-secondary" onClick={resetColumns}>
+              <button type="button" className="btn btn-secondary" onClick={resetColumns} disabled={isSaving}>
                 Restaurar padrao
               </button>
-              <button type="button" className="btn btn-primary" onClick={saveColumns} disabled={!draftColumns.length}>
-                Salvar alteracoes
+              <button type="button" className="btn btn-primary" onClick={saveColumns} disabled={!draftColumns.length || isSaving}>
+                {isSaving ? "Salvando..." : "Salvar alteracoes"}
               </button>
             </div>
           </div>
+
+          {isSuperuser && tenants.length > 0 && (
+            <div className="table-columns-config-tenant-selector">
+              <strong>Salvar para tenants:</strong>
+              <div className="table-columns-config-tenant-list">
+                {tenants.map((tenant) => (
+                  <label key={tenant.id} className="table-columns-config-tenant-item">
+                    <input
+                      type="checkbox"
+                      checked={selectedTenantIds.includes(tenant.id)}
+                      onChange={() => toggleTenant(tenant.id)}
+                    />
+                    <span>{tenant.name || tenant.slug || tenant.id}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           {statusMessage ? <div className="table-columns-config-status">{statusMessage}</div> : null}
 

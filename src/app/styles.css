@@ -5675,7 +5675,9 @@ textarea {
 
 .hedge-dashboard-toolbar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .hedge-simulation-card {
@@ -5754,6 +5756,32 @@ textarea {
   border-radius: 0;
   box-shadow: none;
   gap: 2px;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.hedge-policy-fullscreen-page .hedge-chart-card.is-chart-fill {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.hedge-policy-fullscreen-page .hedge-floating-card {
+  padding: 3px 6px;
+}
+
+.hedge-policy-fullscreen-page .hedge-floating-topline {
+  margin-bottom: 1px;
+}
+
+.hedge-policy-fullscreen-page .hedge-floating-total-box {
+  margin-top: 2px;
+  padding: 2px 6px;
+}
+
+.hedge-policy-fullscreen-page .hedge-floating-line {
+  line-height: 1.1;
+}
+
+.hedge-policy-fullscreen-page .hedge-floating-line + .hedge-floating-line {
+  margin-top: 1px;
 }
 
 .hedge-policy-fullscreen-page .hedge-chart-wrap {
@@ -14942,6 +14970,34 @@ tfoot td {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.table-columns-config-tenant-selector {
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.9);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.table-columns-config-tenant-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.table-columns-config-tenant-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.table-columns-config-tenant-item input[type="checkbox"] {
+  cursor: pointer;
 }
 
 .table-columns-config-status {

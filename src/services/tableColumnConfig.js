@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { api } from "./api";
 
-const TABLE_COLUMN_CONFIG_KEY = "sdt_table_column_config_v1";
 const TABLE_COLUMN_CONFIG_CHANGED_EVENT = "sdt_table_column_config_changed";
+
+// In-memory cache: populated once on first load, kept in sync via saveTableColumnPreference
+let memoryCache = null;
+let loadPromise = null;
 
 const normalizeKeys = (items) =>
   Array.from(
@@ -17,89 +21,87 @@ const normalizePreference = (preference = {}) => ({
   hiddenKeys: normalizeKeys(preference.hiddenKeys),
 });
 
-const canUseLocalStorage = () => typeof window !== "undefined" && Boolean(window.localStorage);
-
-export const readTableColumnConfig = () => {
-  if (!canUseLocalStorage()) {
-    return {};
-  }
-
-  try {
-    const rawConfig = window.localStorage.getItem(TABLE_COLUMN_CONFIG_KEY);
-    const parsedConfig = rawConfig ? JSON.parse(rawConfig) : {};
-    return parsedConfig && typeof parsedConfig === "object" ? parsedConfig : {};
-  } catch {
-    return {};
-  }
-};
-
-const writeTableColumnConfig = (config) => {
-  if (!canUseLocalStorage()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(TABLE_COLUMN_CONFIG_KEY, JSON.stringify(config || {}));
-  } catch {
-    // Ignore storage failures so table rendering keeps using the default columns.
-  }
-};
-
-const emitTableColumnConfigChange = (resource) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
+const emitChange = (resource) => {
+  if (typeof window === "undefined") return;
   window.dispatchEvent(
-    new CustomEvent(TABLE_COLUMN_CONFIG_CHANGED_EVENT, {
-      detail: { resource },
-    }),
+    new CustomEvent(TABLE_COLUMN_CONFIG_CHANGED_EVENT, { detail: { resource } }),
   );
+};
+
+// Load all configs from backend once; subsequent calls reuse the promise.
+const ensureLoaded = () => {
+  if (memoryCache !== null) return Promise.resolve(memoryCache);
+  if (loadPromise) return loadPromise;
+  loadPromise = api
+    .get("insights/table-column-config/")
+    .then((res) => {
+      memoryCache = res.data && typeof res.data === "object" ? res.data : {};
+      return memoryCache;
+    })
+    .catch(() => {
+      memoryCache = {};
+      return memoryCache;
+    })
+    .finally(() => {
+      loadPromise = null;
+    });
+  return loadPromise;
+};
+
+// Force re-fetch (e.g., after login)
+export const invalidateTableColumnConfigCache = () => {
+  memoryCache = null;
+  loadPromise = null;
 };
 
 export const getTableColumnPreference = (resource) => {
   const resourceKey = String(resource || "").trim();
-  if (!resourceKey) {
-    return normalizePreference();
-  }
-
-  return normalizePreference(readTableColumnConfig()[resourceKey]);
+  if (!resourceKey || !memoryCache) return normalizePreference();
+  return normalizePreference(memoryCache[resourceKey]);
 };
 
-export const saveTableColumnPreference = (resource, preference) => {
+export const saveTableColumnPreference = async (resource, preference, tenantId = null) => {
   const resourceKey = String(resource || "").trim();
-  if (!resourceKey) {
-    return normalizePreference();
+  if (!resourceKey) return normalizePreference();
+
+  const normalized = normalizePreference(preference);
+
+  // Optimistic update in memory only when saving for own tenant
+  if (!tenantId && memoryCache) {
+    memoryCache = { ...memoryCache, [resourceKey]: normalized };
   }
 
-  const normalizedPreference = normalizePreference(preference);
-  const nextConfig = {
-    ...readTableColumnConfig(),
-    [resourceKey]: normalizedPreference,
-  };
+  emitChange(resourceKey);
 
-  writeTableColumnConfig(nextConfig);
-  emitTableColumnConfigChange(resourceKey);
-  return normalizedPreference;
+  // Persist to backend
+  await api.put("insights/table-column-config/", {
+    resource: resourceKey,
+    orderedKeys: normalized.orderedKeys,
+    hiddenKeys: normalized.hiddenKeys,
+    ...(tenantId ? { tenant_id: tenantId } : {}),
+  });
+
+  return normalized;
 };
 
-export const resetTableColumnPreference = (resource) => {
+export const resetTableColumnPreference = async (resource) => {
   const resourceKey = String(resource || "").trim();
-  if (!resourceKey) {
-    return;
+  if (!resourceKey) return;
+
+  if (memoryCache) {
+    const next = { ...memoryCache };
+    delete next[resourceKey];
+    memoryCache = next;
   }
 
-  const nextConfig = { ...readTableColumnConfig() };
-  delete nextConfig[resourceKey];
-  writeTableColumnConfig(nextConfig);
-  emitTableColumnConfigChange(resourceKey);
+  emitChange(resourceKey);
+
+  await api.delete("insights/table-column-config/", { data: { resource: resourceKey } });
 };
 
 export const applyTableColumnPreference = (columns, preference) => {
   const sourceColumns = Array.isArray(columns) ? columns : [];
-  if (!sourceColumns.length) {
-    return [];
-  }
+  if (!sourceColumns.length) return [];
 
   const normalizedPreference = normalizePreference(preference);
   const columnsByKey = new Map(sourceColumns.map((column) => [String(column.key), column]));
@@ -117,6 +119,7 @@ export const applyTableColumnPreference = (columns, preference) => {
 export const useTableColumnPreference = (resource) => {
   const resourceKey = String(resource || "").trim();
   const [preference, setPreference] = useState(() => getTableColumnPreference(resourceKey));
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     if (!resourceKey || typeof window === "undefined") {
@@ -124,23 +127,22 @@ export const useTableColumnPreference = (resource) => {
       return undefined;
     }
 
+    // Load from backend on first mount
+    if (!loadedRef.current) {
+      loadedRef.current = true;
+      ensureLoaded().then(() => {
+        setPreference(getTableColumnPreference(resourceKey));
+      });
+    }
+
     const syncPreference = (event) => {
-      if (event?.type === "storage" && event.key !== TABLE_COLUMN_CONFIG_KEY) {
-        return;
-      }
-      if (event?.detail?.resource && event.detail.resource !== resourceKey) {
-        return;
-      }
+      if (event?.detail?.resource && event.detail.resource !== resourceKey) return;
       setPreference(getTableColumnPreference(resourceKey));
     };
 
-    syncPreference();
     window.addEventListener(TABLE_COLUMN_CONFIG_CHANGED_EVENT, syncPreference);
-    window.addEventListener("storage", syncPreference);
-
     return () => {
       window.removeEventListener(TABLE_COLUMN_CONFIG_CHANGED_EVENT, syncPreference);
-      window.removeEventListener("storage", syncPreference);
     };
   }, [resourceKey]);
 

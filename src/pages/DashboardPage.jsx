@@ -9267,6 +9267,8 @@ function HedgePolicyChart({
   externalSliderStart = null,
   externalSliderEnd = null,
   onExternalSliderChange = null,
+  externalHoverDate = null,
+  onHoverDateChange = null,
 }) {
   const [internalActiveIndex, setInternalActiveIndex] = useState(0);
   const [detailIndex, setDetailIndex] = useState(null);
@@ -9275,6 +9277,8 @@ function HedgePolicyChart({
   const [detailPhysicalSearch, setDetailPhysicalSearch] = useState("");
   const [detailDerivativeSearch, setDetailDerivativeSearch] = useState("");
   const [hoverSnapshot, setHoverSnapshot] = useState(null);
+  const [hoverExactDate, setHoverExactDate] = useState(null);
+  const [hoverExactX, setHoverExactX] = useState(null);
   const [sliderStart, setSliderStart] = useState(0);
   const [sliderEnd, setSliderEnd] = useState(null);
 
@@ -9430,7 +9434,16 @@ function HedgePolicyChart({
   const effectiveSliderStart = isExternalSlider && externalSliderStart != null ? externalSliderStart : sliderStart;
   const effectiveSliderEnd = isExternalSlider && externalSliderEnd != null ? externalSliderEnd : sliderEnd;
 
-  const activePoint = hoverSnapshot?.point || chartState.points[activeIndex] || chartState.points.at(-1) || null;
+  const crossHoverPoint = useMemo(() => {
+    if (!externalHoverDate || hoverExactDate) return null;
+    const t = externalHoverDate.getTime();
+    return chartState.points.reduce((best, p) => {
+      if (!p.date) return best;
+      return !best || Math.abs(p.date.getTime() - t) < Math.abs(best.date.getTime() - t) ? p : best;
+    }, null);
+  }, [externalHoverDate, hoverExactDate, chartState.points]);
+
+  const activePoint = hoverSnapshot?.point || crossHoverPoint || chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
   const activeSimulation = hoverSnapshot?.point
     ? hoverSnapshot.index === chartState.points.length - 1
@@ -9683,10 +9696,36 @@ function HedgePolicyChart({
     [chartState.points, extendedChartState.points, nativeChart, updateActiveIndex, effectiveSliderStart],
   );
 
+  const crossHoverX = (externalHoverDate && !hoverExactDate) ? nativeChart.xForDate(externalHoverDate) : null;
+
   const clearNativeChartHover = useCallback(() => {
     setHoverSnapshot(null);
+    setHoverExactDate(null);
+    setHoverExactX(null);
     updateActiveIndex(todayIndex);
-  }, [todayIndex, updateActiveIndex]);
+    if (typeof onHoverDateChange === "function") onHoverDateChange(null);
+  }, [todayIndex, updateActiveIndex, onHoverDateChange]);
+
+  const handleSvgMouseMove = useCallback((event) => {
+    const svg = event.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((event.clientX - rect.left) / rect.width) * nativeChart.width;
+    const clampedX = Math.max(nativeChart.plot.left, Math.min(nativeChart.width - nativeChart.plot.right, svgX));
+    setHoverExactX(clampedX);
+    const pts = nativeChart.points;
+    if (!pts.length) return;
+    const domainStart = pts[0]?.date;
+    const domainEnd = pts.at(-1)?.date;
+    if (!domainStart || !domainEnd) return;
+    const startTime = domainStart.getTime();
+    const endTime = domainEnd.getTime();
+    if (startTime === endTime) return;
+    const ratio = Math.max(0, Math.min(1, (svgX - nativeChart.plot.left) / nativeChart.plotWidth));
+    const exactTime = startTime + ratio * (endTime - startTime);
+    const exactDate = startOfDashboardDay(new Date(exactTime));
+    setHoverExactDate(exactDate);
+    if (typeof onHoverDateChange === "function") onHoverDateChange(exactDate);
+  }, [nativeChart, onHoverDateChange]);
 
   return (
     <article className={`hedge-chart-card${showFloatingCard && activePoint ? " has-floating-card" : " is-chart-fill"}`}>
@@ -9710,7 +9749,7 @@ function HedgePolicyChart({
       {showFloatingCard && activePoint ? (
         <aside className="hedge-floating-card">
           <div className="hedge-floating-topline">
-            <div className="hedge-floating-title">{formatHedgeTitleDate(activePoint.date)}</div>
+            <div className="hedge-floating-title">{formatHedgeTitleDate(hoverExactDate || externalHoverDate || activePoint.date)}</div>
           </div>
           <div className={`hedge-floating-total-box ${statusSummary?.tone || "ok"}`}>
             <div className="hedge-floating-total-main">
@@ -9753,6 +9792,7 @@ function HedgePolicyChart({
               viewBox={`0 0 ${nativeChart.width} ${nativeChart.height}`}
               preserveAspectRatio="none"
               onMouseLeave={clearNativeChartHover}
+              onMouseMove={handleSvgMouseMove}
               role="img"
               aria-label={title}
             >
@@ -9802,10 +9842,10 @@ function HedgePolicyChart({
                 />
               </g>
             ) : null}
-            {nativeChart.hoverX != null ? (
+            {(hoverExactX ?? crossHoverX) != null ? (
               <line
-                x1={nativeChart.hoverX}
-                x2={nativeChart.hoverX}
+                x1={hoverExactX ?? crossHoverX}
+                x2={hoverExactX ?? crossHoverX}
                 y1={nativeChart.plot.top}
                 y2={nativeChart.plot.top + nativeChart.plotHeight}
                 className="hedge-chart-svg-hover-line"
@@ -10464,6 +10504,9 @@ function HedgePolicyDashboard({ dashboardFilter }) {
   const costTodayIndex = useMemo(() => getHedgeTodayIndex(costChartState.points), [costChartState.points]);
   const productionTodayIndex = useMemo(() => getHedgeTodayIndex(productionChartState.points), [productionChartState.points]);
 
+  // Hover compartilhado entre os dois gráficos
+  const [sharedHoverDate, setSharedHoverDate] = useState(null);
+
   // Slider compartilhado entre os dois gráficos
   const [sharedSliderStart, setSharedSliderStart] = useState(0);
   const [sharedSliderEnd, setSharedSliderEnd] = useState(null);
@@ -10768,13 +10811,6 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       simulatedLabel={simulationLabel}
       showFloatingCard={focusedChart !== "cost"}
       dateMarkers={cropBoardDateMarkers}
-      extraActions={
-        <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
-          <option value="daily">Diario</option>
-          <option value="weekly">Semanal</option>
-          <option value="monthly">Mensal</option>
-        </select>
-      }
       insightTitle="Hedge sobre o custo"
       insightMessage={
         <SummaryInsightCopy
@@ -10789,6 +10825,8 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       externalSliderStart={sharedSliderStart}
       externalSliderEnd={sharedSliderEnd}
       onExternalSliderChange={(s, e) => { setSharedSliderStart(s); setSharedSliderEnd(e); }}
+      externalHoverDate={sharedHoverDate}
+      onHoverDateChange={setSharedHoverDate}
     />
   );
 
@@ -10826,6 +10864,8 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       externalSliderStart={sharedSliderStart}
       externalSliderEnd={sharedSliderEnd}
       onExternalSliderChange={(s, e) => { setSharedSliderStart(s); setSharedSliderEnd(e); }}
+      externalHoverDate={sharedHoverDate}
+      onHoverDateChange={setSharedHoverDate}
     />
   );
 
@@ -10880,6 +10920,11 @@ function HedgePolicyDashboard({ dashboardFilter }) {
   return (
     <section className="hedge-dashboard-shell">
       <div className="hedge-dashboard-toolbar">
+        <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
+          <option value="daily">Diario</option>
+          <option value="weekly">Semanal</option>
+          <option value="monthly">Mensal</option>
+        </select>
         <button
           type="button"
           className="btn btn-outline-secondary btn-sm"
@@ -12443,13 +12488,22 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
       return isUsdContract ? contractRevenue : 0;
     }
 
+    const today = startOfDashboardDay(new Date());
+    const paymentDate = startOfDashboardDay(item.data_pagamento);
+    const usesSpotQuote = paymentDate && today ? paymentDate.getTime() >= today.getTime() : false;
+
+    if (currencyMode === "AMBOS_U$") {
+      if (isUsdContract) return contractRevenue;
+      // BRL contract: convert to USD using dolar_de_venda or spot rate
+      const fxRate = usesSpotQuote ? usdBrlQuote : Number(item.dolar_de_venda || 0);
+      return fxRate > 0 ? contractRevenue / fxRate : 0;
+    }
+
+    // AMBOS_R$: convert USD contracts to BRL
     if (!isUsdContract) {
       return contractRevenue;
     }
 
-    const today = startOfDashboardDay(new Date());
-    const paymentDate = startOfDashboardDay(item.data_pagamento);
-    const usesSpotQuote = paymentDate && today ? paymentDate.getTime() >= today.getTime() : false;
     const fxRate = usesSpotQuote ? usdBrlQuote : Number(item.dolar_de_venda || 0);
     return fxRate > 0 ? contractRevenue * fxRate : 0;
   }, [currencyMode, usdBrlQuote]);
@@ -12469,7 +12523,8 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     return salesSummary.totalVolume;
   }, [currencyMode, salesSummary.brlVolume, salesSummary.totalVolume, salesSummary.usdVolume]);
 
-  const selectedCurrencyLabel = currencyMode === "U$" ? "U$" : "R$";
+
+  const selectedCurrencyLabel = (currencyMode === "U$" || currencyMode === "AMBOS_U$") ? "U$" : "R$";
 
   useEffect(() => {
     if (!hasManualVolume) {
@@ -12502,6 +12557,15 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         let amount = 0;
         if (currencyMode === "AMBOS_R$") {
           amount = adjustmentMode === "ALL" ? mtm.brl : originalValueBrl;
+        } else if (currencyMode === "AMBOS_U$") {
+          // All derivatives converted to USD: R$ adjustments divided by rate, U$ adjustments as-is
+          if (adjustmentMode === "ALL") {
+            amount = mtm.usd;
+          } else if (derivativeCurrency === "U$") {
+            amount = originalValueUsd;
+          } else {
+            amount = brlToUsdRate > 0 ? originalValueBrl / brlToUsdRate : 0;
+          }
         } else if (currencyMode === "R$") {
           if (adjustmentMode === "ALL") {
             amount = originalValueBrl;
@@ -12534,7 +12598,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         };
       })
       .filter((item) => {
-        if (currencyMode === "AMBOS_R$") return true;
+        if (currencyMode === "AMBOS_R$" || currencyMode === "AMBOS_U$") return true;
         return adjustmentMode === "ALL" || item.currency === currencyMode;
       });
   }, [adjustmentMode, currencyMode, derivativeQuotesByTicker, filteredDerivatives, usdBrlQuote, usdRate]);
@@ -12817,6 +12881,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
             <span>Moeda</span>
             <select value={currencyMode} onChange={(event) => setCurrencyMode(event.target.value)}>
               <option value="AMBOS_R$">Ambos (convertido em R$)</option>
+              <option value="AMBOS_U$">Ambos (convertido em U$)</option>
               <option value="R$">R$</option>
               <option value="U$">U$</option>
             </select>

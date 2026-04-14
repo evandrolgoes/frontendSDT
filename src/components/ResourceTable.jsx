@@ -472,26 +472,23 @@ export function usePreparedResourceTable(definition, rows, options = {}) {
   const defaultTableColumns = useMemo(() => {
     if (definition.customForm !== "derivative-operation") {
       if (definition.resource === "physical-sales") {
-        const physicalSalesColumns = tableColumns
-          .filter((column) => column.key !== "id")
-          .filter((column) => column.key !== "moeda_unidade")
-          .map((column) =>
-            column.key === "cultura_produto"
+        const physicalSalesColumns = tableColumns.map((column) =>
+          column.key === "cultura_produto"
+            ? {
+                key: "cultura",
+                label: column.label,
+                type: "relation",
+                resource: "crops",
+                labelKey: "ativo",
+                render: (value, row) => value || row.cultura_produto || "—",
+              }
+            : column.key === "preco"
               ? {
-                  key: "cultura",
-                  label: column.label,
-                  type: "relation",
-                  resource: "crops",
-                  labelKey: "ativo",
-                  render: (value, row) => value || row.cultura_produto || "—",
-                }
-              : column.key === "preco"
-                ? {
                   ...column,
                   render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.moeda_unidade ? ` ${row.moeda_unidade}` : ""}`,
                 }
-                : column,
-          );
+              : column,
+        );
         return prioritizePrimaryDateColumns(
           reorderColumns(
             physicalSalesColumns,
@@ -501,17 +498,14 @@ export function usePreparedResourceTable(definition, rows, options = {}) {
         );
       }
       if (definition.resource === "physical-payments") {
-        const physicalPaymentColumns = tableColumns
-          .filter((column) => column.key !== "id")
-          .filter((column) => column.key !== "unidade")
-          .map((column) =>
-            column.key === "volume"
-              ? {
-                  ...column,
-                  render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.unidade ? ` ${row.unidade}` : ""}`,
-                }
-              : column,
-          );
+        const physicalPaymentColumns = tableColumns.map((column) =>
+          column.key === "volume"
+            ? {
+                ...column,
+                render: (value, row) => `${formatBrazilianNumber(value, 4)}${row.unidade ? ` ${row.unidade}` : ""}`,
+              }
+            : column,
+        );
         return prioritizePrimaryDateColumns(
           reorderColumns(
             physicalPaymentColumns,
@@ -521,17 +515,14 @@ export function usePreparedResourceTable(definition, rows, options = {}) {
         );
       }
       if (definition.resource === "cash-payments") {
-        const cashPaymentColumns = tableColumns
-          .filter((column) => column.key !== "id")
-          .filter((column) => !["contraparte", "fazer_frente_com", "safra"].includes(column.key))
-          .map((column) =>
-            column.key === "valor"
-              ? {
-                  ...column,
-                  render: (value, row) => `${formatBrazilianNumber(value, 2)}${row.moeda ? ` ${row.moeda}` : ""}`,
-                }
-              : column,
-          );
+        const cashPaymentColumns = tableColumns.map((column) =>
+          column.key === "valor"
+            ? {
+                ...column,
+                render: (value, row) => `${formatBrazilianNumber(value, 2)}${row.moeda ? ` ${row.moeda}` : ""}`,
+              }
+            : column,
+        );
         return prioritizePrimaryDateColumns(
           reorderColumns(
             cashPaymentColumns,
@@ -543,7 +534,7 @@ export function usePreparedResourceTable(definition, rows, options = {}) {
       return prioritizePrimaryDateColumns(tableColumns);
     }
 
-    return prioritizePrimaryDateColumns([
+    const derivativeCustomColumns = [
       { key: "nome_da_operacao", label: "Operacao" },
       { key: "bolsa_ref", label: "Bolsa" },
       { key: "contrato_derivativo", label: "Contrato bolsa" },
@@ -654,7 +645,10 @@ export function usePreparedResourceTable(definition, rows, options = {}) {
       { key: "grupo", label: "Grupo", type: "relation", resource: "groups", labelKey: "grupo" },
       { key: "subgrupo", label: "Subgrupo", type: "relation", resource: "subgroups", labelKey: "subgrupo" },
       { key: "id", label: "ID" },
-    ]);
+    ];
+    const customDerivativeKeys = new Set(derivativeCustomColumns.map((c) => c.key));
+    const remainingDerivativeColumns = tableColumns.filter((c) => !customDerivativeKeys.has(c.key));
+    return prioritizePrimaryDateColumns([...derivativeCustomColumns, ...remainingDerivativeColumns]);
   }, [
     definition.customForm,
     definition.resource,
