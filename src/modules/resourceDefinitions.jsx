@@ -492,7 +492,15 @@ const baseResourceDefinitions = {
       { name: "titulo", label: "Titulo" },
       { name: "data", label: "Data", type: "date", optional: true },
       { name: "grupos", label: "Grupos", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
-      { name: "subgrupos", label: "Subgrupos", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
+      {
+        name: "subgrupos",
+        label: "Subgrupos",
+        type: "multirelation",
+        resource: "subgroups",
+        labelKey: "subgrupo",
+        optional: true,
+        filterByCurrent: { grupo: "grupos" },
+      },
       { name: "participantes", label: "Participantes", type: "textarea", optional: true },
       { name: "conteudo_html", label: "Texto completo", type: "textarea", optional: true },
     ],
@@ -567,7 +575,13 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
+      {
+        name: "subgrupo",
+        label: "Subgrupo",
+        ...commonRelationFields.subgrupo,
+        optional: true,
+        filterByCurrent: { grupo: "grupo" },
+      },
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "considerar_na_politica_de_hedge", label: "Considerar na politica de hedge", type: "select", options: yesNoOptions },
@@ -592,7 +606,13 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
+      {
+        name: "subgrupo",
+        label: "Subgrupo",
+        ...commonRelationFields.subgrupo,
+        optional: true,
+        filterByCurrent: { grupo: "grupo" },
+      },
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       {
@@ -793,7 +813,15 @@ const baseResourceDefinitions = {
     fields: [
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "grupos", label: "Grupo", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
-      { name: "subgrupos", label: "Subgrupo", type: "multirelation", resource: "subgroups", labelKey: "subgrupo", optional: true },
+      {
+        name: "subgrupos",
+        label: "Subgrupo",
+        type: "multirelation",
+        resource: "subgroups",
+        labelKey: "subgrupo",
+        optional: true,
+        filterByCurrent: { grupo: "grupos" },
+      },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "insumos_travados_maximo", label: "Insumos travados maximo", type: "number" },
       { name: "insumos_travados_minimo", label: "Insumos travados minimo", type: "number" },
@@ -826,7 +854,13 @@ const baseResourceDefinitions = {
     fields: [
       { name: "cultura", label: "Ativo", ...commonRelationFields.cultura, optional: true },
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
+      {
+        name: "subgrupo",
+        label: "Subgrupo",
+        ...commonRelationFields.subgrupo,
+        optional: true,
+        filterByCurrent: { grupo: "grupo" },
+      },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "data_plantio", label: "Data plantio", type: "date", optional: true },
       { name: "data_colheita", label: "Data colheita", type: "date", optional: true },
@@ -861,7 +895,13 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
+      {
+        name: "subgrupo",
+        label: "Subgrupo",
+        ...commonRelationFields.subgrupo,
+        optional: true,
+        filterByCurrent: { grupo: "grupo" },
+      },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       {
         name: "localidade",
@@ -1008,7 +1048,13 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
+      {
+        name: "subgrupo",
+        label: "Subgrupo",
+        ...commonRelationFields.subgrupo,
+        optional: true,
+        filterByCurrent: { grupo: "grupo" },
+      },
       { name: "fazer_frente_com", label: "Fazer frente com", ...commonRelationFields.cultura, optional: true },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       { name: "classificacao", label: "Classificacao", type: "select", options: physicalPaymentClassificationOptions },
@@ -1046,7 +1092,13 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "grupo", label: "Grupo", ...commonRelationFields.grupo, optional: true },
-      { name: "subgrupo", label: "Subgrupo", ...commonRelationFields.subgrupo, optional: true },
+      {
+        name: "subgrupo",
+        label: "Subgrupo",
+        ...commonRelationFields.subgrupo,
+        optional: true,
+        filterByCurrent: { grupo: "grupo" },
+      },
       { name: "descricao", label: "Descricao", type: "textarea" },
       { name: "contraparte_texto", label: "Contraparte", type: "text", optional: true },
       { name: "valor", label: "Valor", type: "number" },
