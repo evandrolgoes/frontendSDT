@@ -529,7 +529,7 @@ export function DerivativeOperationsPage() {
                 const existingRow = existingRows[index];
                 const rowPayload = {
                   ...cleanPayload,
-                  grupo_montagem: itemPayload.grupo_montagem || "",
+                  posicao: itemPayload.posicao || "",
                   tipo_derivativo: itemPayload.tipo_derivativo || "",
                   numero_lotes: itemPayload.numero_lotes,
                   strike_montagem: itemPayload.strike_montagem,
@@ -565,7 +565,7 @@ export function DerivativeOperationsPage() {
                 const itemPayload = itemPayloads[index];
                 const created = await resourceService.create(definition.resource, {
                   ...cleanPayload,
-                  grupo_montagem: itemPayload.grupo_montagem || "",
+                  posicao: itemPayload.posicao || "",
                   tipo_derivativo: itemPayload.tipo_derivativo || "",
                   numero_lotes: itemPayload.numero_lotes,
                   strike_montagem: itemPayload.strike_montagem,
