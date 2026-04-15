@@ -155,6 +155,7 @@ const baseNavigationSections = [
     label: "Ferramentas",
     items: [
       { path: "/logs", label: "Log", module: "sys_logs" },
+      { path: "/bolsas", label: "Bolsas", module: "sys_exchanges", superuserOnly: true },
       { path: "/config", label: "Config", module: "tool_missing_fields", superuserOnly: true },
       { path: "/pendencias-cadastrais", label: "Pendencias Cadastrais", module: "tool_missing_fields" },
       { path: "/criar-resumo-de-mercado", label: "Resumo Semanal de Mercado - 2", module: "tool_market_summary", superuserOnly: true },
@@ -298,6 +299,7 @@ export const appRoutes = [
     module: "sys_admin_invites",
     allowedUserTypes: ["invitation_tenants"],
   },
+  { ...resourceRoute("/bolsas", "exchanges", "exchanges"), module: "sys_exchanges" },
   {
     ...resourceRoute("/contas-a-pagar", "accountsPayable", "accounts-payable"),
     module: "sys_accounts_payable",
@@ -328,7 +330,6 @@ const hiddenModuleOptions = [
   { module: "sys_currencies", label: "Moeda" },
   { module: "sys_units", label: "Unidade" },
   { module: "sys_price_units", label: "Moeda/Unidade" },
-  { module: "sys_exchanges", label: "Bolsa" },
   { module: "sys_derivative_operation_names", label: "Nome Operacoes Derivativos" },
   { module: "sys_seasons", label: "Safra" },
 ];

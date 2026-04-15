@@ -109,11 +109,13 @@ const resolveUsdBrlQuote = (quotesByTicker = {}) => {
 };
 
 const calculateDerivativeMtm = (row, strikeMtm, openUsdBrlQuote = 0) => {
+  const isMoedaOperation = normalizeLookupValue(row.moeda_ou_cmdtye) === "moeda";
   const status = String(row.status_operacao || "").trim().toLowerCase();
   if (status !== "em aberto") {
+    const usd = parseLocalizedNumber(row.ajustes_totais_usd);
     return {
-      usd: parseLocalizedNumber(row.ajustes_totais_usd),
-      brl: parseLocalizedNumber(row.ajustes_totais_brl),
+      usd,
+      brl: isMoedaOperation ? usd : parseLocalizedNumber(row.ajustes_totais_brl),
     };
   }
 
@@ -133,9 +135,13 @@ const calculateDerivativeMtm = (row, strikeMtm, openUsdBrlQuote = 0) => {
   else if (normalizedOperationName.includes("venda call")) usd = strikeMercado > strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
   else if (normalizedOperationName.includes("venda put")) usd = strikeMercado < strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
 
+  if (isMoedaOperation) {
+    return { usd, brl: usd };
+  }
+
   const isUsdOperation = String(row.volume_financeiro_moeda || "").trim() === "U$";
   const fx = isUsdOperation ? (openUsdBrlQuote || parseLocalizedNumber(row.dolar_ptax_vencimento)) : 1;
-  const brl = String(row.volume_financeiro_moeda || "").trim() === "U$" ? usd * fx : usd;
+  const brl = isUsdOperation ? usd * fx : usd;
 
   return { usd, brl };
 };

@@ -51,6 +51,9 @@ const DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA = {
 const commercialRiskDashboardCache = new Map();
 const dashboardPageStateCache = new Map();
 
+// Persists between React Router navigations; resets only on hard page refresh
+const cashflowDataCache = { data: null };
+
 const normalizeCommercialRiskFilter = (filter = {}) =>
   ["grupo", "subgrupo", "cultura", "safra"].reduce((acc, key) => {
     acc[key] = [...(filter?.[key] || [])].map(String).sort();
@@ -1527,6 +1530,136 @@ function DashboardResourceTableModal({ title, definition, rows, onClose, onEdit 
   );
 }
 
+function buildHedgeExplanation(periodSummary, currencyConfig) {
+  if (!periodSummary || !currencyConfig) return null;
+  const currency = currencyConfig.label || currencyConfig.key;
+  const isBrl = currencyConfig.key === "BRL";
+
+  const find = (key) => periodSummary.totals?.find((t) => t.label?.toLowerCase().includes(key.toLowerCase()));
+  const saldo = periodSummary.saldo ?? 0;
+
+  if (isBrl) {
+    const fmt = (v) => Math.abs(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+    const lines = [];
+    if (saldo < 0) {
+      lines.push(`O saldo de ${fmt(saldo)} indica saída líquida de caixa em ${currency} neste período.`);
+      lines.push("Verifique se há recebimentos pendentes ou possibilidade de antecipar vendas para cobrir esse deficit.");
+    } else if (saldo > 0) {
+      lines.push(`O saldo de +${fmt(saldo)} indica entrada líquida de caixa em ${currency} neste período.`);
+    } else {
+      lines.push(`O fluxo em ${currency} está equilibrado neste período.`);
+    }
+    return lines;
+  }
+
+  const fmt = (v) => Math.abs(v).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const paymentsEntry = find("pagamento");
+  const purchaseEntry = find("NDF") || find("comprado");
+  const salesEntry = find("venda");
+  const otherOutflowEntry = find("saída");
+
+  const totalPayments = Math.abs(paymentsEntry?.value ?? 0) + Math.abs(otherOutflowEntry?.value ?? 0);
+  const hedged = Math.abs(purchaseEntry?.value ?? 0);
+  const salesOffset = Math.abs(salesEntry?.value ?? 0);
+  const totalOffset = hedged + salesOffset;
+  const hedgePct = totalPayments > 0 ? Math.round((totalOffset / totalPayments) * 100) : 0;
+
+  const lines = [];
+
+  if (totalPayments > 0) {
+    lines.push(`Neste período, há ${fmt(totalPayments)} ${currency} em obrigações de pagamento.`);
+    if (totalOffset > 0) {
+      const parts = [];
+      if (hedged > 0) parts.push(`${fmt(hedged)} ${currency} via NDF/Call`);
+      if (salesOffset > 0) parts.push(`${fmt(salesOffset)} ${currency} em vendas`);
+      lines.push(`${parts.join(" e ")} cobrem parte desses pagamentos (${hedgePct}% do total).`);
+    }
+  } else if (totalOffset > 0) {
+    lines.push(`Há ${fmt(totalOffset)} ${currency} em cobertura (NDF/Call/Vendas) sem pagamentos correspondentes neste período.`);
+  }
+
+  if (saldo < 0) {
+    lines.push(`A exposição líquida de ${fmt(saldo)} ${currency} representa o valor ainda descoberto. Se o ${currency} se valorizar, o custo em R$ aumenta proporcionalmente.`);
+    lines.push(`Para reduzir essa exposição: venda commodities (soja, milho etc.) indexadas ao ${currency}, ou compre NDF/Call para proteger o valor em aberto.`);
+  } else if (saldo > 0) {
+    lines.push(`O saldo positivo de +${fmt(saldo)} ${currency} indica posição comprada — mais cobertura do que pagamentos em aberto.`);
+  } else if (totalPayments > 0) {
+    lines.push(`Saldo zerado: as coberturas (NDF/Call/Vendas) compensam exatamente os pagamentos em aberto. Exposição cambial nula.`);
+  }
+
+  return lines;
+}
+
+function CashflowMultiTableModal({ period, tables, periodSummary, currencyConfig, onClose, onEdit }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [searchValue, setSearchValue] = useState("");
+  const [showAi, setShowAi] = useState(true);
+  const safeIndex = Math.min(activeIndex, tables.length - 1);
+  const activeTable = tables[safeIndex];
+
+  useEffect(() => { setSearchValue(""); }, [safeIndex]);
+
+  const aiLines = useMemo(
+    () => buildHedgeExplanation(periodSummary, currencyConfig),
+    [periodSummary, currencyConfig],
+  );
+
+  return (
+    <div className="cashflow-multi-table-backdrop" onClick={onClose}>
+      <div className="cashflow-multi-table-modal" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="component-popup-close" onClick={onClose}>×</button>
+        <div className="cashflow-multi-table-header">
+          <div className="cashflow-multi-table-title-row">
+            <strong className="cashflow-multi-table-period">{period}</strong>
+            {aiLines?.length ? (
+              <button
+                type="button"
+                className={`cashflow-ai-btn${showAi ? " active" : ""}`}
+                title="Explicação de hedge"
+                onClick={() => setShowAi((v) => !v)}
+              >
+                ✦ Análise
+              </button>
+            ) : null}
+          </div>
+          {showAi && aiLines?.length ? (
+            <div className="cashflow-ai-panel">
+              {aiLines.map((line, i) => <p key={i}>{line}</p>)}
+            </div>
+          ) : null}
+          <div className="cashflow-multi-table-tabs">
+            {tables.map((table, index) => (
+              <button
+                key={table.key}
+                type="button"
+                className={`cashflow-multi-table-tab${safeIndex === index ? " active" : ""}`}
+                onClick={() => setActiveIndex(index)}
+              >
+                {table.label}
+                <span className="cashflow-multi-table-tab-count">{table.rows.length}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {activeTable ? (
+          <div className="cashflow-multi-table-body">
+            <ResourceTable
+              definition={activeTable.definition}
+              rows={activeTable.rows}
+              searchValue={searchValue}
+              searchPlaceholder={activeTable.definition?.searchPlaceholder || "Buscar..."}
+              onSearchChange={setSearchValue}
+              onClear={() => setSearchValue("")}
+              onEdit={(row) => onEdit(row, activeTable.definition?.resource)}
+              tableHeight="100%"
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function CashflowDailyLaunchList({ entries, statusSavingByEntry, statusErrorByEntry, onStatusChange, onEdit }) {
   if (!entries.length) {
     return <div className="cashflow-daily-empty">Nenhum lançamento neste recorte.</div>;
@@ -2909,8 +3042,8 @@ const getAverageDashboardDate = (rows = [], fieldName) => {
 
 const buildCropBoardDateMarkers = (cropBoardRows = []) =>
   [
-    { key: "plantio", label: "plantio", date: getAverageDashboardDate(cropBoardRows, "data_plantio"), color: "#15803d" },
-    { key: "colheita", label: "colheita", date: getAverageDashboardDate(cropBoardRows, "data_colheita"), color: "#b45309" },
+    { key: "plantio", label: "plantio", date: getAverageDashboardDate(cropBoardRows, "data_plantio"), color: "#1d4ed8" },
+    { key: "colheita", label: "colheita", date: getAverageDashboardDate(cropBoardRows, "data_colheita"), color: "#1d4ed8" },
   ].filter((item) => item.date);
 
 const formatMi3 = (value) =>
@@ -3055,7 +3188,11 @@ const isBrlCurrency = (value) => {
   return moeda.includes("r$") || moeda.includes("brl") || moeda.includes("real");
 };
 
-const getPriceCompositionDerivativeKind = (item) => (item?.moeda_ou_cmdtye === "Moeda" ? "Cambio" : "Bolsa");
+const getPriceCompositionDerivativeKind = (item) => {
+  if (item?.moeda_ou_cmdtye !== "Moeda") return "Bolsa";
+  if (normalizeText(item?.destino_texto) === "swap de pagamento moeda estrangeira") return null;
+  return "Cambio";
+};
 
 const getPriceCompositionDerivativeStatus = (item) =>
   normalizeText(item?.status_operacao).includes("encerr") ? "Encerrado" : "Em aberto";
@@ -3069,11 +3206,13 @@ const resolvePriceCompositionDerivativeVolume = (item) => {
 };
 
 const calculatePriceCompositionDerivativeMtm = (item, strikeMtm, openUsdBrlQuote = 0) => {
+  const isMoedaOperation = normalizeText(item?.moeda_ou_cmdtye) === "moeda";
   const status = normalizeText(item?.status_operacao);
   if (status !== "em aberto") {
+    const usd = parseLocalizedNumber(item?.ajustes_totais_usd);
     return {
-      usd: parseLocalizedNumber(item?.ajustes_totais_usd),
-      brl: parseLocalizedNumber(item?.ajustes_totais_brl),
+      usd,
+      brl: isMoedaOperation ? usd : parseLocalizedNumber(item?.ajustes_totais_brl),
     };
   }
 
@@ -3091,6 +3230,10 @@ const calculatePriceCompositionDerivativeMtm = (item, strikeMtm, openUsdBrlQuote
   else if (operationName.includes("compra put")) usd = strikeMercado < strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
   else if (operationName.includes("venda call")) usd = strikeMercado > strikeMontagem ? (strikeMontagem - strikeMercado) * volume : 0;
   else if (operationName.includes("venda put")) usd = strikeMercado < strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
+
+  if (isMoedaOperation) {
+    return { usd, brl: usd };
+  }
 
   const isUsdOperation = String(item?.volume_financeiro_moeda || "").trim() === "U$";
   const fx = isUsdOperation ? (openUsdBrlQuote || parseLocalizedNumber(item?.dolar_ptax_vencimento)) : 1;
@@ -3146,10 +3289,9 @@ const getCashflowSeriesDefs = (currencyConfig) =>
         { key: "saleDerivatives", label: "Vendas via Derivativos", color: "#86efac", stack: "cashflow" },
       ]
     : [
-        { key: "payments", label: `Pagamentos em ${currencyConfig.label}`, color: "#ff3b30", stack: "cashflow" },
-        { key: "otherCashOutflows", label: `Outras saídas Caixa em ${currencyConfig.label}`, color: "#dc2626", stack: "cashflow" },
-        { key: "paymentsSwap", label: `Pagamentos em ${currencyConfig.label} (com swap para R$)`, color: "#f9a8b5", stack: "cashflow" },
-        { key: "purchaseDerivatives", label: `Compra de ${currencyConfig.label} via Derivativos`, color: "#ffd43b", stack: "cashflow" },
+        { key: "payments", label: `Pagamentos em ${currencyConfig.label}`, color: "#ef4444", stack: "cashflow" },
+        { key: "otherCashOutflows", label: `Outras saídas Caixa em ${currencyConfig.label}`, color: "#b91c1c", stack: "cashflow" },
+        { key: "purchaseDerivatives", label: `NDF/Call comprado em ${currencyConfig.label}`, color: "#ffd43b", stack: "cashflow" },
         { key: "physicalSales", label: `Vendas em ${currencyConfig.label}`, color: "#16a34a", stack: "cashflow" },
         { key: "otherEntries", label: `Outras Entradas Caixa em ${currencyConfig.label}`, color: "#14b8a6", stack: "cashflow" },
         { key: "saleDerivatives", label: `Vendas em ${currencyConfig.label} via Derivativos`, color: "#b7f7bd", stack: "cashflow" },
@@ -3180,6 +3322,9 @@ const getDerivativeAssetLabel = (item, cropsById = null) => {
 };
 
 const matchesDerivativeAssetCurrency = (item, currencyConfig, cropsById = null) => {
+  if (normalizeText(item?.destino_texto) === "swap de pagamento moeda estrangeira") {
+    return currencyConfig?.key === "USD";
+  }
   const assetLabel = getDerivativeAssetLabel(item, cropsById);
   if (!assetLabel) return true;
   if (currencyConfig?.key === "USD") {
@@ -3193,7 +3338,11 @@ const matchesDerivativeAssetCurrency = (item, currencyConfig, cropsById = null) 
 
 const getDerivativeCashflowSide = (item, currencyConfig, cropsById = null) => {
   if (currencyConfig?.key === "BRL") {
-    return getDerivativePositionValue(item) === "compra" ? "purchaseDerivatives" : "saleDerivatives";
+    // NDF/Call purchases are USD instruments — exclude from BRL cashflow
+    if (getDerivativePositionValue(item) === "compra") return null;
+    // Only cmdtye (commodity) sales in BRL are relevant for the BRL cashflow
+    if (normalizeText(item.moeda_ou_cmdtye) !== "cmdtye") return null;
+    return "saleDerivatives";
   }
 
   if (!matchesDerivativeAssetCurrency(item, currencyConfig, cropsById)) {
@@ -3217,87 +3366,7 @@ const getDerivativeCashflowSide = (item, currencyConfig, cropsById = null) => {
   return null;
 };
 
-const splitCashflowRowsByAmount = ({
-  rows,
-  matchedAmount,
-  matchedCategoryKey,
-  matchedCategoryLabel,
-  unmatchedCategoryKey,
-  unmatchedCategoryLabel,
-  direction,
-}) => {
-  if (!rows.length) return [];
-
-  let remainingMatched = Math.max(Number(matchedAmount || 0), 0);
-  return rows.flatMap((row) => {
-    const absoluteValue = Math.abs(Number(row.valor || 0));
-    if (!(absoluteValue > 0)) return [];
-
-    const matchedPortion = Math.min(absoluteValue, remainingMatched);
-    remainingMatched -= matchedPortion;
-    const unmatchedPortion = Math.max(absoluteValue - matchedPortion, 0);
-    const nextRows = [];
-
-    if (matchedPortion > 0 && matchedCategoryKey && matchedCategoryLabel) {
-      nextRows.push({
-        ...row,
-        categoryKey: matchedCategoryKey,
-        category: matchedCategoryLabel,
-        valor: direction * matchedPortion,
-      });
-    }
-    if (unmatchedPortion > 0 && unmatchedCategoryKey && unmatchedCategoryLabel) {
-      nextRows.push({
-        ...row,
-        categoryKey: unmatchedCategoryKey,
-        category: unmatchedCategoryLabel,
-        valor: direction * unmatchedPortion,
-      });
-    }
-    return nextRows;
-  });
-};
-
-const reconcileCashflowRows = (rows, currencyConfig) => {
-  if (currencyConfig?.key === "BRL") {
-    return rows;
-  }
-
-  const labelMap = getCashflowSeriesLabelMap(currencyConfig);
-  const groupsByDate = rows.reduce((acc, row) => {
-    const dateKey = formatIsoDate(row.date);
-    if (!dateKey) return acc;
-    if (!acc[dateKey]) {
-      acc[dateKey] = [];
-    }
-    acc[dateKey].push(row);
-    return acc;
-  }, {});
-
-  return Object.values(groupsByDate).flatMap((dateRows) => {
-    const paymentRows = dateRows.filter((row) => row.categoryKey === "payments");
-    const purchaseRows = dateRows.filter((row) => row.categoryKey === "purchaseDerivatives");
-    const otherRows = dateRows.filter((row) => row.categoryKey !== "payments" && row.categoryKey !== "purchaseDerivatives");
-
-    const totalPayments = paymentRows.reduce((sum, row) => sum + Math.abs(Number(row.valor || 0)), 0);
-    const totalPurchases = purchaseRows.reduce((sum, row) => sum + Math.abs(Number(row.valor || 0)), 0);
-    const matchedAmount = Math.min(totalPayments, totalPurchases);
-
-    return [
-      ...splitCashflowRowsByAmount({
-        rows: paymentRows,
-        matchedAmount,
-        matchedCategoryKey: "paymentsSwap",
-        matchedCategoryLabel: labelMap.paymentsSwap,
-        unmatchedCategoryKey: "payments",
-        unmatchedCategoryLabel: labelMap.payments,
-        direction: -1,
-      }),
-      ...purchaseRows,
-      ...otherRows,
-    ];
-  });
-};
+const reconcileCashflowRows = (rows) => rows;
 
 const buildCashflowPeriodLabels = (interval, dateRange = {}) => {
   if (interval === "geral") return [];
@@ -3346,9 +3415,6 @@ const getUsdBrlQuoteValue = (quotes = []) => {
 };
 
 const shouldIncludeCashflowCurrency = (currencyConfig, currency) => {
-  if (currencyConfig?.key === "BRL") {
-    return isBrlCurrency(currency) || isUsdCurrency(currency);
-  }
   return currencyConfig?.matcher?.(currency);
 };
 
@@ -3411,6 +3477,7 @@ const getComponentPeriodBounds = (label, interval) => {
   if (interval === "daily") {
     const [day, month, year] = String(label).split("/");
     const start = new Date(Number(year), Number(month) - 1, Number(day));
+    if (Number.isNaN(start.getTime())) return null;
     const end = new Date(start);
     end.setHours(23, 59, 59, 999);
     return { start, end };
@@ -3422,6 +3489,7 @@ const getComponentPeriodBounds = (label, interval) => {
     const [endDay, endMonth, endYear] = String(endLabel || "").split("/");
     const start = new Date(Number(startYear), Number(startMonth) - 1, Number(startDay));
     const end = new Date(Number(endYear), Number(endMonth) - 1, Number(endDay));
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
     end.setHours(23, 59, 59, 999);
     return { start, end };
   }
@@ -3429,6 +3497,7 @@ const getComponentPeriodBounds = (label, interval) => {
   if (interval === "monthly") {
     const [month, year] = String(label).split("/");
     const start = new Date(Number(year), Number(month) - 1, 1);
+    if (Number.isNaN(start.getTime())) return null;
     const end = new Date(Number(year), Number(month), 0);
     end.setHours(23, 59, 59, 999);
     return { start, end };
@@ -3460,6 +3529,10 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
     if (String(value).includes("/")) {
       const [day, month, year] = String(value).split("/");
       return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+    const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
     }
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -3956,20 +4029,16 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   const timelinePeriods = useMemo(() => {
     if (interval === "geral") return [];
     return chartState.labels
-      .map((label) => {
+      .map((label, labelIndex) => {
         const bounds = getComponentPeriodBounds(label, interval);
         if (!bounds?.start || !bounds?.end) return null;
-        const anchor =
-          interval === "monthly"
-            ? bounds.start
-            : interval === "weekly"
-              ? bounds.start
-              : bounds.start;
+        if (Number.isNaN(bounds.start.getTime())) return null;
         return {
           label,
+          labelIndex,
           start: bounds.start,
           end: bounds.end,
-          anchor,
+          anchor: bounds.start,
         };
       })
       .filter(Boolean);
@@ -4000,6 +4069,21 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     [datasetVisibility, interval, visibleRows],
   );
   const visiblePeriodCount = visiblePeriodLabels?.size || timelinePeriods.length || 1;
+  const csSliderStartIndex = useMemo(() => {
+    if (!zoomRange?.start || !timelinePeriods.length) return 0;
+    const t = zoomRange.start.getTime();
+    const idx = timelinePeriods.findIndex((p) => p.anchor.getTime() >= t);
+    return idx < 0 ? 0 : idx;
+  }, [zoomRange, timelinePeriods]);
+  const csSliderEndIndex = useMemo(() => {
+    if (!zoomRange?.end || !timelinePeriods.length) return Math.max(0, timelinePeriods.length - 1);
+    const t = zoomRange.end.getTime();
+    let found = timelinePeriods.length - 1;
+    for (let i = timelinePeriods.length - 1; i >= 0; i--) {
+      if (timelinePeriods[i].anchor.getTime() <= t) { found = i; break; }
+    }
+    return found;
+  }, [zoomRange, timelinePeriods]);
   const openSummaryCardModal = useCallback((groupLabel) => {
     const matchingChartRows = visibleRows.filter((row) => {
       if (groupLabel === "Venda Físico em U$") {
@@ -4197,21 +4281,19 @@ function ComponentSalesDashboard({ dashboardFilter }) {
         {
           type: "inside",
           xAxisIndex: 0,
-          filterMode: "weakFilter",
+          filterMode: "none",
           zoomOnMouseWheel: true,
           moveOnMouseMove: true,
           moveOnMouseWheel: true,
         },
-        {
-          type: "slider",
-          xAxisIndex: 0,
-          height: 22,
-          bottom: 20,
-          filterMode: "weakFilter",
-        },
       ],
       xAxis: {
-        type: "time",
+        type: "category",
+        data: timelinePeriods.map((p) =>
+          interval === "monthly"
+            ? formatCashflowMonthYear(p.start)
+            : formatBrazilianDate(p.start)
+        ),
         axisTick: { show: false },
         axisLabel: {
           color: "#475569",
@@ -4219,17 +4301,9 @@ function ComponentSalesDashboard({ dashboardFilter }) {
           fontSize: 12,
           hideOverlap: true,
           margin: 14,
-          formatter: (value) => {
-            const date = new Date(value);
-            if (interval === "monthly") {
-              return `${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
-            }
-            return formatBrazilianDate(date);
-          },
         },
         axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
         splitLine: { show: false },
-        minInterval: interval === "monthly" ? 28 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
       },
       yAxis: {
         type: "value",
@@ -4289,11 +4363,16 @@ function ComponentSalesDashboard({ dashboardFilter }) {
                 type: "dashed",
                 width: 2,
               },
-              data: [{ xAxis: today }],
+              data: (() => {
+                const tp = timelinePeriods.find((p) => today >= p.start.getTime() && today <= p.end.getTime());
+                if (!tp) return [];
+                const lbl = interval === "monthly" ? formatCashflowMonthYear(tp.start) : formatBrazilianDate(tp.start);
+                return [{ xAxis: lbl }];
+              })(),
             }
           : undefined,
-        data: timelinePeriods.map((period, index) => ({
-          value: [period.anchor.getTime(), Number(dataset.data[index] || 0)],
+        data: timelinePeriods.map((period) => ({
+          value: Number(dataset.data[period.labelIndex] || 0),
           periodLabel: period.label,
         })),
       })),
@@ -4308,30 +4387,26 @@ function ComponentSalesDashboard({ dashboardFilter }) {
       openTableModal(period, params.seriesName);
     },
     datazoom: (params) => {
+      if (!timelinePeriods.length) return;
       const payload = Array.isArray(params?.batch) ? params.batch[0] : params;
-      const domainStart = timelinePeriods[0]?.anchor?.getTime?.();
-      const domainEnd = timelinePeriods[timelinePeriods.length - 1]?.anchor?.getTime?.();
-      if (Number.isFinite(domainStart) && Number.isFinite(domainEnd) && domainEnd > domainStart) {
-        let startValue = payload?.startValue;
-        let endValue = payload?.endValue;
-        if (startValue == null || endValue == null) {
-          const startPct = Number(payload?.start ?? 0);
-          const endPct = Number(payload?.end ?? 100);
-          startValue = domainStart + ((Math.min(Math.max(startPct, 0), 100) / 100) * (domainEnd - domainStart));
-          endValue = domainStart + ((Math.min(Math.max(endPct, 0), 100) / 100) * (domainEnd - domainStart));
-        }
-        if (startValue != null && endValue != null) {
-          setZoomRange({
-            start: new Date(Number(startValue)),
-            end: new Date(Number(endValue)),
-          });
-        }
+      const rawStart = Number(payload?.startValue);
+      const rawEnd = Number(payload?.endValue);
+      let startPeriod, endPeriod;
+      if (Number.isFinite(rawStart) && Number.isFinite(rawEnd) && rawStart >= 0) {
+        const startIdx = Math.max(0, Math.min(Math.round(rawStart), timelinePeriods.length - 1));
+        const endIdx = Math.max(0, Math.min(Math.round(rawEnd), timelinePeriods.length - 1));
+        startPeriod = timelinePeriods[startIdx];
+        endPeriod = timelinePeriods[endIdx];
+      } else {
+        const startPct = Math.min(Math.max(Number(payload?.start ?? 0), 0), 100);
+        const endPct = Math.min(Math.max(Number(payload?.end ?? 100), 0), 100);
+        const startIdx = Math.round((startPct / 100) * (timelinePeriods.length - 1));
+        const endIdx = Math.min(timelinePeriods.length - 1, Math.round((endPct / 100) * (timelinePeriods.length - 1)));
+        startPeriod = timelinePeriods[startIdx];
+        endPeriod = timelinePeriods[endIdx];
       }
-      const startValue = payload?.startValue;
-      const endValue = payload?.endValue;
-      if (startValue == null || endValue == null) return;
-      setDateFrom(formatBrazilianDate(new Date(startValue)));
-      setDateTo(formatBrazilianDate(new Date(endValue)));
+      if (!startPeriod?.start || !endPeriod?.end) return;
+      setZoomRange({ start: startPeriod.start, end: endPeriod.end });
     },
   }), [chartState.labels, openTableModal, timelinePeriods]);
 
@@ -4475,6 +4550,52 @@ function ComponentSalesDashboard({ dashboardFilter }) {
             </div>
           ))}
         </div>
+        {interval !== "geral" && timelinePeriods.length > 1 ? (() => {
+          const totalCount = timelinePeriods.length;
+          const startPct = (csSliderStartIndex / Math.max(totalCount - 1, 1)) * 100;
+          const endPct = (csSliderEndIndex / Math.max(totalCount - 1, 1)) * 100;
+          const fmtLabel = (p) => interval === "monthly" ? formatCashflowMonthYear(p.start) : formatBrazilianDate(p.start);
+          return (
+            <div className="hedge-slider-wrap">
+              <div className="hedge-slider-dates">
+                <span>{fmtLabel(timelinePeriods[0])}</span>
+                <span>{fmtLabel(timelinePeriods[totalCount - 1])}</span>
+              </div>
+              <div className="hedge-slider-track">
+                <div className="hedge-slider-track-bg" />
+                <div className="hedge-slider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
+                <input
+                  type="range"
+                  className="hedge-slider-input"
+                  min={0}
+                  max={totalCount - 1}
+                  value={csSliderStartIndex}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    const endPeriod = timelinePeriods[csSliderEndIndex];
+                    if (v <= csSliderEndIndex && timelinePeriods[v]?.start && endPeriod?.end) {
+                      setZoomRange({ start: timelinePeriods[v].start, end: endPeriod.end });
+                    }
+                  }}
+                />
+                <input
+                  type="range"
+                  className="hedge-slider-input"
+                  min={0}
+                  max={totalCount - 1}
+                  value={csSliderEndIndex}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    const startPeriod = timelinePeriods[csSliderStartIndex];
+                    if (v >= csSliderStartIndex && startPeriod?.start && timelinePeriods[v]?.end) {
+                      setZoomRange({ start: startPeriod.start, end: timelinePeriods[v].end });
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })() : null}
       </div>
 
       {selectedTableModal ? (
@@ -4514,6 +4635,10 @@ const buildCashflowRows = ({
     if (String(value).includes("/")) {
       const [day, month, year] = String(value).split("/");
       return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+    const isoMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoMatch) {
+      return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
     }
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -4640,7 +4765,13 @@ const buildCashflowRows = ({
         cultureKeys: DERIVATIVE_CULTURE_KEYS,
       }),
     )
-    .filter((item) => normalizeText(item.moeda_ou_cmdtye) === "moeda")
+    .filter((item) => {
+      const tipo = normalizeText(item.moeda_ou_cmdtye);
+      if (tipo === "moeda") return true;
+      // cmdtye derivatives: only include in BRL chart (commodity sales priced in R$)
+      if (currencyConfig?.key === "BRL" && tipo === "cmdtye") return true;
+      return false;
+    })
     .filter((item) => shouldIncludeCashflowCurrency(currencyConfig, item.volume_financeiro_moeda || item.moeda_unidade))
     .map((item) => {
       const date = parseDate(item.data_liquidacao || item.data_contratacao);
@@ -4671,7 +4802,7 @@ const buildCashflowRows = ({
     })
     .filter(Boolean);
 
-  return reconcileCashflowRows([...paymentRows, ...otherCashOutflowRows, ...salesRows, ...otherEntryRows, ...derivativeRows], currencyConfig);
+  return reconcileCashflowRows([...paymentRows, ...otherCashOutflowRows, ...salesRows, ...otherEntryRows, ...derivativeRows]);
 };
 
 const buildCashflowChartState = (rows, interval, currencyConfig, dateRange) => {
@@ -4688,15 +4819,6 @@ const buildCashflowChartState = (rows, interval, currencyConfig, dateRange) => {
   });
 
   const labels = Array.from(grouped.keys());
-  const rangeLabels = buildCashflowPeriodLabels(interval, dateRange);
-  rangeLabels.forEach((label) => {
-    if (!grouped.has(label)) {
-      grouped.set(label, Object.fromEntries(seriesDefs.map((item) => [item.key, { total: 0, ops: [] }])));
-    }
-    if (!labels.includes(label)) {
-      labels.push(label);
-    }
-  });
   if (interval !== "geral") {
     labels.sort((left, right) => getComponentSortKey(left, interval) - getComponentSortKey(right, interval));
   }
@@ -4721,16 +4843,25 @@ const buildCashflowChartState = (rows, interval, currencyConfig, dateRange) => {
     seriesDefs.reduce((sum, item) => sum + Number(grouped.get(label)?.[item.key]?.total || 0), 0),
   );
 
+  const saldoLabel = currencyConfig?.key === "BRL" ? "Saldo" : `Exposição líquida em ${currencyConfig?.label ?? ""}`;
+
+  const saldoAbsValues = saldoData.map((v) => Math.abs(Number(v || 0)));
+  const maxSaldoAbs = Math.max(...saldoAbsValues, 1);
+  const saldoPointRadii = saldoAbsValues.map((abs) => {
+    const ratio = abs / maxSaldoAbs;
+    return Math.round(4 + ratio * 10);
+  });
+
   datasets.push({
-    label: "Saldo",
+    label: saldoLabel,
     type: "line",
     data: saldoData,
     borderColor: "#64748b",
     backgroundColor: "#64748b",
     pointBackgroundColor: saldoData.map((value) => (Number(value || 0) < 0 ? "#ef4444" : "#16a34a")),
     tension: 0.35,
-    pointRadius: 6,
-    pointHoverRadius: 7,
+    pointRadius: saldoPointRadii,
+    pointHoverRadius: saldoPointRadii.map((r) => r + 2),
     pointBorderWidth: 2,
     pointBorderColor: "#ffffff",
     yAxisID: "y",
@@ -4761,6 +4892,240 @@ const buildCashflowChartState = (rows, interval, currencyConfig, dateRange) => {
   return { labels, datasets, opsIndex, totals, saldoData, saldoTotal, periodSummaries, seriesDefs };
 };
 
+function CashflowHedgeGauge({ pct }) {
+  const MAX = 150;
+  const cx = 150;
+  const cy = 108;
+  const arcRadius = 74;
+  const outerTickRadius = 84;
+  const labelRadius = 96;
+  const gaugeStartAngle = -135;
+  const gaugeSweep = 270;
+
+  const clampedPct = Math.min(Math.max(Number(pct) || 0, 0), MAX);
+
+  const polarToCartesian = (radius, angleDeg) => {
+    const rad = ((angleDeg - 90) * Math.PI) / 180;
+    return { x: cx + radius * Math.cos(rad), y: cy + radius * Math.sin(rad) };
+  };
+
+  const describeArc = (radius, startAngle, endAngle) => {
+    const start = polarToCartesian(radius, endAngle);
+    const end = polarToCartesian(radius, startAngle);
+    const largeArc = Math.abs(endAngle - startAngle) <= 180 ? "0" : "1";
+    return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 0 ${end.x} ${end.y}`;
+  };
+
+  const angleFor = (value) => gaugeStartAngle + (Math.min(Math.max(value, 0), MAX) / MAX) * gaugeSweep;
+
+  const zones = [
+    { from: 0, to: 80, color: "#ff1a1a" },
+    { from: 80, to: 90, color: "#f5b82e" },
+    { from: 90, to: 110, color: "#16a34a" },
+    { from: 110, to: 120, color: "#f5b82e" },
+    { from: 120, to: MAX, color: "#ff1a1a" },
+  ];
+
+  const ticks = [0, 30, 60, 90, 120, 150].map((value) => {
+    const angle = angleFor(value);
+    return {
+      value,
+      outer: polarToCartesian(outerTickRadius, angle),
+      inner: polarToCartesian(value % 60 === 0 ? 66 : 72, angle),
+      label: polarToCartesian(labelRadius, angle),
+    };
+  });
+
+  const needleAngle = angleFor(clampedPct);
+  const needleEnd = polarToCartesian(56, needleAngle);
+  const needleLeft = polarToCartesian(9, needleAngle - 90);
+  const needleRight = polarToCartesian(9, needleAngle + 90);
+
+  const displayColor =
+    clampedPct >= 90 && clampedPct <= 110
+      ? "#16a34a"
+      : clampedPct >= 80 && clampedPct <= 120
+      ? "#f5b82e"
+      : "#ff1a1a";
+
+  return (
+    <svg viewBox="10 0 235 195" width="128" height="107" aria-label={`Cobertura: ${Math.round(pct)}%`}>
+      {zones.map((z) => (
+        <path
+          key={`${z.from}-${z.to}`}
+          d={describeArc(arcRadius, angleFor(z.from), angleFor(z.to))}
+          fill="none"
+          stroke={z.color}
+          strokeWidth="20"
+          strokeLinecap="butt"
+        />
+      ))}
+      {ticks.map((tick) => (
+        <g key={tick.value}>
+          <line
+            x1={tick.outer.x} y1={tick.outer.y}
+            x2={tick.inner.x} y2={tick.inner.y}
+            stroke="#0f172a"
+            strokeWidth={tick.value % 60 === 0 ? 2.5 : 1.2}
+            strokeLinecap="round"
+          />
+          <text
+            x={tick.label.x}
+            y={tick.label.y}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="12"
+            fill="#475569"
+            style={{ fontFamily: "system-ui, sans-serif" }}
+          >
+            {tick.value}
+          </text>
+        </g>
+      ))}
+      <path
+        d={`M ${needleLeft.x} ${needleLeft.y} L ${needleRight.x} ${needleRight.y} L ${needleEnd.x} ${needleEnd.y} Z`}
+        fill="#0f172a"
+      />
+      <circle cx={cx} cy={cy} r="11" fill="#fff" stroke="#0f172a" strokeWidth="4" />
+      <text
+        x={cx}
+        y="172"
+        textAnchor="middle"
+        fontSize="22"
+        fontWeight="800"
+        fill={displayColor}
+        style={{ fontFamily: "system-ui, sans-serif" }}
+      >
+        {`${Math.round(pct)}%`}
+      </text>
+      <text
+        x={cx}
+        y="188"
+        textAnchor="middle"
+        fontSize="12"
+        fill="#94a3b8"
+        style={{ fontFamily: "system-ui, sans-serif" }}
+      >
+        cobertura
+      </text>
+    </svg>
+  );
+}
+
+function CashflowTotalsBar({ totals }) {
+  const positives = totals.filter((t) => t.value > 0);
+  const negatives = totals.filter((t) => t.value < 0);
+  const totalPos = positives.reduce((s, t) => s + t.value, 0);
+  const totalNeg = negatives.reduce((s, t) => s + Math.abs(t.value), 0);
+  const maxAbs = Math.max(totalPos, totalNeg, 1);
+
+  const VB_W = 100;
+  const VB_H = 220;
+  const BAR_W = 42;
+  const HALF_H = 90;
+  const ZERO_Y = 110;
+  const bx = (VB_W - BAR_W) / 2;
+
+  let posY = ZERO_Y;
+  const posBars = positives.map((t) => {
+    const h = (t.value / maxAbs) * HALF_H;
+    const bar = { x: bx, y: posY - h, w: BAR_W, h, color: t.color };
+    posY -= h;
+    return bar;
+  });
+
+  let negY = ZERO_Y;
+  const negBars = negatives.map((t) => {
+    const h = (Math.abs(t.value) / maxAbs) * HALF_H;
+    const bar = { x: bx, y: negY, w: BAR_W, h, color: t.color };
+    negY += h;
+    return bar;
+  });
+
+  return (
+    <div style={{ flex: "1 1 0", width: "100%", minHeight: 80, overflow: "hidden" }}>
+      <svg
+        viewBox={`0 0 ${VB_W} ${VB_H}`}
+        preserveAspectRatio="none"
+        style={{ width: "100%", height: "100%", display: "block" }}
+      >
+        <line x1={bx + BAR_W / 2} y1={5} x2={bx + BAR_W / 2} y2={VB_H - 5} stroke="#e2e8f0" strokeWidth="1" />
+        {posBars.filter((b) => b.h > 0.1).map((b, i) => (
+          <rect key={`pos-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill={b.color} opacity="0.85" />
+        ))}
+        {negBars.filter((b) => b.h > 0.1).map((b, i) => (
+          <rect key={`neg-${i}`} x={b.x} y={b.y} width={b.w} height={b.h} fill={b.color} opacity="0.85" />
+        ))}
+        <line x1={bx - 6} y1={ZERO_Y} x2={bx + BAR_W + 6} y2={ZERO_Y} stroke="#64748b" strokeWidth="1.5" />
+        <text x={bx + BAR_W + 8} y={ZERO_Y - 6} textAnchor="start" fontSize="9" fill="#94a3b8" style={{ fontFamily: "system-ui, sans-serif" }}>+</text>
+        <text x={bx + BAR_W + 8} y={ZERO_Y + 12} textAnchor="start" fontSize="9" fill="#94a3b8" style={{ fontFamily: "system-ui, sans-serif" }}>−</text>
+      </svg>
+    </div>
+  );
+}
+
+function CashflowHorizonCards({ rows, currencyConfig, onOpen }) {
+  const isBrl = currencyConfig.key === "BRL";
+  const label = currencyConfig.label;
+
+  const summaries = useMemo(() => {
+    const today = startOfDashboardDay(new Date());
+    if (!today) return [];
+    const startTime = today.getTime();
+
+    return [7, 30, 90, 365].map((days) => {
+      const endDate = new Date(today);
+      endDate.setDate(endDate.getDate() + days);
+      const endTime = endDate.getTime();
+
+      const windowRows = rows.filter((row) => {
+        const t = row.date instanceof Date ? row.date.getTime() : null;
+        return Number.isFinite(t) && t >= startTime && t <= endTime;
+      });
+
+      const pgtos = windowRows
+        .filter((r) => r.categoryKey === "payments" || r.categoryKey === "otherCashOutflows")
+        .reduce((s, r) => s + Math.abs(Number(r.valor || 0)), 0);
+
+      const hedge = windowRows
+        .filter((r) => r.categoryKey === "purchaseDerivatives" || r.categoryKey === "saleDerivatives" || r.categoryKey === "physicalSales" || r.categoryKey === "otherEntries")
+        .reduce((s, r) => s + Math.abs(Number(r.valor || 0)), 0);
+
+      const saldo = pgtos - hedge;
+      return { days, pgtos, hedge, saldo, windowRows };
+    });
+  }, [rows]);
+
+  return (
+    <div className="cashflow-horizon-cards">
+      {summaries.map(({ days, pgtos, hedge, saldo, windowRows }) => (
+        <div
+          key={days}
+          className="cashflow-horizon-card cashflow-horizon-card--clickable"
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpen?.(days, windowRows)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen?.(days, windowRows); } }}
+        >
+          <div className="cashflow-horizon-title">Próximos {days} dias</div>
+          <div className="cashflow-horizon-row">
+            <span>{isBrl ? "Pagamentos" : `Pgtos em ${label}`}</span>
+            <span>{formatMoneyByCurrency(pgtos, label)}</span>
+          </div>
+          <div className="cashflow-horizon-row">
+            <span>{isBrl ? "Entradas" : "Hedge"}</span>
+            <span>{formatMoneyByCurrency(hedge, label)}</span>
+          </div>
+          <div className="cashflow-horizon-row cashflow-horizon-saldo" style={{ color: saldo <= 0 ? "#16a34a" : "#ef4444" }}>
+            <span>Saldo</span>
+            <span>{formatMoneyByCurrency(Math.abs(saldo), label)}{saldo <= 0 ? " ✓" : ""}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CashflowCurrencyChart({
   currencyConfig,
   rows,
@@ -4768,16 +5133,16 @@ function CashflowCurrencyChart({
   dateRange,
   fixedDateRange,
   compact = false,
-  isExpanded = false,
-  onToggleExpand,
   onOpenTable,
   sectionRef,
   onDateRangeChange,
   conversionMessage = "",
 }) {
   const chartWrapRef = useRef(null);
+  const echartsRef = useRef(null);
   const [chartWidth, setChartWidth] = useState(0);
   const [hoveredPeriod, setHoveredPeriod] = useState(null);
+  const [maximized, setMaximized] = useState(false);
   const visibleRows = useMemo(() => {
     const startDateValue = dateRange?.start ? startOfDashboardDay(dateRange.start) : null;
     const endDateValue = dateRange?.end ? startOfDashboardDay(dateRange.end) : null;
@@ -4802,8 +5167,8 @@ function CashflowCurrencyChart({
       return true;
     });
   }, [dateRange.end, dateRange.start, rows]);
-  const chartRows = isExpanded ? rows : visibleRows;
-  const chartRange = isExpanded ? fixedDateRange : dateRange;
+  const chartRows = visibleRows;
+  const chartRange = dateRange;
   const chartState = useMemo(
     () => buildCashflowChartState(chartRows, interval, currencyConfig, chartRange),
     [chartRange, chartRows, currencyConfig, interval],
@@ -4815,14 +5180,23 @@ function CashflowCurrencyChart({
   const activeSummary = hoveredPeriod ? chartState.periodSummaries.get(hoveredPeriod) : null;
   const summaryCards = activeSummary?.totals || visibleSummaryState.totals;
   const saldoSummary = activeSummary?.saldo ?? visibleSummaryState.saldoTotal;
+  const coveragePct = useMemo(() => {
+    const totals = visibleSummaryState.totals;
+    const totalOutflows = totals.reduce((sum, t) => sum + (t.value < 0 ? Math.abs(t.value) : 0), 0);
+    const totalInflows = totals.reduce((sum, t) => sum + (t.value > 0 ? t.value : 0), 0);
+    if (totalOutflows <= 0) return totalInflows > 0 ? 100 : 0;
+    return (totalInflows / totalOutflows) * 100;
+  }, [visibleSummaryState.totals]);
   const timelinePeriods = useMemo(() => {
     if (interval === "geral") return [];
     return chartState.labels
-      .map((label) => {
+      .map((label, labelIndex) => {
         const bounds = getComponentPeriodBounds(label, interval);
         if (!bounds?.start || !bounds?.end) return null;
+        if (Number.isNaN(bounds.start.getTime())) return null;
         return {
           label,
+          labelIndex,
           start: bounds.start,
           end: bounds.end,
           anchor: bounds.start,
@@ -4842,10 +5216,10 @@ function CashflowCurrencyChart({
   const effectiveChartWidth = Math.max(Number(chartWidth || 0), 320);
   const slotWidth = Math.max(18, (effectiveChartWidth - 48) / visiblePeriodCount);
   const intervalFillRatio = {
-    daily: effectiveChartWidth <= 640 ? 0.38 : 0.34,
-    weekly: effectiveChartWidth <= 640 ? 0.52 : 0.5,
-    monthly: effectiveChartWidth <= 640 ? 0.68 : 0.64,
-    geral: effectiveChartWidth <= 640 ? 0.78 : 0.72,
+    daily: effectiveChartWidth <= 640 ? 0.82 : 0.80,
+    weekly: effectiveChartWidth <= 640 ? 0.90 : 0.88,
+    monthly: effectiveChartWidth <= 640 ? 0.96 : 0.94,
+    geral: effectiveChartWidth <= 640 ? 0.97 : 0.95,
   };
   const intervalMinBarWidth = {
     daily: effectiveChartWidth <= 640 ? 5 : 6,
@@ -4854,16 +5228,16 @@ function CashflowCurrencyChart({
     geral: effectiveChartWidth <= 640 ? 28 : 40,
   };
   const intervalMaxBarWidth = {
-    daily: effectiveChartWidth <= 640 ? 10 : 12,
-    weekly: effectiveChartWidth <= 640 ? 18 : 24,
-    monthly: effectiveChartWidth <= 640 ? 32 : 42,
-    geral: effectiveChartWidth <= 640 ? 120 : 180,
+    daily: effectiveChartWidth <= 640 ? 22 : 30,
+    weekly: effectiveChartWidth <= 640 ? 40 : 60,
+    monthly: effectiveChartWidth <= 640 ? 80 : 120,
+    geral: effectiveChartWidth <= 640 ? 200 : 360,
   };
   const intervalDateGapPreset = {
-    daily: 8,
-    weekly: 6,
-    monthly: 5,
-    geral: 4,
+    daily: 2,
+    weekly: 2,
+    monthly: 2,
+    geral: 2,
   };
   const visibleStackCount = Math.max(1, new Set(visibleBarDatasets.map((dataset) => dataset.stack)).size);
   const intraBarGapPx = visibleStackCount > 1 ? 2 : 0;
@@ -4881,7 +5255,7 @@ function CashflowCurrencyChart({
     ? `${Math.max(0, (intraBarGapPx / responsiveBarWidth) * 100)}%`
     : "0%";
   const responsiveCategoryGap = `${Math.max(8, Math.min(60, (dateGapPx / slotWidth) * 100))}%`;
-  const hasNativeZoom = interval !== "geral" && isExpanded && timelinePeriods.length > 1;
+  const hasNativeZoom = false;
   const fixedStartValue = fixedDateRange?.start ? startOfDashboardDay(fixedDateRange.start)?.getTime?.() : null;
   const fixedEndDate = fixedDateRange?.end ? startOfDashboardDay(fixedDateRange.end) : null;
   const fixedEndValue = fixedEndDate
@@ -4908,6 +5282,19 @@ function CashflowCurrencyChart({
         999,
       ).getTime()
     : null;
+  const sliderStartIndex = useMemo(() => {
+    if (!Number.isFinite(selectedStartValue) || !timelinePeriods.length) return 0;
+    const idx = timelinePeriods.findIndex((p) => p.anchor.getTime() >= selectedStartValue);
+    return idx < 0 ? 0 : idx;
+  }, [selectedStartValue, timelinePeriods]);
+  const sliderEndIndex = useMemo(() => {
+    if (!Number.isFinite(selectedEndValue) || !timelinePeriods.length) return Math.max(0, timelinePeriods.length - 1);
+    let found = timelinePeriods.length - 1;
+    for (let i = timelinePeriods.length - 1; i >= 0; i--) {
+      if (timelinePeriods[i].anchor.getTime() <= selectedEndValue) { found = i; break; }
+    }
+    return found;
+  }, [selectedEndValue, timelinePeriods]);
   const openSummaryCardTable = useCallback((label) => {
     const seriesDef = visibleSummaryState.seriesDefs.find((item) => item.label === label);
     if (!seriesDef) return;
@@ -4921,9 +5308,9 @@ function CashflowCurrencyChart({
   }, [onOpenTable, visibleRows, visibleSummaryState.seriesDefs]);
   const chartOption = useMemo(() => {
     const today = startOfDashboardDay(new Date())?.getTime?.();
-    const temporalGridBottom = isExpanded ? (hasNativeZoom ? 84 : 56) : 18;
-    const temporalGridTop = isExpanded ? 28 : 14;
-    const temporalAxisLabelMargin = isExpanded ? 14 : 8;
+    const temporalGridBottom = 18;
+    const temporalGridTop = 14;
+    const temporalAxisLabelMargin = 8;
 
     if (interval === "geral") {
       return {
@@ -4934,6 +5321,7 @@ function CashflowCurrencyChart({
           axisPointer: { type: "shadow" },
           formatter: (params) =>
             `<strong>${params[0]?.axisValue || ""}</strong><br/>${params
+              .filter((item) => Math.abs(readEChartNumericValue(item.value)) > 0)
               .map((item) => `${item.marker}${item.seriesName}: ${formatMoneyByCurrency(readEChartNumericValue(item.value), currencyConfig.label)}`)
               .join("<br/>")}`,
         },
@@ -4979,7 +5367,7 @@ function CashflowCurrencyChart({
           label: dataset.type === "line"
             ? { show: false }
             : {
-                show: !(compact && !isExpanded) && lastVisibleByStack[dataset.stack] === dataset.label,
+                show: !compact && lastVisibleByStack[dataset.stack] === dataset.label,
                 position: "top",
                 color: "#111827",
                 fontSize: 11,
@@ -4994,6 +5382,13 @@ function CashflowCurrencyChart({
       };
     }
 
+    const todayPeriod = Number.isFinite(today)
+      ? timelinePeriods.find((p) => today >= p.start.getTime() && today <= p.end.getTime())
+      : null;
+    const todayLabel = todayPeriod
+      ? (interval === "monthly" ? formatCashflowMonthYear(todayPeriod.start) : formatBrazilianDate(todayPeriod.start))
+      : null;
+
     return {
       animationDuration: 250,
       grid: { top: temporalGridTop, right: 18, bottom: temporalGridBottom, left: 18, containLabel: true },
@@ -5003,6 +5398,7 @@ function CashflowCurrencyChart({
         formatter: (params) => {
           const periodLabel = params.find((item) => item?.data?.periodLabel)?.data?.periodLabel || "";
           const rowsHtml = params
+            .filter((item) => Math.abs(readEChartNumericValue(item.value)) > 0)
             .map((item) => `${item.marker}${item.seriesName}: ${formatMoneyByCurrency(readEChartNumericValue(item.value), currencyConfig.label)}`)
             .join("<br/>");
           return `<strong>${periodLabel}</strong><br/>${rowsHtml}`;
@@ -5014,51 +5410,21 @@ function CashflowCurrencyChart({
             {
               type: "inside",
               xAxisIndex: 0,
-              filterMode: "weakFilter",
-              startValue: selectedStartValue,
-              endValue: selectedEndValue,
+              filterMode: "none",
+              startValue: sliderStartIndex,
+              endValue: sliderEndIndex,
               zoomOnMouseWheel: true,
               moveOnMouseMove: true,
               moveOnMouseWheel: true,
               preventDefaultMouseMove: false,
             },
-            {
-              type: "slider",
-              xAxisIndex: 0,
-              height: 28,
-              bottom: 16,
-              filterMode: "weakFilter",
-              startValue: selectedStartValue,
-              endValue: selectedEndValue,
-              borderColor: "rgba(148, 163, 184, 0.35)",
-              fillerColor: "rgba(59, 130, 246, 0.14)",
-              backgroundColor: "rgba(226, 232, 240, 0.65)",
-              dataBackground: {
-                lineStyle: { color: "rgba(99, 102, 241, 0.35)", width: 1 },
-                areaStyle: { color: "rgba(191, 219, 254, 0.45)" },
-              },
-              moveHandleStyle: {
-                color: "#ffffff",
-                borderColor: "rgba(148, 163, 184, 0.9)",
-              },
-              handleStyle: {
-                color: "#ffffff",
-                borderColor: "rgba(148, 163, 184, 0.9)",
-              },
-              textStyle: {
-                color: "#64748b",
-              },
-            },
           ]
         : [],
       xAxis: {
-        type: "time",
-        min: Number.isFinite(isExpanded ? fixedStartValue : selectedStartValue)
-          ? (isExpanded ? fixedStartValue : selectedStartValue)
-          : undefined,
-        max: Number.isFinite(isExpanded ? fixedEndValue : selectedEndValue)
-          ? (isExpanded ? fixedEndValue : selectedEndValue)
-          : undefined,
+        type: "category",
+        data: timelinePeriods.map((p) =>
+          interval === "monthly" ? formatCashflowMonthYear(p.start) : formatBrazilianDate(p.start)
+        ),
         axisTick: { show: false },
         axisLabel: {
           color: "#475569",
@@ -5066,17 +5432,9 @@ function CashflowCurrencyChart({
           fontSize: 12,
           hideOverlap: true,
           margin: temporalAxisLabelMargin,
-          formatter: (value) => {
-            const date = new Date(value);
-            if (interval === "monthly") {
-              return formatCashflowMonthYear(date);
-            }
-            return formatBrazilianDate(date);
-          },
         },
         axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
         splitLine: { show: false },
-        minInterval: interval === "monthly" ? 28 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000,
       },
       yAxis: {
         type: "value",
@@ -5111,7 +5469,7 @@ function CashflowCurrencyChart({
         label: dataset.type === "line"
           ? { show: false }
           : {
-              show: !(compact && !isExpanded) && lastVisibleByStack[dataset.stack] === dataset.label,
+              show: !compact && lastVisibleByStack[dataset.stack] === dataset.label,
               position: "top",
               color: "#111827",
               fontSize: 11,
@@ -5123,7 +5481,7 @@ function CashflowCurrencyChart({
               },
             },
         labelLayout: dataset.type === "line" ? undefined : { hideOverlap: true },
-        markLine: dataset.type !== "line" && datasetIndex === 0 && Number.isFinite(today)
+        markLine: dataset.type !== "line" && datasetIndex === 0 && todayLabel != null
           ? {
               symbol: ["none", "none"],
               silent: true,
@@ -5144,18 +5502,13 @@ function CashflowCurrencyChart({
                 type: "dashed",
                 width: 2,
               },
-              data: [{ xAxis: today }],
+              data: [{ xAxis: todayLabel }],
             }
           : undefined,
-        data: dataset.type === "line"
-          ? timelinePeriods.map((period, index) => ({
-              value: [period.anchor.getTime(), Number(dataset.data[index] || 0)],
-              periodLabel: period.label,
-            }))
-          : timelinePeriods.map((period, index) => ({
-              value: [period.anchor.getTime(), Number(dataset.data[index] || 0)],
-              periodLabel: period.label,
-            })),
+        data: timelinePeriods.map((period) => ({
+          value: Number(dataset.data[period.labelIndex] || 0),
+          periodLabel: period.label,
+        })),
       })),
     };
   }, [
@@ -5163,17 +5516,14 @@ function CashflowCurrencyChart({
     compact,
     currencyConfig.label,
     chartWidth,
-    fixedEndValue,
-    fixedStartValue,
     hasNativeZoom,
     interval,
-    isExpanded,
     lastVisibleByStack,
     responsiveBarGap,
     responsiveBarWidth,
     responsiveCategoryGap,
-    selectedEndValue,
-    selectedStartValue,
+    sliderEndIndex,
+    sliderStartIndex,
     timelinePeriods,
     visiblePeriodCount,
   ]);
@@ -5186,57 +5536,38 @@ function CashflowCurrencyChart({
     datazoom: (params) => {
       if (!hasNativeZoom || !timelinePeriods.length) return;
       const payload = Array.isArray(params?.batch) ? params.batch[0] : params;
-      const firstAnchor = timelinePeriods[0]?.anchor?.getTime?.();
-      const lastAnchor = timelinePeriods[timelinePeriods.length - 1]?.anchor?.getTime?.();
-      if (!Number.isFinite(firstAnchor) || !Number.isFinite(lastAnchor)) return;
-
-      let startValue = Number(payload?.startValue);
-      let endValue = Number(payload?.endValue);
-      if (!Number.isFinite(startValue) || !Number.isFinite(endValue)) {
-        const startPercent = Math.min(Math.max(Number(payload?.start ?? 0), 0), 100);
-        const endPercent = Math.min(Math.max(Number(payload?.end ?? 100), 0), 100);
-        startValue = firstAnchor + ((lastAnchor - firstAnchor) * startPercent) / 100;
-        endValue = firstAnchor + ((lastAnchor - firstAnchor) * endPercent) / 100;
+      const rawStart = Number(payload?.startValue);
+      const rawEnd = Number(payload?.endValue);
+      let startPeriod, endPeriod;
+      if (Number.isFinite(rawStart) && Number.isFinite(rawEnd) && rawStart >= 0) {
+        const startIdx = Math.max(0, Math.min(Math.round(rawStart), timelinePeriods.length - 1));
+        const endIdx = Math.max(0, Math.min(Math.round(rawEnd), timelinePeriods.length - 1));
+        startPeriod = timelinePeriods[startIdx];
+        endPeriod = timelinePeriods[endIdx];
+      } else {
+        const startPct = Math.min(Math.max(Number(payload?.start ?? 0), 0), 100);
+        const endPct = Math.min(Math.max(Number(payload?.end ?? 100), 0), 100);
+        const startIdx = Math.round((startPct / 100) * (timelinePeriods.length - 1));
+        const endIdx = Math.min(timelinePeriods.length - 1, Math.round((endPct / 100) * (timelinePeriods.length - 1)));
+        startPeriod = timelinePeriods[startIdx];
+        endPeriod = timelinePeriods[endIdx];
       }
-
-      const visiblePeriods = timelinePeriods.filter((period) => {
-        const anchorTime = period.anchor?.getTime?.();
-        return Number.isFinite(anchorTime) && anchorTime >= startValue && anchorTime <= endValue;
-      });
-      let nextPeriods = visiblePeriods.length ? visiblePeriods : timelinePeriods;
-      if (nextPeriods.length < 2 && timelinePeriods.length >= 2) {
-        const nearestIndex = timelinePeriods.reduce((bestIndex, period, index) => {
-          const anchorTime = period.anchor?.getTime?.();
-          const bestAnchorTime = timelinePeriods[bestIndex]?.anchor?.getTime?.();
-          if (!Number.isFinite(anchorTime)) return bestIndex;
-          if (!Number.isFinite(bestAnchorTime)) return index;
-          const currentDistance = Math.abs(anchorTime - startValue);
-          const bestDistance = Math.abs(bestAnchorTime - startValue);
-          return currentDistance < bestDistance ? index : bestIndex;
-        }, 0);
-        const fallbackStartIndex = Math.max(0, Math.min(nearestIndex, timelinePeriods.length - 2));
-        nextPeriods = timelinePeriods.slice(fallbackStartIndex, fallbackStartIndex + 2);
-      }
-      const nextStart = nextPeriods[0]?.start;
-      const nextEnd = nextPeriods[nextPeriods.length - 1]?.end;
-      if (!nextStart || !nextEnd) return;
-      onDateRangeChange?.({ start: nextStart, end: nextEnd });
+      if (!startPeriod?.start || !endPeriod?.end) return;
+      onDateRangeChange?.({ start: startPeriod.start, end: endPeriod.end });
     },
     click: (params) => {
       if (params.componentType !== "series") return;
       const period = params?.data?.periodLabel || chartState.labels[params.dataIndex];
-      const category = String(params.seriesName || "");
-      if (category === "Saldo") return;
-      const categoryKey = chartState.seriesDefs.find((item) => item.label === category)?.key;
-      const chartRows = chartState.opsIndex.get(`${period}||${categoryKey}`) || [];
-      if (!chartRows.length) return;
-      onOpenTable?.({
-        title: `${category} — ${period}`,
-        resourceKey: chartRows[0]?.resourceKey,
-        chartRows,
-      });
+      const allTables = chartState.seriesDefs
+        .map((def) => {
+          const rows = chartState.opsIndex.get(`${period}||${def.key}`) || [];
+          return rows.length ? { key: def.key, label: def.label, resourceKey: rows[0]?.resourceKey, chartRows: rows } : null;
+        })
+        .filter(Boolean);
+      if (!allTables.length) return;
+      onOpenTable?.({ period, allTables, periodSummary: chartState.periodSummaries?.get(period), currencyConfig });
     },
-  }), [chartState, hasNativeZoom, onDateRangeChange, onOpenTable, timelinePeriods]);
+  }), [chartState, currencyConfig, hasNativeZoom, onDateRangeChange, onOpenTable, timelinePeriods]);
 
   useEffect(() => {
     const node = chartWrapRef.current;
@@ -5251,10 +5582,46 @@ function CashflowCurrencyChart({
     return () => observer.disconnect();
   }, []);
 
+  const onOpenTableRef = useRef(onOpenTable);
+  onOpenTableRef.current = onOpenTable;
+  const chartStateRef = useRef(chartState);
+  chartStateRef.current = chartState;
+  const currencyConfigRef = useRef(currencyConfig);
+  currencyConfigRef.current = currencyConfig;
+
+  useEffect(() => {
+    let cleanup = () => {};
+    const register = () => {
+      const chart = echartsRef.current?.getEchartsInstance?.();
+      if (!chart) return;
+      const zr = chart.getZr();
+      const handleZrClick = (event) => {
+        const cs = chartStateRef.current;
+        const dataIndex = chart.convertFromPixel({ gridIndex: 0 }, [event.offsetX, event.offsetY]);
+        const index = Array.isArray(dataIndex) ? dataIndex[0] : dataIndex;
+        if (!Number.isFinite(index) || index < 0 || index >= cs.labels.length) return;
+        const period = cs.labels[index];
+        if (!period) return;
+        const allTables = cs.seriesDefs
+          .map((def) => {
+            const rows = cs.opsIndex.get(`${period}||${def.key}`) || [];
+            return rows.length ? { key: def.key, label: def.label, resourceKey: rows[0]?.resourceKey, chartRows: rows } : null;
+          })
+          .filter(Boolean);
+        if (!allTables.length) return;
+        onOpenTableRef.current?.({ period, allTables, periodSummary: cs.periodSummaries?.get(period), currencyConfig: currencyConfigRef.current });
+      };
+      zr.on("click", handleZrClick);
+      cleanup = () => zr.off("click", handleZrClick);
+    };
+    const id = window.setTimeout(register, 0);
+    return () => { window.clearTimeout(id); cleanup(); };
+  }, []);
+
   return (
       <div
         ref={sectionRef}
-        className={`chart-card component-chartjs-card cashflow-chart-card summary-insight-card${compact ? " cashflow-chart-card--compact" : ""}${isExpanded ? " cashflow-chart-card--expanded" : ""}`}
+        className={`chart-card component-chartjs-card cashflow-chart-card summary-insight-card${compact ? " cashflow-chart-card--compact" : ""}`}
       >
       <SummaryInsightButton
         title={currencyConfig.title}
@@ -5267,26 +5634,56 @@ function CashflowCurrencyChart({
           />
         }
       />
+      <button
+        type="button"
+        className="cashflow-maximize-btn"
+        title="Maximizar gráfico"
+        onClick={() => setMaximized(true)}
+      >
+        ⛶
+      </button>
       <div className="chart-card-header cashflow-chart-header">
         <div>
           <h3>{currencyConfig.title}</h3>
-          <p className="muted">{isExpanded ? "Clique nas barras para detalhar e use o seletor inferior para recortar o período." : "Clique nas barras para detalhar o período."}</p>
+          <p className="muted">Clique nas barras para detalhar o período.</p>
           {conversionMessage ? <p className="muted">{conversionMessage}</p> : null}
         </div>
-        <div className="chart-toolbar cashflow-chart-toolbar">
-          {onToggleExpand ? (
-            <button
-              key={`${currencyConfig.key}-expand`}
-              type="button"
-              className={`chart-period-btn cashflow-expand-btn${isExpanded ? " active" : ""}`}
-              onClick={onToggleExpand}
-            >
-              {isExpanded ? "Reduzir" : "Maximizar"}
-            </button>
-          ) : null}
-        </div>
       </div>
-      <section className="stats-grid cashflow-summary-grid">
+      {maximized && (
+        <div className="cashflow-fullscreen-backdrop" onClick={() => setMaximized(false)}>
+          <div className="cashflow-fullscreen-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="cashflow-fullscreen-header">
+              <strong>{currencyConfig.title}</strong>
+              <button type="button" className="component-popup-close" onClick={() => setMaximized(false)}>×</button>
+            </div>
+            <div className="cashflow-fullscreen-chart">
+              <ReactECharts option={chartOption} notMerge onEvents={chartEvents} style={{ height: "100%", width: "100%" }} opts={{ renderer: "canvas" }} />
+            </div>
+          </div>
+        </div>
+      )}
+      <CashflowHorizonCards
+        rows={rows}
+        currencyConfig={currencyConfig}
+        onOpen={(days, windowRows) => {
+          const seriesDefs = getCashflowSeriesDefs(currencyConfig);
+          const allTables = seriesDefs
+            .map((def) => {
+              const defRows = windowRows.filter((r) => r.categoryKey === def.key);
+              return defRows.length ? { key: def.key, label: def.label, resourceKey: defRows[0]?.resourceKey, chartRows: defRows } : null;
+            })
+            .filter(Boolean);
+          if (!allTables.length) return;
+          const totals = seriesDefs.map((def) => ({
+            label: def.label,
+            color: def.color,
+            value: windowRows.filter((r) => r.categoryKey === def.key).reduce((s, r) => s + Number(r.valor || 0), 0),
+          }));
+          const saldo = totals.reduce((s, t) => s + t.value, 0);
+          onOpenTable?.({ period: `Próximos ${days} dias`, allTables, periodSummary: { totals, saldo }, currencyConfig });
+        }}
+      />
+      {!compact && <section className="stats-grid cashflow-summary-grid">
         {summaryCards.map((item) => (
           <article
             key={`${currencyConfig.key}-${item.label}`}
@@ -5322,11 +5719,13 @@ function CashflowCurrencyChart({
         ))}
         <article className="card stat-card component-summary-card summary-insight-card">
           <SummaryInsightButton
-            title={`${currencyConfig.title} — Saldo`}
+            title={currencyConfig?.key === "BRL" ? `${currencyConfig.title} — Saldo` : `${currencyConfig.title} — Exposição líquida`}
             message={
               <SummaryInsightCopy
                 paragraphs={[
-                  `O saldo de ${formatMoneyByCurrency(saldoSummary, currencyConfig.label)} representa o resultado líquido entre entradas e saídas no período visível.`,
+                  currencyConfig?.key === "BRL"
+                    ? `O saldo de ${formatMoneyByCurrency(saldoSummary, currencyConfig.label)} representa o resultado líquido entre entradas e saídas no período visível.`
+                    : `A exposição líquida de ${formatMoneyByCurrency(saldoSummary, currencyConfig.label)} representa o valor ainda descoberto após descontar os derivativos de compra (NDF/Call) dos pagamentos em ${currencyConfig.label}.`,
                   "Quando positivo, indica sobra de caixa nessa moeda; quando negativo, indica pressão financeira no recorte selecionado.",
                 ]}
               />
@@ -5334,13 +5733,19 @@ function CashflowCurrencyChart({
           />
           <span className="component-summary-label">
             <span className="component-summary-dot" style={{ background: "#64748b" }} />
-            Saldo
+            {currencyConfig?.key === "BRL" ? "Saldo" : "Exposição líquida"}
           </span>
           <strong>{formatMoneyByCurrency(saldoSummary, currencyConfig.label)}</strong>
         </article>
-      </section>
-      <div ref={chartWrapRef} className={`component-chartjs-wrap cashflow-chartjs-wrap${compact ? " cashflow-chartjs-wrap--compact" : ""}${isExpanded ? " cashflow-chartjs-wrap--expanded" : ""}`}>
-        <ReactECharts option={chartOption} notMerge onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "canvas" }} />
+      </section>}
+      <div className="cashflow-chart-row">
+        <div className="cashflow-gauge-col">
+          <CashflowHedgeGauge pct={coveragePct} />
+          {!compact && <CashflowTotalsBar totals={visibleSummaryState.totals} />}
+        </div>
+        <div ref={chartWrapRef} className={`component-chartjs-wrap cashflow-chartjs-wrap${compact ? " cashflow-chartjs-wrap--compact" : ""}`}>
+          <ReactECharts ref={echartsRef} option={chartOption} notMerge onEvents={chartEvents} style={{ height: "100%" }} opts={{ renderer: "canvas" }} />
+        </div>
       </div>
     </div>
   );
@@ -5351,8 +5756,8 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
   const defaultSelectionRange = useMemo(() => buildCashflowDefaultDateRange(), []);
   const sectionRefs = useRef({});
   const [interval, setInterval] = useState("monthly");
-  const [expandedCurrencyKey, setExpandedCurrencyKey] = useState(null);
   const [selectedTableModal, setSelectedTableModal] = useState(null);
+  const [sharedSliderTopHandle, setSharedSliderTopHandle] = useState("end");
   const [dateRange, setDateRange] = useState({
     start: defaultSelectionRange.fromBrazilian,
     end: defaultSelectionRange.toBrazilian,
@@ -5379,6 +5784,20 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
   });
 
   useEffect(() => {
+    // Use cached data immediately on re-navigation — no reload needed
+    if (cashflowDataCache.data) {
+      const d = cashflowDataCache.data;
+      setSales(d.sales);
+      setCashPayments(d.cashPayments);
+      setOtherCashOutflows(d.otherCashOutflows);
+      setOtherEntries(d.otherEntries);
+      setDerivatives(d.derivatives);
+      setCounterparties(d.counterparties);
+      setCrops(d.crops);
+      setTradingviewQuotes(d.tradingviewQuotes);
+      return;
+    }
+
     let isMounted = true;
     const timeoutId = window.setTimeout(() => {
       Promise.all([
@@ -5392,14 +5811,25 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
         resourceService.listTradingviewQuotes().catch(() => []),
       ]).then(([salesResponse, cashPaymentsResponse, otherCashOutflowsResponse, otherEntriesResponse, derivativesResponse, counterpartiesResponse, cropsResponse, tradingviewQuotesResponse]) => {
         if (!isMounted) return;
-        setSales(salesResponse || []);
-        setCashPayments(cashPaymentsResponse || []);
-        setOtherCashOutflows(otherCashOutflowsResponse || []);
-        setOtherEntries(otherEntriesResponse || []);
-        setDerivatives(derivativesResponse || []);
-        setCounterparties(counterpartiesResponse || []);
-        setCrops(cropsResponse || []);
-        setTradingviewQuotes(tradingviewQuotesResponse || []);
+        const d = {
+          sales: salesResponse || [],
+          cashPayments: cashPaymentsResponse || [],
+          otherCashOutflows: otherCashOutflowsResponse || [],
+          otherEntries: otherEntriesResponse || [],
+          derivatives: derivativesResponse || [],
+          counterparties: counterpartiesResponse || [],
+          crops: cropsResponse || [],
+          tradingviewQuotes: tradingviewQuotesResponse || [],
+        };
+        cashflowDataCache.data = d;
+        setSales(d.sales);
+        setCashPayments(d.cashPayments);
+        setOtherCashOutflows(d.otherCashOutflows);
+        setOtherEntries(d.otherEntries);
+        setDerivatives(d.derivatives);
+        setCounterparties(d.counterparties);
+        setCrops(d.crops);
+        setTradingviewQuotes(d.tradingviewQuotes);
       });
     }, 1800);
     return () => {
@@ -5407,6 +5837,28 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
       window.clearTimeout(timeoutId);
     };
   }, []);
+
+  // Keep module-level cache in sync when state changes (e.g. after editing an operation)
+  useEffect(() => {
+    if (!cashflowDataCache.data) return;
+    cashflowDataCache.data = { ...cashflowDataCache.data, sales };
+  }, [sales]);
+  useEffect(() => {
+    if (!cashflowDataCache.data) return;
+    cashflowDataCache.data = { ...cashflowDataCache.data, derivatives };
+  }, [derivatives]);
+  useEffect(() => {
+    if (!cashflowDataCache.data) return;
+    cashflowDataCache.data = { ...cashflowDataCache.data, cashPayments };
+  }, [cashPayments]);
+  useEffect(() => {
+    if (!cashflowDataCache.data) return;
+    cashflowDataCache.data = { ...cashflowDataCache.data, otherCashOutflows };
+  }, [otherCashOutflows]);
+  useEffect(() => {
+    if (!cashflowDataCache.data) return;
+    cashflowDataCache.data = { ...cashflowDataCache.data, otherEntries };
+  }, [otherEntries]);
 
   const counterpartyMap = useMemo(
     () => Object.fromEntries(counterparties.map((item) => [String(item.id), item.contraparte || item.obs || `#${item.id}`])),
@@ -5484,42 +5936,45 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
       return { start: nextStart, end: nextEnd };
     });
   }, []);
-  const handleOpenTable = useCallback(({ title, resourceKey, chartRows }) => {
+  const resolveTableDefinition = useCallback((resourceKey) =>
+    resourceKey === "cash-payments" ? resourceDefinitions.cashPayments
+    : resourceKey === "other-cash-outflows" ? resourceDefinitions.otherCashOutflows
+    : resourceKey === "physical-sales" ? resourceDefinitions.physicalSales
+    : resourceKey === "other-entries" ? resourceDefinitions.otherEntries
+    : resourceDefinitions.derivativeOperations
+  , []);
+
+  const resolveTableSourceRows = useCallback((resourceKey) =>
+    resourceKey === "cash-payments" ? cashPayments
+    : resourceKey === "other-cash-outflows" ? otherCashOutflows
+    : resourceKey === "physical-sales" ? sales
+    : resourceKey === "other-entries" ? otherEntries
+    : derivatives
+  , [cashPayments, derivatives, otherCashOutflows, otherEntries, sales]);
+
+  const handleOpenTable = useCallback(({ title, resourceKey, chartRows, period, allTables, periodSummary, currencyConfig: modalCurrencyConfig }) => {
+    if (allTables?.length) {
+      const resolvedTables = allTables
+        .map(({ key, label, resourceKey: rk, chartRows: cr }) => {
+          const definition = resolveTableDefinition(rk);
+          const sourceRows = resolveTableSourceRows(rk);
+          const ids = new Set(cr.map((r) => r.recordId).filter(Boolean).map(String));
+          const filteredRows = sourceRows.filter((row) => ids.has(String(row.id)));
+          return filteredRows.length ? { key, label, definition, rows: filteredRows } : null;
+        })
+        .filter(Boolean);
+      if (!resolvedTables.length) return;
+      setSelectedTableModal({ period, tables: resolvedTables, periodSummary, currencyConfig: modalCurrencyConfig });
+      return;
+    }
     if (!resourceKey || !chartRows?.length) return;
-    const definition =
-      resourceKey === "cash-payments"
-        ? resourceDefinitions.cashPayments
-        : resourceKey === "other-cash-outflows"
-          ? resourceDefinitions.otherCashOutflows
-        : resourceKey === "physical-sales"
-          ? resourceDefinitions.physicalSales
-          : resourceKey === "other-entries"
-            ? resourceDefinitions.otherEntries
-            : resourceDefinitions.derivativeOperations;
-    const sourceRows =
-      resourceKey === "cash-payments"
-        ? cashPayments
-        : resourceKey === "other-cash-outflows"
-          ? otherCashOutflows
-        : resourceKey === "physical-sales"
-          ? sales
-          : resourceKey === "other-entries"
-            ? otherEntries
-            : derivatives;
-    const ids = new Set(
-      chartRows
-        .map((item) => item.recordId)
-        .filter(Boolean)
-        .map(String),
-    );
+    const definition = resolveTableDefinition(resourceKey);
+    const sourceRows = resolveTableSourceRows(resourceKey);
+    const ids = new Set(chartRows.map((item) => item.recordId).filter(Boolean).map(String));
     const filteredRows = sourceRows.filter((row) => ids.has(String(row.id)));
     if (!filteredRows.length) return;
-    setSelectedTableModal({
-      title,
-      definition,
-      rows: filteredRows,
-    });
-  }, [cashPayments, derivatives, otherCashOutflows, otherEntries, sales]);
+    setSelectedTableModal({ title, definition, rows: filteredRows });
+  }, [resolveTableDefinition, resolveTableSourceRows]);
 
   const currencyRows = useMemo(
     () =>
@@ -5544,41 +5999,59 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
   );
 
   const visibleCurrencies = useMemo(
-    () =>
-      compact && isMobileViewport
-        ? CASHFLOW_CURRENCY_CONFIGS
-        : expandedCurrencyKey
-        ? CASHFLOW_CURRENCY_CONFIGS.filter((currencyConfig) => currencyConfig.key === expandedCurrencyKey)
-        : CASHFLOW_CURRENCY_CONFIGS,
-    [compact, expandedCurrencyKey, isMobileViewport],
+    () => CASHFLOW_CURRENCY_CONFIGS.filter((c) => (currencyRows[c.key]?.length || 0) > 0),
+    [currencyRows],
   );
+  const sharedSliderPeriods = useMemo(() => {
+    if (interval === "geral") return [];
+    const periodMap = new Map();
+    allCurrencyRows.forEach((row) => {
+      const key = buildComponentPeriodKey(row.date, interval);
+      if (!periodMap.has(key)) {
+        const bounds = getComponentPeriodBounds(key, interval);
+        if (bounds?.start && !Number.isNaN(bounds.start.getTime())) {
+          periodMap.set(key, { label: key, start: bounds.start, end: bounds.end, anchor: bounds.start });
+        }
+      }
+    });
+    return Array.from(periodMap.values()).sort((a, b) => a.anchor.getTime() - b.anchor.getTime());
+  }, [allCurrencyRows, interval]);
+  const sharedSliderStartIndex = useMemo(() => {
+    if (!sharedSliderPeriods.length) return 0;
+    const t = startOfDashboardDay(dateRange.start)?.getTime?.();
+    if (!Number.isFinite(t)) return 0;
+    const idx = sharedSliderPeriods.findIndex((p) => p.anchor.getTime() >= t);
+    return idx < 0 ? 0 : idx;
+  }, [dateRange.start, sharedSliderPeriods]);
+  const sharedSliderEndIndex = useMemo(() => {
+    if (!sharedSliderPeriods.length) return 0;
+    const t = startOfDashboardDay(dateRange.end)?.getTime?.();
+    if (!Number.isFinite(t)) return Math.max(0, sharedSliderPeriods.length - 1);
+    let found = sharedSliderPeriods.length - 1;
+    for (let i = sharedSliderPeriods.length - 1; i >= 0; i--) {
+      if (sharedSliderPeriods[i].anchor.getTime() <= t) { found = i; break; }
+    }
+    return found;
+  }, [dateRange.end, sharedSliderPeriods]);
   const scrollToCurrencySection = useCallback((currencyKey) => {
     const node = sectionRefs.current[currencyKey];
     if (!node) return;
     node.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
-  const expandedRangeLabel = useMemo(() => {
-    if (!expandedCurrencyKey) return "";
-    return `de: ${formatShortBrazilianDate(dateRange.start)} a ${formatShortBrazilianDate(dateRange.end)}`;
-  }, [dateRange.end, dateRange.start, expandedCurrencyKey]);
   const handleCurrencyToolbarClick = useCallback((currencyKey) => {
-    if (compact && !isMobileViewport && expandedCurrencyKey) {
-      setExpandedCurrencyKey(currencyKey);
-      return;
-    }
     scrollToCurrencySection(currencyKey);
-  }, [compact, expandedCurrencyKey, isMobileViewport, scrollToCurrencySection]);
+  }, [scrollToCurrencySection]);
 
   return (
     <section className="component-sales-shell">
       {compact ? (
         <div className="cashflow-dashboard-toolbar">
           <div className="cashflow-currency-links">
-            {CASHFLOW_CURRENCY_CONFIGS.map((currencyConfig) => (
+            {CASHFLOW_CURRENCY_CONFIGS.filter((c) => (currencyRows[c.key]?.length || 0) > 0).map((currencyConfig) => (
               <button
                 key={`cashflow-link-${currencyConfig.key}`}
                 type="button"
-                className={`cashflow-currency-link${expandedCurrencyKey === currencyConfig.key ? " active" : ""}`}
+                className="cashflow-currency-link"
                 onClick={() => handleCurrencyToolbarClick(currencyConfig.key)}
               >
                 {currencyConfig.title}
@@ -5613,9 +6086,66 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
           </div>
         </div>
       ) : null}
-      {expandedCurrencyKey ? <div className="cashflow-expanded-range-label">{expandedRangeLabel}</div> : null}
+      {interval !== "geral" && sharedSliderPeriods.length > 1 ? (() => {
+        const totalCount = sharedSliderPeriods.length;
+        const maxIdx = Math.max(totalCount - 1, 1);
+        const startPct = (sharedSliderStartIndex / maxIdx) * 100;
+        const endPct = (sharedSliderEndIndex / maxIdx) * 100;
+        const fmtLabel = (p) => interval === "monthly" ? formatCashflowMonthYear(p.start) : formatBrazilianDate(p.start);
+        const handleTrackPointerMove = (e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+          const hovered = pct * maxIdx;
+          const distToStart = Math.abs(hovered - sharedSliderStartIndex);
+          const distToEnd = Math.abs(hovered - sharedSliderEndIndex);
+          const next = distToStart <= distToEnd ? "start" : "end";
+          if (next !== sharedSliderTopHandle) setSharedSliderTopHandle(next);
+        };
+        return (
+          <div className="hedge-slider-wrap cashflow-shared-slider">
+            <div className="hedge-slider-dates">
+              <span>{fmtLabel(sharedSliderPeriods[0])}</span>
+              <span>{fmtLabel(sharedSliderPeriods[totalCount - 1])}</span>
+            </div>
+            <div className="hedge-slider-track" onPointerMove={handleTrackPointerMove}>
+              <div className="hedge-slider-track-bg" />
+              <div className="hedge-slider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
+              <input
+                type="range"
+                className="hedge-slider-input hedge-slider-input--active"
+                style={{ zIndex: sharedSliderTopHandle === "start" ? 5 : 3 }}
+                min={0}
+                max={totalCount - 1}
+                value={sharedSliderStartIndex}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  const endPeriod = sharedSliderPeriods[sharedSliderEndIndex];
+                  if (v <= sharedSliderEndIndex && sharedSliderPeriods[v]?.start && endPeriod?.end) {
+                    handleDateRangeChange({ start: sharedSliderPeriods[v].start, end: endPeriod.end });
+                  }
+                }}
+              />
+              <input
+                type="range"
+                className="hedge-slider-input hedge-slider-input--active"
+                style={{ zIndex: sharedSliderTopHandle === "end" ? 5 : 3 }}
+                min={0}
+                max={totalCount - 1}
+                value={sharedSliderEndIndex}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  const startPeriod = sharedSliderPeriods[sharedSliderStartIndex];
+                  if (v >= sharedSliderStartIndex && startPeriod?.start && sharedSliderPeriods[v]?.end) {
+                    handleDateRangeChange({ start: startPeriod.start, end: sharedSliderPeriods[v].end });
+                  }
+                }}
+              />
+            </div>
+          </div>
+        );
+      })() : null}
       <section
-        className={`cashflow-dashboard-shell${compact ? " cashflow-dashboard-shell--compact" : ""}${expandedCurrencyKey ? " cashflow-dashboard-shell--expanded" : ""}${compact && isMobileViewport ? " cashflow-dashboard-shell--mobile-stacked" : ""}`}
+        className={`cashflow-dashboard-shell${compact ? " cashflow-dashboard-shell--compact" : ""}${compact && isMobileViewport ? " cashflow-dashboard-shell--mobile-stacked" : ""}`}
       >
       {visibleCurrencies.map((currencyConfig) => (
         <CashflowCurrencyChart
@@ -5624,9 +6154,7 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
           rows={currencyRows[currencyConfig.key] || []}
           interval={interval}
           dateRange={dateRange}
-          fixedDateRange={sliderRange}
           compact={compact}
-          isExpanded={compact && isMobileViewport ? true : expandedCurrencyKey === currencyConfig.key}
           onOpenTable={handleOpenTable}
           onDateRangeChange={handleDateRangeChange}
           conversionMessage={currencyConfig.key === "BRL" ? brlConversionMessage : ""}
@@ -5637,16 +6165,23 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
               delete sectionRefs.current[currencyConfig.key];
             }
           }}
-          onToggleExpand={
-            compact && !isMobileViewport
-              ? () => setExpandedCurrencyKey((current) => (current === currencyConfig.key ? null : currencyConfig.key))
-              : undefined
-          }
         />
       ))}
-      {editorNode}
       </section>
-      {selectedTableModal ? (
+      {selectedTableModal?.tables ? (
+        <CashflowMultiTableModal
+          period={selectedTableModal.period}
+          tables={selectedTableModal.tables}
+          periodSummary={selectedTableModal.periodSummary}
+          currencyConfig={selectedTableModal.currencyConfig}
+          onClose={() => setSelectedTableModal(null)}
+          onEdit={(row, resourceKey) => openOperationForm({
+            ...row,
+            recordId: row.id,
+            resourceKey,
+          })}
+        />
+      ) : selectedTableModal ? (
         <DashboardResourceTableModal
           title={selectedTableModal.title}
           definition={selectedTableModal.definition}
@@ -5659,6 +6194,7 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
           })}
         />
       ) : null}
+      {editorNode}
     </section>
   );
 }
@@ -5831,7 +6367,8 @@ const buildCashflowDailyEntries = ({ sales, cashPayments, otherCashOutflows, oth
     .map((item) => {
       const date = startOfDashboardDay(item.data_liquidacao || item.data_contratacao);
       if (!date) return null;
-      const amount = Number(item.ajustes_totais_brl || 0);
+      const isMoedaItem = normalizeText(item.moeda_ou_cmdtye) === "moeda";
+      const amount = Number((isMoedaItem ? item.ajustes_totais_usd : item.ajustes_totais_brl) || 0);
       if (!amount) return null;
       return {
         id: `derivative-${item.id}`,
@@ -9812,7 +10349,7 @@ function HedgePolicyChart({
             {nativeChart.derivativeAreaPath ? <path d={nativeChart.derivativeAreaPath} className="hedge-chart-svg-derivative-area" /> : null}
             {nativeChart.physicalAreaPath ? <path d={nativeChart.physicalAreaPath} className="hedge-chart-svg-physical-area" /> : null}
             {nativeChart.derivativeBorderPath ? <path d={nativeChart.derivativeBorderPath} className="hedge-chart-svg-derivative-border" /> : null}
-            {nativeChart.comparisonPath ? <path d={nativeChart.comparisonPath} className="hedge-chart-svg-comparison-line" /> : null}
+            {nativeChart.comparisonPath && comparisonSeriesName ? <path d={nativeChart.comparisonPath} className="hedge-chart-svg-comparison-line" /> : null}
             {nativeChart.totalPath ? <path d={nativeChart.totalPath} className="hedge-chart-svg-total-line" /> : null}
             {nativeChart.cropDateMarkers.map((marker) => (
               <g key={marker.key} className="hedge-chart-svg-crop-marker">
@@ -9966,13 +10503,10 @@ function HedgePolicyChart({
           <span className="hedge-legend-swatch fisico" />
           Vendas via Fisico
         </button>
-        <span className="hedge-legend-item">
-          <span className="hedge-legend-swatch" style={{ background: "rgba(22, 163, 74, 0.24)", border: "1.5px solid rgba(22, 163, 74, 0.6)" }} />
-          Politica de Hedge
-        </span>
+
         {comparisonSeriesName ? (
           <span className="hedge-legend-item">
-            <span className="hedge-legend-swatch" style={{ background: "#2563eb" }} />
+            <span className="hedge-legend-swatch" style={{ background: "#15803d" }} />
             {comparisonSeriesName}
           </span>
         ) : null}
@@ -12550,7 +13084,8 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
 
     return filteredDerivatives
       .map((item) => {
-        const originalValueBrl = Number(item.ajustes_totais_brl || 0);
+        const isMoedaItem = normalizeText(item.moeda_ou_cmdtye) === "moeda";
+        const originalValueBrl = Number((isMoedaItem ? item.ajustes_totais_usd : item.ajustes_totais_brl) || 0);
         const fallbackUsd = usdRate > 0 ? originalValueBrl / usdRate : 0;
         const originalValueUsd =
           Number(item.ajustes_totais_moeda_original || item.ajustes_totais_usd || item.volume_financeiro_valor_moeda_original || 0) ||
@@ -12627,6 +13162,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
     };
 
     normalizedDerivatives.forEach((item) => {
+      if (!item.classificacao) return;
       const bucket = summary.byClass[item.classificacao] || summary.byClass.Bolsa;
       if (item.status === "Encerrado") {
         summary.closed += item.amount;
@@ -14754,7 +15290,9 @@ function ClientRankingDashboard({ dashboardFilter }) {
           clientId: client.id,
           clientLabel: client.label,
           operationLabel: resolveDerivativeOperationLabel(item),
-          adjustmentBrl: parseLocalizedNumber(item?.ajustes_totais_brl),
+          adjustmentBrl: normalizeText(item?.moeda_ou_cmdtye) === "moeda"
+            ? parseLocalizedNumber(item?.ajustes_totais_usd)
+            : parseLocalizedNumber(item?.ajustes_totais_brl),
           adjustmentUsd: parseLocalizedNumber(item?.ajustes_totais_usd),
           financialVolume: Math.abs(parseLocalizedNumber(item?.volume_financeiro_valor || item?.volume_financeiro_valor_moeda_original)),
           physicalVolume: Math.abs(parseLocalizedNumber(item?.volume_fisico_valor || item?.volume || item?.quantidade_derivativos)),
@@ -15935,6 +16473,16 @@ function MtmDashboard({ dashboardFilter }) {
   const formatMtmIntegerLabel = (value) => `${Number(value || 0) < 0 ? "-R$ " : "R$ "}${formatMtmIntegerValue(value)}`;
 
   const formatOpsLabel = (value) => `${formatNumber0(value)} ops`;
+  const { openOperationForm, editorNode } = useDashboardOperationEditor({
+    derivatives,
+    setDerivatives,
+  });
+
+  const openMtmOperation = useCallback((row) => {
+    setResourceTableModal(null);
+    openOperationForm(row);
+  }, [openOperationForm]);
+
   const openMtmRowsModal = useCallback((title, rows, definition = resourceDefinitions.derivativeOperations) => {
     setResourceTableModal({
       title,
@@ -17273,7 +17821,7 @@ function MtmDashboard({ dashboardFilter }) {
           key: "closed",
           label: "Operações encerradas",
           value: formatMtmIntegerLabel(closedSummary.netBrl),
-          help: "Soma dos ajustes MTM R$ das operações encerradas.",
+          help: "Soma dos ajustes em R$ das operações encerradas.",
           className: closedSummary.netBrl >= 0 ? "is-positive" : closedSummary.netBrl < 0 ? "is-negative" : "is-neutral",
           rows: allNormalizedRows.filter((item) => item.statusLabel === "Encerrado"),
           title: "MTM · Operações encerradas",
@@ -17516,8 +18064,9 @@ function MtmDashboard({ dashboardFilter }) {
       {card.metaItems?.length ? (
         <div className="mtm-hero-metrics">
           {card.metaItems.map((item) => (
-            <button
-              type="button"
+            <div
+              role="button"
+              tabIndex={0}
               key={`${card.label}-${item.label}`}
               className={`mtm-hero-metric${card.isActive && mtmFacet === item.key ? " is-active" : ""}`}
               aria-pressed={card.isActive && mtmFacet === item.key}
@@ -17526,10 +18075,18 @@ function MtmDashboard({ dashboardFilter }) {
                 setMtmScope(card.key);
                 setMtmFacet(item.key);
               }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMtmScope(card.key);
+                  setMtmFacet(item.key);
+                }
+              }}
             >
               <small>{item.label}</small>
               <b>{item.value}</b>
-            </button>
+            </div>
           ))}
         </div>
       ) : null}
@@ -17558,53 +18115,57 @@ function MtmDashboard({ dashboardFilter }) {
                   <h3>Sinal do MTM</h3>
                   <p>Positivas, negativas e neutras.</p>
                 </div>
-                <ReactECharts option={statusDonutOption} onEvents={statusDonutEvents} style={{ height: 340, width: "100%" }} opts={{ renderer: "svg" }} />
+                <ReactECharts option={statusDonutOption} onEvents={statusDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
               </div>
               <div>
                 <div className="mtm-chart-head">
                   <h3>Abertas x encerradas</h3>
                   <p>Mix operacional do book.</p>
                 </div>
-                <ReactECharts option={openClosedDonutOption} onEvents={openClosedDonutEvents} style={{ height: 340, width: "100%" }} opts={{ renderer: "svg" }} />
+                <ReactECharts option={openClosedDonutOption} onEvents={openClosedDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
               </div>
             </div>
           </article>
         </section>
         <section className="mtm-chart-grid">
-          <article className="card mtm-chart-card">
-            <div className="mtm-chart-head">
-              <h3>MTM por bolsa</h3>
-              <p>Bloco positivo versus pressão negativa por bolsa.</p>
+          <article className="card mtm-chart-card" style={{ gridColumn: "1 / -1" }}>
+            <div className="mtm-dual-charts">
+              <div>
+                <div className="mtm-chart-head">
+                  <h3>MTM por bolsa</h3>
+                  <p>Bloco positivo versus pressão negativa por bolsa.</p>
+                </div>
+                <ReactECharts option={exchangeMtmOption} onEvents={exchangeMtmEvents} style={{ height: 260, width: "100%" }} opts={{ renderer: "svg" }} />
+              </div>
+              <div>
+                <div className="mtm-chart-head">
+                  <h3>Status por bolsa</h3>
+                  <p>Distribuição de operações em aberto e encerradas.</p>
+                </div>
+                <ReactECharts option={exchangeStatusOption} onEvents={exchangeStatusEvents} style={{ height: 260, width: "100%" }} opts={{ renderer: "svg" }} />
+              </div>
             </div>
-            <ReactECharts option={exchangeMtmOption} onEvents={exchangeMtmEvents} style={{ height: 460, width: "100%" }} opts={{ renderer: "svg" }} />
-          </article>
-          <article className="card mtm-chart-card">
-            <div className="mtm-chart-head">
-              <h3>Status por bolsa</h3>
-              <p>Distribuição de operações em aberto e encerradas.</p>
-            </div>
-            <ReactECharts option={exchangeStatusOption} onEvents={exchangeStatusEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
           </article>
           <article className="card mtm-chart-card">
             <div className="mtm-chart-head">
               <h3>Matriz bolsa x tipo</h3>
               <p>Heatmap com a concentração operacional por tipo de derivativo.</p>
             </div>
-            <ReactECharts option={heatmapOption} onEvents={heatmapEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
+            <ReactECharts option={heatmapOption} onEvents={heatmapEvents} style={{ height: 300, width: "100%" }} opts={{ renderer: "svg" }} />
           </article>
           <article className="card mtm-chart-card">
             <div className="mtm-chart-head">
               <h3>Matriz MTM R$ x tipo</h3>
               <p>Heatmap com os ajustes MTM em R$ por bolsa e estrutura.</p>
             </div>
-            <ReactECharts option={heatmapMtmOption} onEvents={heatmapEvents} style={{ height: 400, width: "100%" }} opts={{ renderer: "svg" }} />
+            <ReactECharts option={heatmapMtmOption} onEvents={heatmapEvents} style={{ height: 300, width: "100%" }} opts={{ renderer: "svg" }} />
           </article>
         </section>
         <section className="mtm-exchange-section">
           <div className="mtm-section-head">
             <div>
               <h3>Cards por bolsa</h3>
-              <p>Um bloco para cada bolsa, sem filtro por cultura e com leitura rápida de quantidade, ganho, perda e operação extrema.</p>
+             
             </div>
             <div className="mtm-operation-filter" ref={operationFilterRef}>
               <button
@@ -17721,8 +18282,7 @@ function MtmDashboard({ dashboardFilter }) {
         <section className="mtm-extra-section">
           <div className="mtm-section-head">
             <h3>Mais Insights</h3>
-            <p>Leituras adicionais para explorar estrutura, risco, ritmo operacional e basis das vendas físicas junto do book derivativo.</p>
-          </div>
+                    </div>
           <div className="mtm-extra-grid">
             {extraInsightCards.map((card) => (
               <article key={card.key} className="card mtm-mini-card">
@@ -17765,14 +18325,14 @@ function MtmDashboard({ dashboardFilter }) {
       <section className="mtm-phase-section">
         <div className="mtm-phase-head">
           <h2>Em aberto</h2>
-          <p>Recorte focado nas posições ainda ativas, com prioridade para vencimento próximo, exposição e monitoramento do resultado vivo.</p>
+          
         </div>
         <article className="card mtm-chart-card" style={{ gridColumn: "1 / -1" }}>
           <div className="mtm-chart-head">
             <h3>MTM R$ por data de vencimento · 180d</h3>
             <p>Janela padrão de 180 dias (90d passados + 90d futuros), colunas por bolsa, agrupadas semanalmente. Use o seletor abaixo para ampliar o período.</p>
           </div>
-          <ReactECharts option={mtmTimelineOption} onEvents={mtmTimelineEvents} style={{ height: 440, width: "100%" }} opts={{ renderer: "svg" }} />
+          <ReactECharts option={mtmTimelineOption} onEvents={mtmTimelineEvents} style={{ height: 340, width: "100%" }} opts={{ renderer: "svg" }} />
           {mtmTimelineAllBuckets.length > 2 ? (() => {
             const totalCount = mtmTimelineAllBuckets.length;
             const startPct = (mtmTimelineEffStart / Math.max(totalCount - 1, 1)) * 100;
@@ -17831,7 +18391,7 @@ function MtmDashboard({ dashboardFilter }) {
       <section className="mtm-phase-section">
         <div className="mtm-phase-head">
           <h2>Encerrado</h2>
-          <p>Resultado já realizado, com foco nas operações finalizadas e nas maiores contribuições efetivas do período filtrado.</p>
+          
         </div>
         <section className="card mtm-spotlight-card">
           <div className="mtm-section-head">
@@ -17878,8 +18438,14 @@ function MtmDashboard({ dashboardFilter }) {
           definition={resourceTableModal.definition}
           rows={resourceTableModal.rows}
           onClose={() => setResourceTableModal(null)}
+          onEdit={(row) => openMtmOperation({
+            ...row,
+            recordId: row.id,
+            resourceKey: resourceTableModal.definition.resource,
+          })}
         />
       ) : null}
+      {editorNode}
     </section>
   );
 }

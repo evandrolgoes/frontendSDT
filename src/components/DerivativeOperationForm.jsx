@@ -138,7 +138,9 @@ export function DerivativeOperationForm({
       grupo: initialValues.grupo ? String(initialValues.grupo) : "",
       subgrupo: initialValues.subgrupo ? String(initialValues.subgrupo) : "",
       ativo: (initialValues.ativo ?? initialValues.cultura) ? String(initialValues.ativo ?? initialValues.cultura) : "",
-      destino_cultura: initialValues.destino_cultura ? String(initialValues.destino_cultura) : "",
+      destino_operacao: initialValues.destino_texto === "Swap de pagamento moeda estrangeira"
+        ? "swap_pagamento_moeda_estrangeira"
+        : initialValues.destino_cultura ? String(initialValues.destino_cultura) : "",
       safra: initialValues.safra ? String(initialValues.safra) : "",
       contraparte: initialValues.contraparte ? String(initialValues.contraparte) : "",
       data_contratacao: formatBrazilianDate(initialValues.data_contratacao),
@@ -148,7 +150,6 @@ export function DerivativeOperationForm({
       status_operacao: initialValues.status_operacao || "Em aberto",
       contrato_derivativo: initialValues.contrato_derivativo || "",
       moeda_ou_cmdtye: initialValues.moeda_ou_cmdtye || "",
-      swap_divida: initialValues.swap_divida || "",
       moeda_unidade: initialValues.moeda_unidade || initialValues.strike_moeda_unidade || "",
       nome_da_operacao: initialValues.nome_da_operacao || "",
       unidade: initialValues.unidade || initialValues.volume_fisico_unidade || "",
@@ -518,41 +519,50 @@ export function DerivativeOperationForm({
     }));
   };
 
-  const buildPayload = () => ({
-    grupo: values.grupo ? Number(values.grupo) : null,
-    subgrupo: values.subgrupo ? Number(values.subgrupo) : null,
-    ativo: values.ativo ? Number(values.ativo) : null,
-    destino_cultura: values.destino_cultura ? Number(values.destino_cultura) : null,
-    safra: values.safra ? Number(values.safra) : null,
-    contraparte: values.contraparte ? Number(values.contraparte) : null,
-    cod_operacao_mae: values.cod_operacao_mae || "",
-    bolsa_ref: values.bolsa_ref || "",
-    status_operacao: values.status_operacao || "Em aberto",
-    contrato_derivativo: values.contrato_derivativo || "",
-    data_contratacao: parseBrazilianDate(values.data_contratacao),
-    data_liquidacao: parseBrazilianDate(values.data_liquidacao),
-    moeda_ou_cmdtye: values.moeda_ou_cmdtye || "",
-    swap_divida: values.swap_divida || "",
-    strike_moeda_unidade: values.moeda_unidade || "",
-    nome_da_operacao: values.nome_da_operacao || "",
-    volume_fisico_unidade: values.unidade || "",
-    volume_financeiro_moeda: values.volume_financeiro_moeda || "",
-    dolar_ptax_vencimento: parseLocalizedNumber(values.dolar_ptax_vencimento),
-    itens: (values.itens || []).map((item, index) => ({
-      ...(item.id ? { id: item.id } : {}),
-      ordem: index + 1,
-      posicao: item.posicao || "",
-      tipo_derivativo: item.tipo_derivativo || "",
-      numero_lotes: parseLocalizedNumber(item.numero_lotes),
-      volume_fisico_valor: parseLocalizedNumber(item.volume),
-      volume_financeiro_valor: parseLocalizedNumber(item.volume_financeiro_valor_moeda_original),
-      strike_montagem: parseLocalizedNumber(item.strike_montagem),
-      custo_total_montagem_brl: parseLocalizedNumber(item.custo_total_montagem_brl),
-      strike_liquidacao: parseLocalizedNumber(item.strike_liquidacao),
-      ajustes_totais_brl: parseLocalizedNumber(item.ajustes_totais_brl),
-      ajustes_totais_usd: parseLocalizedNumber(item.ajustes_totais_usd),
-    })),
-  });
+  const buildPayload = () => {
+    const isSwapPagamento = values.destino_operacao === "swap_pagamento_moeda_estrangeira";
+    const destinoCulturaId = !isSwapPagamento && values.destino_operacao ? Number(values.destino_operacao) : null;
+    const destinoTexto = isSwapPagamento ? "Swap de pagamento moeda estrangeira" : "";
+
+    return {
+      grupo: values.grupo ? Number(values.grupo) : null,
+      subgrupo: values.subgrupo ? Number(values.subgrupo) : null,
+      ativo: values.ativo ? Number(values.ativo) : null,
+      destino_cultura: destinoCulturaId,
+      destino_texto: destinoTexto,
+      safra: values.safra ? Number(values.safra) : null,
+      contraparte: values.contraparte ? Number(values.contraparte) : null,
+      cod_operacao_mae: values.cod_operacao_mae || "",
+      bolsa_ref: values.bolsa_ref || "",
+      status_operacao: values.status_operacao || "Em aberto",
+      contrato_derivativo: values.contrato_derivativo || "",
+      data_contratacao: parseBrazilianDate(values.data_contratacao),
+      data_liquidacao: parseBrazilianDate(values.data_liquidacao),
+      moeda_ou_cmdtye: values.moeda_ou_cmdtye || "",
+      strike_moeda_unidade: values.moeda_unidade || "",
+      nome_da_operacao: values.nome_da_operacao || "",
+      volume_fisico_unidade: values.unidade || "",
+      volume_financeiro_moeda: values.volume_financeiro_moeda || "",
+      dolar_ptax_vencimento: parseLocalizedNumber(values.dolar_ptax_vencimento),
+      itens: (values.itens || []).map((item, index) => {
+        const financialValue = parseLocalizedNumber(item.volume_financeiro_valor_moeda_original);
+        return {
+          ...(item.id ? { id: item.id } : {}),
+          ordem: index + 1,
+          posicao: item.posicao || "",
+          tipo_derivativo: item.tipo_derivativo || "",
+          numero_lotes: parseLocalizedNumber(item.numero_lotes),
+          volume_fisico_valor: isMoedaMode ? financialValue : parseLocalizedNumber(item.volume),
+          volume_financeiro_valor: financialValue,
+          strike_montagem: parseLocalizedNumber(item.strike_montagem),
+          custo_total_montagem_brl: parseLocalizedNumber(item.custo_total_montagem_brl),
+          strike_liquidacao: parseLocalizedNumber(item.strike_liquidacao),
+          ajustes_totais_brl: parseLocalizedNumber(item.ajustes_totais_brl),
+          ajustes_totais_usd: parseLocalizedNumber(item.ajustes_totais_usd),
+        };
+      }),
+    };
+  };
 
   const renderSelect = (id, currentValue, options, onChange, placeholder = "Selecione", disabled = false) => (
     <select className="form-control" id={id} value={currentValue ?? ""} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
@@ -650,12 +660,15 @@ export function DerivativeOperationForm({
           </div>
           {normalizeLookupValue(values.moeda_ou_cmdtye) === "moeda" ? (
             <div className="field">
-              <label>Cultura de destino dessa operacao</label>
+              <label>Destino dessa operacao</label>
               {renderSelect(
-                "destino_cultura",
-                values.destino_cultura,
-                (lookupOptions.crops || []).map((option) => ({ value: option.id, label: option.ativo || option.cultura })),
-                (value) => updateValue("destino_cultura", value),
+                "destino_operacao",
+                values.destino_operacao,
+                [
+                  { value: "swap_pagamento_moeda_estrangeira", label: "Swap de pagamento moeda estrangeira" },
+                  ...(lookupOptions.crops || []).map((option) => ({ value: option.id, label: option.ativo || option.cultura })),
+                ],
+                (value) => updateValue("destino_operacao", value),
               )}
             </div>
           ) : null}
@@ -723,17 +736,6 @@ export function DerivativeOperationForm({
             <label>Moeda ou cmdtye</label>
             <input className="form-control" value={values.moeda_ou_cmdtye || ""} disabled />
           </div>
-          {normalizeLookupValue(values.moeda_ou_cmdtye) === "moeda" ? (
-            <div className="field">
-              <label>Se for Moeda Swap de Divida</label>
-              {renderSelect(
-                "swap_divida",
-                values.swap_divida,
-                yesNoOptions,
-                (value) => updateValue("swap_divida", value),
-              )}
-            </div>
-          ) : null}
           <div className="field">
             <label>Moeda/unidade</label>
             <input className="form-control" value={values.moeda_unidade || ""} disabled />
@@ -854,10 +856,12 @@ export function DerivativeOperationForm({
                       !isMoedaMode,
                     )}
                   </div>
-                  <div className="field">
-                    <label>{buildPhysicalVolumeLabel(values.unidade)}</label>
-                    {renderNumberInput(`volume_${index}`, item.volume, (value) => updateItem(index, "volume", value), !isMoedaMode)}
-                  </div>
+                  {!isMoedaMode ? (
+                    <div className="field">
+                      <label>{buildPhysicalVolumeLabel(values.unidade)}</label>
+                      {renderNumberInput(`volume_${index}`, item.volume, (value) => updateItem(index, "volume", value))}
+                    </div>
+                  ) : null}
                 </div>
 
                 {values.status_operacao === "Encerrado" ? (

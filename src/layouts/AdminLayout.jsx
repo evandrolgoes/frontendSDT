@@ -303,7 +303,17 @@ function AdminLayoutShell({ children }) {
       const nextValues = currentValues.includes(normalizedValue)
         ? currentValues.filter((item) => item !== normalizedValue)
         : [...currentValues, normalizedValue];
-      return { ...current, [field]: nextValues };
+
+      const next = { ...current, [field]: nextValues };
+
+      // Ao mudar grupos, remove subgrupos que não pertencem aos grupos selecionados
+      if (field === "grupo") {
+        const validSubgroups = filterSubgroupsByGroups(options.subgroups, nextValues);
+        const validSubgroupIds = validSubgroups.map((s) => String(s.id));
+        next.subgrupo = normalizeValues(current.subgrupo).filter((id) => validSubgroupIds.includes(id));
+      }
+
+      return next;
     });
   };
 
