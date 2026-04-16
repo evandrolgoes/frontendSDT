@@ -1,111 +1,73 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/PageHeader";
+import { useDashboardFilter } from "../contexts/DashboardFilterContext";
+import { api } from "../services/api";
 
 // ─── Column definitions ────────────────────────────────────────────────────
+// scenario matches the backend SCENARIO_CHOICES key
 const COLUMNS = [
-  { key: "c1", label: "Cenário Atual", year: "2026", date: "20/09/2025", section: "ANÁLISES REALIZADAS" },
-  { key: "c2", label: "Simulação 1", year: "2026", date: "20/09/2026", section: "ANÁLISES REALIZADAS" },
-  { key: "c3", label: "Simulação 2", year: "2026", date: "20/09/2026", section: "ANÁLISES REALIZADAS" },
-  { key: "c4", label: "2027", year: "2027", date: "20/09/2026", section: "PROJEÇÕES" },
-  { key: "c5", label: "2028", year: "2028", date: "20/09/2027", section: "PROJEÇÕES" },
+  { key: "c1", scenario: "current", label: "Cenário Atual", year: "2026", date: "20/09/2025", section: "ANÁLISES REALIZADAS" },
+  { key: "c2", scenario: "sim_1", label: "Simulação 1", year: "2026", date: "20/09/2026", section: "ANÁLISES REALIZADAS" },
+  { key: "c3", scenario: "sim_2", label: "Simulação 2", year: "2026", date: "20/09/2026", section: "ANÁLISES REALIZADAS" },
+  { key: "c4", scenario: "proj_2027", label: "2027", year: "2027", date: "20/09/2026", section: "PROJEÇÕES" },
+  { key: "c5", scenario: "proj_2028", label: "2028", year: "2028", date: "20/09/2027", section: "PROJEÇÕES" },
 ];
 
-// ─── Balanço rows ──────────────────────────────────────────────────────────
+// ─── Static Balanço row definitions ───────────────────────────────────────
+// key: stable identifier used to read/write from the API
 // type: "total" | "section" | "subrow" | "row" | "divider"
+// computed: if true the row shows auto-sum of its children sections
 const BALANCO_ROWS = [
-  { type: "total", label: "ATIVO TOTAL", values: [174624, 145919, 149824, 166411, 148406] },
-  { type: "section", label: "Ativo Circulante" },
-  { type: "subrow", label: "Caixa / Grãos", values: [9710, 9710, 9710, 9487, 9487] },
-  { type: "subrow", label: "Estoque Grãos", values: [1701, 1701, 1701, null, null] },
-  { type: "subrow", label: "Estoque Insumos", values: [2096, 2096, 2096, 2821, 2821] },
-  { type: "subrow", label: "Ativo Biológico", values: [2570, 2570, 2570, 2570, 2570] },
-  { type: "subrow", label: "Outras Ativo Circulante", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Arrendamentos (R$)", values: [2346, 2346, 2346, 7407, 2570] },
-  { type: "subrow", label: "Arrendamentos (USD)", values: [null, null, null, 770, null] },
-  { type: "section", label: "Ativo Longo Prazo" },
-  { type: "subrow", label: "Ativo Biológico LP", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Arrendamentos LP", values: [414, 414, 414, 414, 414] },
-  { type: "subrow", label: "Imobilizado LP", values: [null, null, null, null, null] },
-  { type: "section", label: "Ativo Permanente" },
-  { type: "subrow", label: "Terras e Equipamentos", values: [1500, 1500, 1500, 1500, 1500] },
-  { type: "subrow", label: "Benfeitorias", values: [3000, 3000, 3000, 3000, 3000] },
-  { type: "subrow", label: "Silos / Armazéns", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Imóveis Urbanos", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Participações", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Outros", values: [160000, 150000, 135000, 150000, 152020] },
+  { type: "total", key: "ativo_total", label: "ATIVO TOTAL" },
+  { type: "section", key: "ativo_circulante", label: "Ativo Circulante" },
+  { type: "subrow", key: "caixa_graos", label: "Caixa / Grãos" },
+  { type: "subrow", key: "estoque_graos", label: "Estoque Grãos" },
+  { type: "subrow", key: "estoque_insumos", label: "Estoque Insumos" },
+  { type: "subrow", key: "ativo_biologico", label: "Ativo Biológico" },
+  { type: "subrow", key: "outras_ativo_circulante", label: "Outras Ativo Circulante" },
+  { type: "subrow", key: "arrendamentos_rs", label: "Arrendamentos (R$)" },
+  { type: "subrow", key: "arrendamentos_usd", label: "Arrendamentos (USD)" },
+  { type: "section", key: "ativo_lp", label: "Ativo Longo Prazo" },
+  { type: "subrow", key: "ativo_biologico_lp", label: "Ativo Biológico LP" },
+  { type: "subrow", key: "arrendamentos_lp_ativo", label: "Arrendamentos LP" },
+  { type: "subrow", key: "imobilizado_lp", label: "Imobilizado LP" },
+  { type: "section", key: "ativo_permanente", label: "Ativo Permanente" },
+  { type: "subrow", key: "terras_equipamentos", label: "Terras e Equipamentos" },
+  { type: "subrow", key: "benfeitorias", label: "Benfeitorias" },
+  { type: "subrow", key: "silos_armazens", label: "Silos / Armazéns" },
+  { type: "subrow", key: "imoveis_urbanos", label: "Imóveis Urbanos" },
+  { type: "subrow", key: "participacoes", label: "Participações" },
+  { type: "subrow", key: "ativo_permanente_outros", label: "Outros" },
   { type: "divider" },
-  { type: "total", label: "PASSIVO TOTAL", values: [28705, 18705, 13798, 21028, 18029] },
-  { type: "section", label: "Passivo Circulante" },
-  { type: "subrow", label: "Banco Receb. CDCB", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Banco Recep.", values: [2344, 2344, 2344, 2344, 2344] },
-  { type: "subrow", label: "Fornecedores Custeio", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Arrendamentos CF", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Fornec. / Dist. Lucros", values: [21001, 16361, 3001, 11221, 11221] },
-  { type: "section", label: "Passivo Longo Prazo" },
-  { type: "subrow", label: "Banco Recep.", values: [8137, null, 8137, 8137, 8137] },
-  { type: "subrow", label: "Arrendamentos LP", values: [1137, null, 137, 137, 137] },
-  { type: "subrow", label: "Outros", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Debêntures", values: [2714, null, 179, null, null] },
+  { type: "total", key: "passivo_total", label: "PASSIVO TOTAL" },
+  { type: "section", key: "passivo_circulante", label: "Passivo Circulante" },
+  { type: "subrow", key: "banco_receb_cdcb", label: "Banco Receb. CDCB" },
+  { type: "subrow", key: "banco_recep_cp", label: "Banco Recep." },
+  { type: "subrow", key: "fornecedores_custeio", label: "Fornecedores Custeio" },
+  { type: "subrow", key: "arrendamentos_cf", label: "Arrendamentos CF" },
+  { type: "subrow", key: "fornec_dist_lucros", label: "Fornec. / Dist. Lucros" },
+  { type: "section", key: "passivo_lp", label: "Passivo Longo Prazo" },
+  { type: "subrow", key: "banco_recep_lp", label: "Banco Recep." },
+  { type: "subrow", key: "arrendamentos_lp_passivo", label: "Arrendamentos LP" },
+  { type: "subrow", key: "passivo_lp_outros", label: "Outros" },
+  { type: "subrow", key: "debentures", label: "Debêntures" },
   { type: "divider" },
-  { type: "total", label: "PATRIMÔNIO LÍQUIDO", values: [145919, 145919, 135919, 143386, 148406] },
+  { type: "total", key: "patrimonio_liquido", label: "PATRIMÔNIO LÍQUIDO" },
 ];
 
-// ─── DRE rows ──────────────────────────────────────────────────────────────
-// format: "number" (default) | "pct" | "plain"
-const DRE_ROWS = [
-  { type: "total", label: "Vendas Líquidas", values: [11276, 11276, 11276, 14408, 14414] },
-  { type: "section", label: "Soja - Faturamento" },
-  { type: "subrow", label: "Produção Total (Sc)", values: [1701, 1701, 1701, null, null] },
-  { type: "subrow", label: "Retenção (%)", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Preço médio (R$/sc)", values: [130, 130, 130, null, null], format: "plain" },
-  { type: "subrow", label: "Custo Total (R$)", values: [780, 780, 780, 2530, 2530] },
-  { type: "subrow", label: "Ebitda (%)", values: [52, 52, 52, null, null], format: "pct" },
-  { type: "section", label: "Milho - Faturamento" },
-  { type: "subrow", label: "Produção Total (Sc)", values: [null, null, null, null, null] },
-  { type: "subrow", label: "Preço médio (R$/sc)", values: [null, null, null, null, null], format: "plain" },
-  { type: "section", label: "Pecuária - Faturamento" },
-  { type: "subrow", label: "Produção Total (Cab)", values: [5700, 5700, 5700, 5700, 5700] },
-  { type: "subrow", label: "Arroba / Cab", values: [475, 475, 475, 475, 475], format: "plain" },
-  { type: "subrow", label: "Preço médio (@)", values: [99, 99, 99, 99, 99], format: "plain" },
-  { type: "subrow", label: "Custo Total (R$)", values: [305, 305, 305, 300, 300] },
-  { type: "subrow", label: "Ebitda (%)", values: [15, 15, 15, 15, 15], format: "pct" },
-  { type: "section", label: "Pecuária - Faturamento (Arrendamentos)" },
-  { type: "subrow", label: "Produção Total (Cab)", values: [5213, 5213, 5213, 5700, 5700] },
-  { type: "subrow", label: "Arroba / Cab", values: [490, 490, 490, 550, 550], format: "plain" },
+// ─── Static DRE summary rows (below the dynamic crop sections) ────────────
+const DRE_SUMMARY_ROWS = [
+  { type: "total", key: "cmv_total", label: "CMV Total" },
+  { type: "total", key: "lucro_bruto", label: "Lucro Bruto" },
   { type: "divider" },
-  { type: "total", label: "CMV Total", values: [-6548, -6548, -6548, -9166, -9160] },
-  { type: "total", label: "Lucro Bruto", values: [4477, 4477, 4477, 4982, 4977] },
+  { type: "row", key: "resultado_derivativos", label: "Resultado Derivativos" },
+  { type: "row", key: "outras_entradas", label: "Outras Entradas" },
+  { type: "row", key: "outras_saidas", label: "Outras Saídas" },
+  { type: "row", key: "despesas_financeiras", label: "Despesas Financeiras" },
+  { type: "row", key: "resultado_apos_df", label: "Resultado Após D.F." },
   { type: "divider" },
-  { type: "row", label: "Resultado Após D.F.", values: [-691, 1109, 3009, 402, 938] },
-  { type: "row", label: "IR + CS", values: [null, null, 1042, null, null] },
-  { type: "row", label: "Resultado Líquido", values: [-691, 1042, 1888, 378, 881] },
-  { type: "row", label: "EBITDA Operacional (%)", values: [20, 39, 39, null, null], format: "pct" },
-  { type: "row", label: "EBITDA Total com investimentos (R$)", values: [4737, 4737, 4737, 5342, 5348] },
-  { type: "row", label: "NCE Total", values: [5799, 5691, 5437, 6458, 6438] },
+  { type: "row", key: "ebitda_total", label: "EBITDA Total (R$)", format: "number" },
 ];
-
-// ─── Tresholds ─────────────────────────────────────────────────────────────
-const TRESHOLDS_ROWS = [
-  { label: "Dívida / Receita", values: [2.42, 1.53, 1.09, 1.36, 1.15] },
-  { label: "Alavancagem Operacional (Dívida/Ebitda)", values: [5.76, 3.65, 2.60, 3.74, 3.17] },
-  { label: "Dívida Total / Ativo Imobilizado", values: [0.17, 0.11, 0.09, 0.13, 0.11] },
-  { label: "Cobertura Serviço da Dívida", values: [0.76, 0.41, 0.45, 0.44, 1.22] },
-  { label: "Liquidez Corrente", values: [0.42, 0.95, 1.85, 0.76, 0.76] },
-  { label: "Solvência (Patrimônio sobre o Ativo)", values: [0.94, 0.94, 0.93, 0.94, 0.94] },
-];
-
-// ─── Rating de Crédito ─────────────────────────────────────────────────────
-const RATING_ROWS = [
-  { label: "Dívida / Receita", values: [1, 1, 5, 2, 4] },
-  { label: "Alavancagem Operacional (Dívida/Ebitda)", values: [3, 5, 6, 5, 5] },
-  { label: "Dívida Total / Ativo Imobilizado", values: [7, 8, 9, 8, 8] },
-  { label: "Cobertura Serviço da Dívida", values: [2, 1, 1, 1, 5] },
-  { label: "Liquidez Corrente", values: [1, 4, 8, 3, 3] },
-  { label: "Solvência (Patrimônio sobre o Ativo)", values: [10, 10, 10, 10, 10] },
-];
-
-const RATING_FINAL_NUMERIC = [2.9, 4.5, 6.3, 4.0, 5.0];
-const RATING_FINAL_LABEL = ["B3", "B2 / B1", "Ba6 / Ba5", "—", "—"];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 function fmtNumber(value, decimals = 0) {
@@ -134,25 +96,8 @@ function getRatingFinalStyle(score) {
   return { background: "#22c55e", color: "#fff" };
 }
 
-// ─── Build initial edit values from rows ───────────────────────────────────
-// Only subrow/row types are editable; stored as { [rowIndex]: { [colIndex]: number|null } }
-function buildInitialValues(rows) {
-  const vals = {};
-  rows.forEach((row, ri) => {
-    if (row.type === "subrow" || row.type === "row") {
-      vals[ri] = {};
-      COLUMNS.forEach((_, ci) => {
-        vals[ri][ci] = row.values ? (row.values[ci] ?? null) : null;
-      });
-    }
-  });
-  return vals;
-}
-
-// ─── Compute section sums from current editable values ─────────────────────
-// Each "section" row becomes the sum of all following "subrow" rows
-// until the next section/total/divider.
-function computeSectionSums(rows, editValues) {
+// ─── Section sum computation ───────────────────────────────────────────────
+function computeSectionSums(rows, getValueFn) {
   const sums = {};
   let activeSectionIdx = null;
 
@@ -161,15 +106,14 @@ function computeSectionSums(rows, editValues) {
       activeSectionIdx = ri;
       sums[ri] = new Array(COLUMNS.length).fill(null);
     } else if (row.type === "subrow" && activeSectionIdx !== null) {
-      COLUMNS.forEach((_, ci) => {
-        const v = editValues[ri]?.[ci];
-        const n = v != null && v !== "" ? Number(v) : null;
+      COLUMNS.forEach((col, ci) => {
+        const v = getValueFn(row, col);
+        const n = v != null ? Number(v) : null;
         if (n !== null && !Number.isNaN(n)) {
           sums[activeSectionIdx][ci] = (sums[activeSectionIdx][ci] ?? 0) + n;
         }
       });
     } else {
-      // total / divider / row resets the active section
       activeSectionIdx = null;
     }
   });
@@ -177,36 +121,50 @@ function computeSectionSums(rows, editValues) {
   return sums;
 }
 
-// ─── Table state hook ──────────────────────────────────────────────────────
-function useTableState(rows) {
-  const [editValues, setEditValues] = useState(() => buildInitialValues(rows));
-  const [editing, setEditing] = useState(null); // { ri, ci }
-  const [draft, setDraft] = useState("");
+// ─── Build API query string from filter ────────────────────────────────────
+function buildFilterParams(filter) {
+  const params = new URLSearchParams();
+  (filter.grupo || []).forEach((id) => params.append("grupo[]", id));
+  (filter.subgrupo || []).forEach((id) => params.append("subgrupo[]", id));
+  (filter.cultura || []).forEach((id) => params.append("cultura[]", id));
+  (filter.safra || []).forEach((id) => params.append("safra[]", id));
+  return params.toString();
+}
 
-  const sectionSums = useMemo(() => computeSectionSums(rows, editValues), [rows, editValues]);
-
-  const startEdit = useCallback(
-    (ri, ci) => {
-      const current = editValues[ri]?.[ci];
-      setEditing({ ri, ci });
-      setDraft(current != null ? String(current) : "");
-    },
-    [editValues],
-  );
-
-  const commitEdit = useCallback((ri, ci, raw) => {
-    const cleaned = raw.trim().replace(",", ".");
-    const num = cleaned === "" ? null : Number(cleaned);
-    setEditValues((prev) => ({
-      ...prev,
-      [ri]: { ...prev[ri], [ci]: num === null || Number.isNaN(num) ? null : num },
-    }));
-    setEditing(null);
+// ─── Column header ─────────────────────────────────────────────────────────
+function TableColumnHeaders({ columns }) {
+  const sections = columns.reduce((acc, col) => {
+    const last = acc[acc.length - 1];
+    if (last && last.label === col.section) last.span += 1;
+    else acc.push({ label: col.section, span: 1 });
+    return acc;
   }, []);
 
-  const cancelEdit = useCallback(() => setEditing(null), []);
-
-  return { editValues, sectionSums, editing, draft, setDraft, startEdit, commitEdit, cancelEdit };
+  return (
+    <thead>
+      <tr className="dre-table-section-row">
+        <th className="dre-table-label-col" rowSpan={3} />
+        {sections.map((s, i) => (
+          <th key={i} colSpan={s.span} className="dre-table-section-header">
+            {s.label}
+          </th>
+        ))}
+      </tr>
+      <tr className="dre-table-year-row">
+        {columns.map((col) => (
+          <th key={col.key} className="dre-table-year">{col.year}</th>
+        ))}
+      </tr>
+      <tr className="dre-table-date-row">
+        {columns.map((col) => (
+          <th key={col.key} className="dre-table-col-header">
+            <div className="dre-col-label">{col.label}</div>
+            <div className="dre-col-date">{col.date}</div>
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
 }
 
 // ─── Editable cell ─────────────────────────────────────────────────────────
@@ -227,7 +185,6 @@ function EditableCell({ value, format, isEditing, draft, onDraftChange, onStartE
       />
     );
   }
-
   const isNegative = typeof value === "number" && value < 0;
   return (
     <span
@@ -240,66 +197,87 @@ function EditableCell({ value, format, isEditing, draft, onDraftChange, onStartE
   );
 }
 
-// ─── Column header ─────────────────────────────────────────────────────────
-function TableColumnHeaders({ columns }) {
-  const sections = columns.reduce((acc, col) => {
-    const last = acc[acc.length - 1];
-    if (last && last.label === col.section) {
-      last.span += 1;
-    } else {
-      acc.push({ label: col.section, span: 1 });
-    }
-    return acc;
-  }, []);
+// ─── Table state hook ──────────────────────────────────────────────────────
+// rows: array of row defs with `key`
+// getApiValue(rowKey, scenario): function to get computed/stored value from API
+// onSave(rowKey, scenario, colIndex, valor): callback to persist changes
+function useTableState(rows, getApiValue, onSave) {
+  // Local overrides: { rowKey: { colIndex: value } }
+  const [localValues, setLocalValues] = useState({});
+  const [editing, setEditing] = useState(null); // { ri, ci }
+  const [draft, setDraft] = useState("");
 
-  return (
-    <thead>
-      <tr className="dre-table-section-row">
-        <th className="dre-table-label-col" rowSpan={3} />
-        {sections.map((s, i) => (
-          <th key={i} colSpan={s.span} className="dre-table-section-header">
-            {s.label}
-          </th>
-        ))}
-      </tr>
-      <tr className="dre-table-year-row">
-        {columns.map((col) => (
-          <th key={col.key} className="dre-table-year">
-            {col.year}
-          </th>
-        ))}
-      </tr>
-      <tr className="dre-table-date-row">
-        {columns.map((col) => (
-          <th key={col.key} className="dre-table-col-header">
-            <div className="dre-col-label">{col.label}</div>
-            <div className="dre-col-date">{col.date}</div>
-          </th>
-        ))}
-      </tr>
-    </thead>
+  // Reset local overrides when API data changes (new filter selection)
+  const resetLocal = useCallback(() => setLocalValues({}), []);
+
+  const getValue = useCallback(
+    (row, col, ci) => {
+      if (!row.key) return null;
+      // Local override takes priority
+      if (localValues[row.key]?.[ci] !== undefined) return localValues[row.key][ci];
+      // Then API value
+      return getApiValue(row.key, col.scenario);
+    },
+    [localValues, getApiValue],
   );
+
+  const sectionSums = useMemo(
+    () =>
+      computeSectionSums(rows, (row, col) => {
+        const ci = COLUMNS.indexOf(col);
+        return getValue(row, col, ci);
+      }),
+    [rows, getValue],
+  );
+
+  const startEdit = useCallback(
+    (ri, ci) => {
+      const row = rows[ri];
+      const col = COLUMNS[ci];
+      const current = getValue(row, col, ci);
+      setEditing({ ri, ci });
+      setDraft(current != null ? String(current) : "");
+    },
+    [rows, getValue],
+  );
+
+  const commitEdit = useCallback(
+    (ri, ci, raw) => {
+      const cleaned = raw.trim().replace(",", ".");
+      const num = cleaned === "" ? null : Number(cleaned);
+      const finalVal = num === null || Number.isNaN(num) ? null : num;
+      const rowKey = rows[ri]?.key;
+      if (rowKey) {
+        setLocalValues((prev) => ({
+          ...prev,
+          [rowKey]: { ...prev[rowKey], [ci]: finalVal },
+        }));
+        onSave(rowKey, COLUMNS[ci].scenario, ci, finalVal);
+      }
+      setEditing(null);
+    },
+    [rows, onSave],
+  );
+
+  const cancelEdit = useCallback(() => setEditing(null), []);
+
+  return { getValue, sectionSums, editing, draft, setDraft, startEdit, commitEdit, cancelEdit, resetLocal };
 }
 
-// ─── Financial row ─────────────────────────────────────────────────────────
+// ─── Generic financial row ─────────────────────────────────────────────────
 function FinancialRow({ row, rowIndex, columns, tableState }) {
-  const { editValues, sectionSums, editing, draft, setDraft, startEdit, commitEdit, cancelEdit } = tableState;
+  const { getValue, sectionSums, editing, draft, setDraft, startEdit, commitEdit, cancelEdit } = tableState;
 
   if (row.type === "divider") {
-    return (
-      <tr className="dre-table-divider">
-        <td colSpan={columns.length + 1} />
-      </tr>
-    );
+    return <tr className="dre-table-divider"><td colSpan={columns.length + 1} /></tr>;
   }
 
-  const rowClass =
-    {
-      total: "dre-row-total",
-      section: "dre-row-section",
-      subrow: "dre-row-sub",
-      row: "dre-row-data",
-    }[row.type] || "dre-row-data";
+  const rowClass = {
+    total: "dre-row-total",
+    section: "dre-row-section",
+    subrow: "dre-row-sub",
+    row: "dre-row-data",
+  }[row.type] || "dre-row-data";
 
   const isEditable = row.type === "subrow" || row.type === "row";
   const isSection = row.type === "section";
@@ -312,10 +290,10 @@ function FinancialRow({ row, rowIndex, columns, tableState }) {
         if (isSection) {
           value = sectionSums[rowIndex]?.[ci] ?? null;
         } else if (isEditable) {
-          value = editValues[rowIndex]?.[ci] ?? null;
+          value = getValue(row, col, ci);
         } else {
-          // total rows: static (not editable)
-          value = row.values ? row.values[ci] : null;
+          // total rows: getValue with no section sum
+          value = getValue(row, col, ci);
         }
 
         const isNegative = typeof value === "number" && value < 0;
@@ -344,9 +322,19 @@ function FinancialRow({ row, rowIndex, columns, tableState }) {
   );
 }
 
-// ─── Financial table (Balanço / DRE) ───────────────────────────────────────
-function FinancialTable({ title, rows, columns }) {
-  const tableState = useTableState(rows);
+// ─── Balanço table ─────────────────────────────────────────────────────────
+function BalancoTable({ apiData, onSave, columns }) {
+  const getApiValue = useCallback(
+    (key, scenario) => {
+      // Balanço: always from stored entries
+      return apiData?.entries?.balanco?.[scenario]?.[key] ?? null;
+    },
+    [apiData],
+  );
+
+  const tableState = useTableState(BALANCO_ROWS, getApiValue, (key, scenario, _ci, valor) => {
+    onSave({ table: "balanco", key, scenario, valor });
+  });
 
   return (
     <div className="dre-table-block">
@@ -355,9 +343,9 @@ function FinancialTable({ title, rows, columns }) {
           <TableColumnHeaders columns={columns} />
           <tbody>
             <tr className="dre-table-block-title">
-              <td colSpan={columns.length + 1}>{title}</td>
+              <td colSpan={columns.length + 1}>BALANÇO</td>
             </tr>
-            {rows.map((row, i) => (
+            {BALANCO_ROWS.map((row, i) => (
               <FinancialRow key={i} row={row} rowIndex={i} columns={columns} tableState={tableState} />
             ))}
           </tbody>
@@ -367,35 +355,104 @@ function FinancialTable({ title, rows, columns }) {
   );
 }
 
-// ─── Tresholds table (editable) ────────────────────────────────────────────
-function TresholdsTable({ rows, columns }) {
-  const [editValues, setEditValues] = useState(() => {
-    const vals = {};
-    rows.forEach((row, ri) => {
-      vals[ri] = {};
-      COLUMNS.forEach((_, ci) => {
-        vals[ri][ci] = row.values ? (row.values[ci] ?? null) : null;
-      });
+// ─── DRE table ─────────────────────────────────────────────────────────────
+function DRETable({ apiData, onSave, columns }) {
+  // Build dynamic DRE rows: one section per cultura from API + static summary rows
+  const culturas = apiData?.dre_current?.culturas || [];
+
+  const dreRows = useMemo(() => {
+    const rows = [
+      { type: "total", key: "vendas_liquidas", label: "Vendas Líquidas" },
+    ];
+
+    culturas.forEach((crop) => {
+      const prefix = `crop_${crop.id}`;
+      rows.push({ type: "section", key: `${prefix}_section`, label: `${crop.nome} - Faturamento` });
+      rows.push({ type: "subrow", key: `${prefix}_producao_total`, label: "Produção Total" });
+      rows.push({ type: "subrow", key: `${prefix}_retencao_pct`, label: "Retenção (%)", format: "pct" });
+      rows.push({ type: "subrow", key: `${prefix}_preco_medio`, label: "Preço Médio" });
+      rows.push({ type: "subrow", key: `${prefix}_custo_realizado`, label: "Custo Total (R$)" });
+      rows.push({ type: "subrow", key: `${prefix}_ebitda_pct`, label: "Ebitda (%)", format: "pct" });
     });
-    return vals;
+
+    rows.push({ type: "divider" });
+    rows.push(...DRE_SUMMARY_ROWS);
+    return rows;
+  }, [culturas]);
+
+  const getApiValue = useCallback(
+    (key, scenario) => {
+      if (scenario === "current") {
+        // Map row keys to computed summary values
+        const summary = apiData?.dre_current?.summary || {};
+        if (summary[key] !== undefined) return summary[key];
+
+        // Per-crop keys: "crop_{id}_{field}"
+        const match = key.match(/^crop_(\d+)_(.+)$/);
+        if (match) {
+          const cropId = parseInt(match[1], 10);
+          const field = match[2];
+          const crop = (apiData?.dre_current?.culturas || []).find((c) => c.id === cropId);
+          return crop ? (crop[field] ?? null) : null;
+        }
+      }
+      // Other scenarios: from stored entries
+      return apiData?.entries?.dre?.[scenario]?.[key] ?? null;
+    },
+    [apiData],
+  );
+
+  const tableState = useTableState(dreRows, getApiValue, (key, scenario, _ci, valor) => {
+    onSave({ table: "dre", key, scenario, valor });
   });
+
+  return (
+    <div className="dre-table-block">
+      <div className="dre-table-scroll">
+        <table className="dre-table">
+          <TableColumnHeaders columns={columns} />
+          <tbody>
+            <tr className="dre-table-block-title">
+              <td colSpan={columns.length + 1}>DRE</td>
+            </tr>
+            {dreRows.map((row, i) => (
+              <FinancialRow key={i} row={row} rowIndex={i} columns={columns} tableState={tableState} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tresholds (static / editable) ─────────────────────────────────────────
+const TRESHOLDS_ROWS = [
+  { label: "Dívida / Receita", values: [2.42, 1.53, 1.09, 1.36, 1.15] },
+  { label: "Alavancagem Operacional (Dívida/Ebitda)", values: [5.76, 3.65, 2.60, 3.74, 3.17] },
+  { label: "Dívida Total / Ativo Imobilizado", values: [0.17, 0.11, 0.09, 0.13, 0.11] },
+  { label: "Cobertura Serviço da Dívida", values: [0.76, 0.41, 0.45, 0.44, 1.22] },
+  { label: "Liquidez Corrente", values: [0.42, 0.95, 1.85, 0.76, 0.76] },
+  { label: "Solvência (Patrimônio sobre o Ativo)", values: [0.94, 0.94, 0.93, 0.94, 0.94] },
+];
+
+const RATING_ROWS = [
+  { label: "Dívida / Receita", values: [1, 1, 5, 2, 4] },
+  { label: "Alavancagem Operacional (Dívida/Ebitda)", values: [3, 5, 6, 5, 5] },
+  { label: "Dívida Total / Ativo Imobilizado", values: [7, 8, 9, 8, 8] },
+  { label: "Cobertura Serviço da Dívida", values: [2, 1, 1, 1, 5] },
+  { label: "Liquidez Corrente", values: [1, 4, 8, 3, 3] },
+  { label: "Solvência (Patrimônio sobre o Ativo)", values: [10, 10, 10, 10, 10] },
+];
+
+const RATING_FINAL_NUMERIC = [2.9, 4.5, 6.3, 4.0, 5.0];
+const RATING_FINAL_LABEL = ["B3", "B2 / B1", "Ba6 / Ba5", "—", "—"];
+
+function TresholdsTable({ columns }) {
+  const [editValues, setEditValues] = useState(() =>
+    TRESHOLDS_ROWS.map((row) => [...(row.values || [])]),
+  );
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState("");
-
-  const startEdit = (ri, ci) => {
-    setEditing({ ri, ci });
-    setDraft(editValues[ri]?.[ci] != null ? String(editValues[ri][ci]) : "");
-  };
-
-  const commitEdit = (ri, ci, raw) => {
-    const cleaned = raw.trim().replace(",", ".");
-    const num = cleaned === "" ? null : Number(cleaned);
-    setEditValues((prev) => ({
-      ...prev,
-      [ri]: { ...prev[ri], [ci]: num === null || Number.isNaN(num) ? null : num },
-    }));
-    setEditing(null);
-  };
 
   return (
     <div className="dre-table-block">
@@ -406,7 +463,7 @@ function TresholdsTable({ rows, columns }) {
             <tr className="dre-table-block-title">
               <td colSpan={columns.length + 1}>TRESHOLDS</td>
             </tr>
-            {rows.map((row, ri) => (
+            {TRESHOLDS_ROWS.map((row, ri) => (
               <tr key={ri} className="dre-row-data">
                 <td className="dre-table-label">{row.label}</td>
                 {columns.map((col, ci) => {
@@ -421,16 +478,27 @@ function TresholdsTable({ rows, columns }) {
                           value={draft}
                           autoFocus
                           onChange={(e) => setDraft(e.target.value)}
-                          onBlur={() => commitEdit(ri, ci, draft)}
+                          onBlur={() => {
+                            const n = draft.trim() === "" ? null : Number(draft.replace(",", "."));
+                            setEditValues((prev) => {
+                              const next = prev.map((r) => [...r]);
+                              next[ri][ci] = n ?? null;
+                              return next;
+                            });
+                            setEditing(null);
+                          }}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") commitEdit(ri, ci, draft);
+                            if (e.key === "Enter") e.target.blur();
                             if (e.key === "Escape") setEditing(null);
                           }}
                         />
                       ) : (
                         <span
                           className="dre-cell-value dre-cell-editable"
-                          onClick={() => startEdit(ri, ci)}
+                          onClick={() => {
+                            setEditing({ ri, ci });
+                            setDraft(value != null ? String(value) : "");
+                          }}
                           title="Clique para editar"
                         >
                           {fmtNumber(value, 2)}
@@ -448,8 +516,7 @@ function TresholdsTable({ rows, columns }) {
   );
 }
 
-// ─── Rating de Crédito table (read-only) ───────────────────────────────────
-function RatingTable({ rows, columns, finalNumeric, finalLabel }) {
+function RatingTable({ columns }) {
   return (
     <div className="dre-table-block">
       <div className="dre-table-scroll">
@@ -459,15 +526,14 @@ function RatingTable({ rows, columns, finalNumeric, finalLabel }) {
             <tr className="dre-table-block-title">
               <td colSpan={columns.length + 1}>RATING DE CRÉDITO</td>
             </tr>
-            {rows.map((row, i) => (
+            {RATING_ROWS.map((row, i) => (
               <tr key={i} className="dre-row-data">
                 <td className="dre-table-label">{row.label}</td>
                 {columns.map((col, j) => {
                   const score = row.values ? row.values[j] : null;
-                  const style = score != null ? getRatingStyle(score) : {};
                   return (
-                    <td key={col.key} className="dre-table-value dre-rating-cell" style={style}>
-                      {score != null ? score : "–"}
+                    <td key={col.key} className="dre-table-value dre-rating-cell" style={score != null ? getRatingStyle(score) : {}}>
+                      {score ?? "–"}
                     </td>
                   );
                 })}
@@ -476,11 +542,10 @@ function RatingTable({ rows, columns, finalNumeric, finalLabel }) {
             <tr className="dre-row-rating-final">
               <td className="dre-table-label">Rating Final</td>
               {columns.map((col, j) => {
-                const score = finalNumeric[j];
-                const style = score != null ? getRatingFinalStyle(score) : {};
+                const score = RATING_FINAL_NUMERIC[j];
                 return (
-                  <td key={col.key} className="dre-table-value dre-rating-cell dre-rating-final-cell" style={style}>
-                    {score != null ? fmtNumber(score, 1) : "–"}
+                  <td key={col.key} className="dre-table-value dre-rating-cell dre-rating-final-cell" style={getRatingFinalStyle(score)}>
+                    {fmtNumber(score, 1)}
                   </td>
                 );
               })}
@@ -488,11 +553,11 @@ function RatingTable({ rows, columns, finalNumeric, finalLabel }) {
             <tr className="dre-row-rating-final">
               <td className="dre-table-label">Rating Final</td>
               {columns.map((col, j) => {
-                const score = finalNumeric[j];
-                const label = finalLabel[j];
-                const style = score != null && label && label !== "—" ? getRatingFinalStyle(score) : {};
+                const score = RATING_FINAL_NUMERIC[j];
+                const label = RATING_FINAL_LABEL[j];
                 return (
-                  <td key={col.key} className="dre-table-value dre-rating-cell dre-rating-final-cell" style={style}>
+                  <td key={col.key} className="dre-table-value dre-rating-cell dre-rating-final-cell"
+                    style={label && label !== "—" ? getRatingFinalStyle(score) : {}}>
                     {label || "–"}
                   </td>
                 );
@@ -507,6 +572,47 @@ function RatingTable({ rows, columns, finalNumeric, finalLabel }) {
 
 // ─── Main page ─────────────────────────────────────────────────────────────
 export function DreBalacoPage() {
+  const { filter } = useDashboardFilter();
+  const [apiData, setApiData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Stable serialization of filter so useEffect only fires when values actually change
+  const filterKey = JSON.stringify({
+    grupo: [...(filter.grupo || [])].sort(),
+    subgrupo: [...(filter.subgrupo || [])].sort(),
+    cultura: [...(filter.cultura || [])].sort(),
+    safra: [...(filter.safra || [])].sort(),
+  });
+
+  useEffect(() => {
+    const params = buildFilterParams(filter);
+    setLoading(true);
+    setError(null);
+    api
+      .get(`/dashboard/dre-balanco/${params ? `?${params}` : ""}`)
+      .then(({ data }) => setApiData(data))
+      .catch((err) => setError(err?.response?.data?.detail || "Erro ao carregar dados."))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
+
+  const handleSave = useCallback(
+    ({ table, key, scenario, valor }) => {
+      api
+        .post("/dashboard/dre-balanco/", {
+          table,
+          key,
+          scenario,
+          valor: valor != null ? String(valor) : null,
+          grupo: filter.grupo?.[0] || null,
+          safra: filter.safra?.[0] || null,
+        })
+        .catch(console.error);
+    },
+    [filter.grupo, filter.safra],
+  );
+
   return (
     <div className="resource-page dre-balanco-page">
       <PageHeader
@@ -514,16 +620,16 @@ export function DreBalacoPage() {
         description="Demonstrativo de resultados, balanço patrimonial e indicadores financeiros"
       />
       <div className="dre-balanco-content">
-        <div className="dre-mock-notice">Dados de exemplo — integração com API em desenvolvimento</div>
-        <FinancialTable title="BALANÇO" rows={BALANCO_ROWS} columns={COLUMNS} />
-        <FinancialTable title="DRE" rows={DRE_ROWS} columns={COLUMNS} />
-        <TresholdsTable rows={TRESHOLDS_ROWS} columns={COLUMNS} />
-        <RatingTable
-          rows={RATING_ROWS}
-          columns={COLUMNS}
-          finalNumeric={RATING_FINAL_NUMERIC}
-          finalLabel={RATING_FINAL_LABEL}
-        />
+        {loading && <div className="dre-loading">Carregando dados...</div>}
+        {error && <div className="dre-error">{error}</div>}
+        {!loading && (
+          <>
+            <BalancoTable apiData={apiData} onSave={handleSave} columns={COLUMNS} />
+            <DRETable apiData={apiData} onSave={handleSave} columns={COLUMNS} />
+            <TresholdsTable columns={COLUMNS} />
+            <RatingTable columns={COLUMNS} />
+          </>
+        )}
       </div>
     </div>
   );

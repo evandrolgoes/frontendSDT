@@ -13,6 +13,7 @@ export function JsonImportPage() {
   const [sourceFields, setSourceFields] = useState([]);
   const [sampleRows, setSampleRows] = useState([]);
   const [rowsFound, setRowsFound] = useState(0);
+  const [remaining, setRemaining] = useState(0);
   const [mapping, setMapping] = useState({});
   const [loadingMetadata, setLoadingMetadata] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -77,6 +78,7 @@ export function JsonImportPage() {
     setSourceFields([]);
     setSampleRows([]);
     setRowsFound(0);
+    setRemaining(0);
     setMapping({});
     setResult(null);
     setUrlReturnedEmpty(false);
@@ -104,6 +106,7 @@ export function JsonImportPage() {
       setSourceFields(data.sourceFields || []);
       setSampleRows(data.sampleRows || []);
       setRowsFound(data.rowsFound || 0);
+      setRemaining(data.remaining || 0);
       setMapping(nextMapping);
       setUrlReturnedEmpty(Boolean(data.urlReturnedEmpty));
       if (data.rowsFound) {
@@ -221,6 +224,14 @@ export function JsonImportPage() {
 
         {error ? <div className="json-import-error">{error}</div> : null}
         {notice ? <div className="json-import-notice">{notice}</div> : null}
+        {remaining > 0 ? (
+          <div className="json-import-warning-list">
+            <div>
+              Atencao: este JSON contem apenas {rowsFound} dos {rowsFound + remaining} registros disponíveis.
+              Ainda ha {remaining} registro(s) nao incluido(s). Cole o proximo lote para importar o restante.
+            </div>
+          </div>
+        ) : null}
         {urlReturnedEmpty ? (
           <div className="json-import-warning-list">
             <div>O JSON foi lido corretamente, mas nao trouxe registros para importar.</div>
