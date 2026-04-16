@@ -7965,6 +7965,42 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       }),
     [bolsaDerivatives, hedgeSummaryReferenceDate],
   );
+  const summaryPhysicalPriceLines = useMemo(() => {
+    const groups = new Map();
+    activePhysicalSales.forEach((item) => {
+      const volume = Math.abs(Number(item.volume_fisico || 0));
+      const price = Number(item.preco || 0);
+      if (!volume || !price) return;
+      const unitLabel =
+        item.moeda_unidade ||
+        (item.moeda_contrato && item.unidade_contrato ? `${item.moeda_contrato}/${item.unidade_contrato}` : item.moeda_contrato || item.unidade_contrato || "");
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedPrice: 0 };
+      current.volume += volume;
+      current.weightedPrice += volume * price;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({ ...item, averagePrice: item.volume > 0 ? item.weightedPrice / item.volume : 0 }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [activePhysicalSales]);
+  const summaryDerivativePriceLines = useMemo(() => {
+    const groups = new Map();
+    activeBolsaDerivatives.forEach((item) => {
+      const volume = derivativeStandardVolumeGetter(item);
+      const strike = Number(item.strike_montagem || item.strike_liquidacao || 0);
+      if (!volume || !strike) return;
+      const unitLabel = item.moeda_unidade || item.volume_financeiro_moeda || "";
+      const key = unitLabel || "sem-unidade";
+      const current = groups.get(key) || { unitLabel, volume: 0, weightedStrike: 0 };
+      current.volume += volume;
+      current.weightedStrike += volume * strike;
+      groups.set(key, current);
+    });
+    return Array.from(groups.values())
+      .map((item) => ({ ...item, averageStrike: item.volume > 0 ? item.weightedStrike / item.volume : 0 }))
+      .sort((left, right) => right.volume - left.volume);
+  }, [activeBolsaDerivatives, derivativeStandardVolumeGetter]);
 
   const derivativeOperationsByExchange = useMemo(() => {
     const exchangeMap = new Map();
@@ -8626,9 +8662,11 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         physicalPercent={totalCommercializedVolume > 0 ? (activePhysicalCommercializedVolume / totalCommercializedVolume) * 100 : physicalSalesPercent}
         physicalMetricValue={activePhysicalCommercializedVolume}
         physicalMetricLabel={totalArea > 0 ? `${formatNumber2(physicalScPerHa)} scs/ha` : `${formatNumber0(activePhysicalCommercializedVolume)} sc`}
+        physicalDetailLines={summaryPhysicalPriceLines.map((item) => `${formatNumber0(item.volume)} sc | ${formatCurrency2(item.averagePrice)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)}
         derivativePercent={totalCommercializedVolume > 0 ? (activeDerivativeCommercializedVolume / totalCommercializedVolume) * 100 : derivativeSalesPercent}
         derivativeMetricValue={activeDerivativeCommercializedVolume}
         derivativeMetricLabel={totalArea > 0 ? `${formatNumber2(derivativeScPerHa)} scs/ha` : `${formatNumber0(activeDerivativeCommercializedVolume)} sc`}
+        derivativeDetailLines={summaryDerivativePriceLines.map((item) => `${formatNumber0(item.volume)} sc | Strike ${formatCurrency2(item.averageStrike)}${item.unitLabel ? ` ${item.unitLabel}` : ""}`)}
         policyMinPercent={activePolicyMinPercent}
         policyMaxPercent={activePolicyMaxPercent}
       />

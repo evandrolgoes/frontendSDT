@@ -3138,7 +3138,7 @@ textarea {
 }
 
 .cashflow-dashboard-shell--mobile-stacked .cashflow-chart-card--expanded {
-  min-height: 540px;
+  min-height: 648px;
 }
 
 .cashflow-chart-card--compact {
@@ -3151,8 +3151,8 @@ textarea {
 }
 
 .cashflow-chart-card--compact:not(.cashflow-chart-card--expanded) {
-  min-height: 346px;
-  max-height: 346px;
+  min-height: 415px;
+  max-height: 415px;
 }
 
 .cashflow-chart-card--expanded {
@@ -10598,7 +10598,7 @@ tfoot td {
   }
 
   .cashflow-dashboard-shell--mobile-stacked .cashflow-chart-card--expanded {
-    min-height: 480px;
+    min-height: 576px;
   }
 
   .price-comp-column-totals.is-mobile {
