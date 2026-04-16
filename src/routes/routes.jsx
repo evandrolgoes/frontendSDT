@@ -38,6 +38,7 @@ const lazyResourcePage = (definitionKey) =>
   );
 
 const DashboardPage = lazyNamedExport(loadDashboardPageModule, "DashboardPage");
+const HedgePolicyEditorPage = lazyNamedExport(loadDashboardPageModule, "HedgePolicyEditorPage");
 const DerivativeOperationsPage = lazyNamedExport(loadDerivativeOperationsPageModule, "DerivativeOperationsPage");
 const JsonImportPage = lazyNamedExport(loadJsonImportPageModule, "JsonImportPage");
 const CopyBasePage = lazyNamedExport(loadCopyBasePageModule, "CopyBasePage");
@@ -284,7 +285,7 @@ export const appRoutes = [
   },
   { ...resourceRoute("/estrategias", "strategies", "strategies"), module: "ops_strategies" },
   { ...resourceRoute("/gatilhos", "strategyTriggers", "strategy-triggers"), module: "ops_triggers" },
-  { ...resourceRoute("/politica-hedge", "hedgePolicies", "hedge-policies"), module: "ops_hedge_policies" },
+  { path: "/politica-hedge", element: <HedgePolicyEditorPage />, module: "ops_hedge_policies" },
   { ...resourceRoute("/quadro-safra", "cropBoards", "crop-boards"), module: "ops_crop_boards" },
   { ...resourceRoute("/vendas-fisico", "physicalSales", "physical-sales"), module: "ops_physical_sales" },
   {

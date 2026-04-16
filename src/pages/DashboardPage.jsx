@@ -10843,6 +10843,7 @@ function HedgePolicyEditorModal({
   optionCrops = [],
   optionSeasons = [],
   initialFilter = {},
+  inline = false,
 }) {
   const extractIds = (val) => {
     if (!val) return [];
@@ -11026,20 +11027,18 @@ function HedgePolicyEditorModal({
     onFocusToggle: null,
   };
 
-  return (
-    <div
-      className="hedge-fullscreen-backdrop hedge-policy-editor-backdrop"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div className="hedge-policy-editor-modal" onClick={(e) => e.stopPropagation()}>
+  const inner = (
+    <div className={inline ? "hedge-policy-editor-modal hedge-policy-editor-modal--inline" : "hedge-policy-editor-modal"} onClick={(e) => e.stopPropagation()}>
 
         {/* Header */}
         <div className="hedge-policy-editor-header">
           <div>
-            <h2 className="hedge-policy-editor-title">Editar Política de Hedge</h2>
+            <h2 className="hedge-policy-editor-title">Política de Hedge</h2>
             <p className="hedge-policy-editor-subtitle">Defina limites mínimo e máximo por período. Valores em percentual (%).</p>
           </div>
-          <button type="button" className="component-popup-close" onClick={onClose} aria-label="Fechar">×</button>
+          {!inline && onClose && (
+            <button type="button" className="component-popup-close" onClick={onClose} aria-label="Fechar">×</button>
+          )}
         </div>
 
         {/* Mini charts side by side — atualizam ao vivo conforme edição */}
@@ -11249,15 +11248,27 @@ function HedgePolicyEditorModal({
           </button>
           <div className="hedge-policy-editor-footer-actions">
             {error && <span className="hedge-policy-editor-error">{error}</span>}
-            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose} disabled={saving}>
-              Cancelar
-            </button>
+            {!inline && onClose && (
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose} disabled={saving}>
+                Cancelar
+              </button>
+            )}
             <button type="button" className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
               {saving ? "Salvando…" : "Salvar alterações"}
             </button>
           </div>
         </div>
       </div>
+  );
+
+  if (inline) return inner;
+
+  return (
+    <div
+      className="hedge-fullscreen-backdrop hedge-policy-editor-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget && onClose) onClose(); }}
+    >
+      {inner}
     </div>
   );
 }
@@ -19647,6 +19658,191 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
         {content.charts.sideA}
         {content.charts.sideB}
       </section>
+    </div>
+  );
+}
+
+export function HedgePolicyEditorPage() {
+  const { filter: dashboardFilter, options, matchesDashboardFilter } = useDashboardFilter();
+  const [frequency] = useState("monthly");
+  const [loaded, setLoaded] = useState(false);
+  const [policies, setPolicies] = useState([]);
+  const [physicalSales, setPhysicalSales] = useState([]);
+  const [physicalPayments, setPhysicalPayments] = useState([]);
+  const [derivatives, setDerivatives] = useState([]);
+  const [budgetCosts, setBudgetCosts] = useState([]);
+  const [actualCosts, setActualCosts] = useState([]);
+  const [cropBoards, setCropBoards] = useState([]);
+  const [usdBrlRate, setUsdBrlRate] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    Promise.all([
+      resourceService.listAll("hedge-policies"),
+      resourceService.listAll("physical-sales"),
+      resourceService.listAll("physical-payments"),
+      resourceService.listAll("derivative-operations"),
+      resourceService.listAll("budget-costs"),
+      resourceService.listAll("actual-costs"),
+      resourceService.listAll("crop-boards"),
+      resourceService.fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL).catch(() => ({ planilha1: [] })),
+    ]).then(([policiesRes, physicalRes, physPaymentsRes, derivRes, budgetRes, actualCostsRes, cropBoardRes, sheetyRes]) => {
+      if (!isMounted) return;
+      setPolicies(policiesRes || []);
+      setPhysicalSales(physicalRes || []);
+      setPhysicalPayments(physPaymentsRes || []);
+      setDerivatives(derivRes || []);
+      setBudgetCosts(budgetRes || []);
+      setActualCosts(actualCostsRes || []);
+      setCropBoards(cropBoardRes || []);
+      const usdBrlRow = (sheetyRes?.planilha1 || []).find((item) => normalizeText(item.ctrbolsa) === "usdbrl");
+      const rate = Number(usdBrlRow?.cotacao);
+      setUsdBrlRate(Number.isFinite(rate) && rate > 0 ? rate : 0);
+      setLoaded(true);
+    });
+    return () => { isMounted = false; };
+  }, []);
+
+  const filteredPolicies = useMemo(
+    () => policies.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [dashboardFilter, policies, matchesDashboardFilter],
+  );
+  const filteredPhysicalSales = useMemo(
+    () => physicalSales.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [dashboardFilter, physicalSales, matchesDashboardFilter],
+  );
+  const filteredActualCosts = useMemo(
+    () => actualCosts.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [actualCosts, dashboardFilter, matchesDashboardFilter],
+  );
+  const filteredDerivatives = useMemo(
+    () => derivatives.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter, { cultureKeys: DERIVATIVE_CULTURE_KEYS })),
+    [dashboardFilter, derivatives],
+  );
+  const costBase = useMemo(
+    () => budgetCosts
+      .filter((item) => matchesDashboardFilter(item, dashboardFilter))
+      .reduce((sum, item) => sum + convertValueToBrl(item.valor, item.moeda, usdBrlRate), 0),
+    [budgetCosts, dashboardFilter, matchesDashboardFilter, usdBrlRate],
+  );
+  const productionBase = useMemo(
+    () => getNetProductionValue(
+      cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+      physicalPayments.filter((item) => rowMatchesDashboardFilter(item, dashboardFilter, { cultureKeys: ["fazer_frente_com"] })),
+      (item) => item.producao_total,
+      (item) => item.volume,
+    ),
+    [cropBoards, dashboardFilter, matchesDashboardFilter, physicalPayments],
+  );
+  const cropBoardDateMarkers = useMemo(
+    () => buildCropBoardDateMarkers(cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter))),
+    [cropBoards, dashboardFilter, matchesDashboardFilter],
+  );
+  const cultureLabelById = useMemo(() => {
+    const map = new Map();
+    [...(options.crops || []), ...(options.cropBoardCrops || [])].forEach((item) => {
+      if (item?.id != null) map.set(String(item.id), item.ativo || item.cultura || item.nome || String(item.id));
+    });
+    return map;
+  }, [options.cropBoardCrops, options.crops]);
+  const resolveCultureLabel = useCallback((value) => {
+    if (!value) return "Sem ativo";
+    if (Array.isArray(value)) return resolveCultureLabel(value[0]);
+    if (typeof value === "string" || typeof value === "number") return cultureLabelById.get(String(value)) || String(value);
+    const nestedId = value.id != null ? cultureLabelById.get(String(value.id)) : null;
+    return nestedId || value.ativo || value.cultura || value.nome || "Sem ativo";
+  }, [cultureLabelById]);
+  const derivativeStandardVolumeGetter = useMemo(
+    () => (item) => getDerivativeVolumeInStandardUnit(item, options.exchanges || [], resolveCultureLabel),
+    [options.exchanges, resolveCultureLabel],
+  );
+
+  const buildPreviewChartStates = useCallback((previewPolicies, modalFilter = null) => {
+    const hasModalFilter = modalFilter != null && (
+      modalFilter.cultura != null || modalFilter.safra != null ||
+      modalFilter.grupo != null || modalFilter.subgrupo != null
+    );
+    const filterObj = hasModalFilter ? {
+      cultura: modalFilter.cultura != null ? [modalFilter.cultura] : [],
+      safra: modalFilter.safra != null ? [modalFilter.safra] : [],
+      grupo: modalFilter.grupo != null ? [modalFilter.grupo] : [],
+      subgrupo: modalFilter.subgrupo != null ? [modalFilter.subgrupo] : [],
+    } : null;
+    const usePhysical = hasModalFilter
+      ? physicalSales.filter((item) => rowMatchesDashboardFilter(item, filterObj))
+      : filteredPhysicalSales;
+    const useActualCosts = hasModalFilter
+      ? actualCosts.filter((item) => rowMatchesDashboardFilter(item, filterObj))
+      : filteredActualCosts;
+    const useDerivatives = hasModalFilter
+      ? derivatives.filter((item) => rowMatchesDashboardFilter(item, filterObj, { cultureKeys: DERIVATIVE_CULTURE_KEYS }))
+      : filteredDerivatives;
+    const useCommodityDerivatives = useDerivatives.filter((item) => normalizeText(item.moeda_ou_cmdtye) === "cmdtye");
+    const useCostBase = hasModalFilter
+      ? budgetCosts.filter((item) => rowMatchesDashboardFilter(item, filterObj))
+          .reduce((sum, item) => sum + convertValueToBrl(item.valor, item.moeda, usdBrlRate), 0) || costBase
+      : costBase;
+    const useProductionBase = hasModalFilter
+      ? getNetProductionValue(
+          cropBoards.filter((item) => rowMatchesDashboardFilter(item, filterObj)),
+          physicalPayments.filter((item) => rowMatchesDashboardFilter(item, filterObj, { cultureKeys: ["fazer_frente_com"] })),
+          (item) => item.producao_total,
+          (item) => item.volume,
+        ) || productionBase
+      : productionBase;
+    return {
+      cost: buildHedgePolicyChartState({
+        unit: "BRL", frequency, baseValue: useCostBase,
+        physicalRows: usePhysical, derivativeRows: useDerivatives, policies: previewPolicies,
+        physicalValueGetter: (item) => getPhysicalCostValue(item, usdBrlRate),
+        derivativeValueGetter: (item) => getDerivativeCostValue(item, usdBrlRate),
+        comparisonRows: useActualCosts,
+        comparisonDateGetter: (item) => item.data_travamento,
+        comparisonValueGetter: (item) => convertValueToBrl(item.valor, item.moeda, usdBrlRate),
+        dateMarkers: cropBoardDateMarkers,
+      }),
+      production: buildHedgePolicyChartState({
+        unit: "SC", frequency, baseValue: useProductionBase,
+        physicalRows: usePhysical, derivativeRows: useCommodityDerivatives, policies: previewPolicies,
+        physicalValueGetter: getPhysicalVolumeValue,
+        derivativeValueGetter: derivativeStandardVolumeGetter,
+        dateMarkers: cropBoardDateMarkers,
+      }),
+      costBaseValue: useCostBase,
+      productionBaseValue: useProductionBase,
+    };
+  }, [actualCosts, budgetCosts, costBase, cropBoardDateMarkers, cropBoards, derivativeStandardVolumeGetter, derivatives, filteredActualCosts, filteredDerivatives, filteredPhysicalSales, frequency, physicalPayments, physicalSales, productionBase, usdBrlRate]);
+
+  const handleSaved = useCallback(() => {
+    resourceService.listAll("hedge-policies", {}, { force: true }).then((data) => setPolicies(data || []));
+  }, []);
+
+  if (!loaded) {
+    return (
+      <div className="resource-page hedge-policy-editor-page">
+        <div style={{ padding: "32px", color: "#94a3b8", textAlign: "center" }}>Carregando…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="resource-page hedge-policy-editor-page">
+      <HedgePolicyEditorModal
+        inline
+        policies={filteredPolicies}
+        buildPreviewChartStates={buildPreviewChartStates}
+        optionGroups={options.groups || []}
+        optionSubgroups={options.subgroups || []}
+        optionCrops={[...(options.cropBoardCrops || []), ...(options.crops || [])]}
+        optionSeasons={[...(options.cropBoardSeasons || []), ...(options.seasons || [])]}
+        initialFilter={{
+          cultura: dashboardFilter?.cultura?.[0] ? Number(dashboardFilter.cultura[0]) : null,
+          safra: dashboardFilter?.safra?.[0] ? Number(dashboardFilter.safra[0]) : null,
+          grupo: dashboardFilter?.grupo?.[0] ? Number(dashboardFilter.grupo[0]) : null,
+          subgrupo: dashboardFilter?.subgrupo?.[0] ? Number(dashboardFilter.subgrupo[0]) : null,
+        }}
+        onSaved={handleSaved}
+      />
     </div>
   );
 }
