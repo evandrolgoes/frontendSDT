@@ -476,35 +476,6 @@ const baseResourceDefinitions = {
       { name: "obs", label: "Observacoes", type: "textarea" },
     ],
   },
-  anotacoes: {
-    resource: "anotacoes",
-    title: "Anotacoes",
-    description: "Atas e anotacoes de reunioes com editor rico e anexos.",
-    searchPlaceholder: "Buscar titulo, participantes, grupo ou subgrupo...",
-    columns: [
-      { key: "data", label: "Data", type: "date" },
-      { key: "titulo", label: "Titulo" },
-      { key: "grupos_display", label: "Grupos", type: "select-multi" },
-      { key: "subgrupos_display", label: "Subgrupos", type: "select-multi" },
-      { key: "modificado_por_name", label: "Modificado por" },
-    ],
-    fields: [
-      { name: "titulo", label: "Titulo" },
-      { name: "data", label: "Data", type: "date", optional: true },
-      { name: "grupos", label: "Grupos", type: "multirelation", resource: "groups", labelKey: "grupo", optional: true },
-      {
-        name: "subgrupos",
-        label: "Subgrupos",
-        type: "multirelation",
-        resource: "subgroups",
-        labelKey: "subgrupo",
-        optional: true,
-        filterByCurrent: { grupo: "grupos" },
-      },
-      { name: "participantes", label: "Participantes", type: "textarea", optional: true },
-      { name: "conteudo_html", label: "Texto completo", type: "textarea", optional: true },
-    ],
-  },
   physicalQuotes: {
     resource: "physical-quotes",
     title: "Cotacoes Fisico",
@@ -902,6 +873,38 @@ const baseResourceDefinitions = {
         optional: true,
         filterByCurrent: { grupo: "grupo" },
       },
+      {
+        name: "cultura_produto",
+        label: "Cultura produto",
+        type: "select",
+        resources: ["crop-boards", "crops"],
+        getOptions: ({ lookupOptions }) => {
+          const cropBoards = Array.isArray(lookupOptions["crop-boards"]) ? lookupOptions["crop-boards"] : [];
+          const crops = Array.isArray(lookupOptions.crops) ? lookupOptions.crops : [];
+          const cropMap = new Map(
+            crops.map((item) => [
+              String(item.id),
+              item.ativo || item.cultura || item.nome || item.label || item.descricao || String(item.id),
+            ]),
+          );
+          const values = cropBoards
+            .map((item) => {
+              if (item?.cultura && typeof item.cultura === "object") {
+                return item.cultura.ativo || item.cultura.cultura || item.cultura.nome || item.cultura.label || item.cultura.descricao || "";
+              }
+              if (item?.cultura != null) {
+                return cropMap.get(String(item.cultura)) || "";
+              }
+              return "";
+            })
+            .filter(Boolean);
+
+          return [...new Set(values)].map((value) => ({
+            value,
+            label: value,
+          }));
+        },
+      },
       { name: "safra", label: "Safra", ...commonRelationFields.safra, optional: true },
       {
         name: "localidade",
@@ -912,6 +915,24 @@ const baseResourceDefinitions = {
         dedupeByValue: true,
         optional: true,
       },
+      { name: "compra_venda", label: "Compra/Venda", type: "select", options: buySellOptions },
+      {
+        name: "contraparte",
+        label: "Contraparte",
+        ...commonRelationFields.contraparte,
+        optional: true,
+        filterByCurrent: {
+          grupo: "grupo",
+        },
+      },
+      { name: "preco", label: "Preco", type: "number" },
+      { name: "moeda_unidade", label: "Volume fisico moeda", ...catalogSelectFields.moedaUnidade, optional: true },
+      { name: "volume_fisico", label: "Volume fisico volume", type: "number" },
+      { name: "unidade_contrato", label: "Unidade contrato", ...catalogSelectFields.unidade },
+      { name: "pf_paf", label: "PF/PAF", type: "select", options: pfPafOptions },
+      { name: "data_negociacao", label: "Data negociacao", type: "date" },
+      { name: "data_entrega", label: "Data entrega", type: "date" },
+      { name: "data_pagamento", label: "Data pagamento", type: "date" },
       { name: "basis_valor", label: "Basis valor", type: "number" },
       { name: "basis_moeda", label: "Basis moeda", type: "text", readOnly: true },
       {
@@ -962,56 +983,10 @@ const baseResourceDefinitions = {
         optional: true,
       },
       { name: "cif_fob", label: "CIF/FOB", type: "select", options: cifFobOptions },
-      { name: "compra_venda", label: "Compra/Venda", type: "select", options: buySellOptions },
-      {
-        name: "contraparte",
-        label: "Contraparte",
-        ...commonRelationFields.contraparte,
-        optional: true,
-        filterByCurrent: {
-          grupo: "grupo",
-        },
-      },
       { name: "cotacao_bolsa_ref", label: "Cotacao bolsa ref", type: "number" },
-      {
-        name: "cultura_produto",
-        label: "Cultura produto",
-        type: "select",
-        resources: ["crop-boards", "crops"],
-        getOptions: ({ lookupOptions }) => {
-          const cropBoards = Array.isArray(lookupOptions["crop-boards"]) ? lookupOptions["crop-boards"] : [];
-          const crops = Array.isArray(lookupOptions.crops) ? lookupOptions.crops : [];
-          const cropMap = new Map(
-            crops.map((item) => [
-              String(item.id),
-              item.ativo || item.cultura || item.nome || item.label || item.descricao || String(item.id),
-            ]),
-          );
-          const values = cropBoards
-            .map((item) => {
-              if (item?.cultura && typeof item.cultura === "object") {
-                return item.cultura.ativo || item.cultura.cultura || item.cultura.nome || item.cultura.label || item.cultura.descricao || "";
-              }
-              if (item?.cultura != null) {
-                return cropMap.get(String(item.cultura)) || "";
-              }
-              return "";
-            })
-            .filter(Boolean);
-
-          return [...new Set(values)].map((value) => ({
-            value,
-            label: value,
-          }));
-        },
-      },
-      { name: "data_entrega", label: "Data entrega", type: "date" },
-      { name: "data_negociacao", label: "Data negociacao", type: "date" },
-      { name: "data_pagamento", label: "Data pagamento", type: "date" },
       { name: "dolar_de_venda", label: "Dolar de venda futuro", type: "number" },
       { name: "faturamento_total_contrato", label: "Faturamento total do contrato", type: "number", readOnly: true },
       { name: "moeda_contrato", label: "Moeda contrato", ...catalogSelectFields.moeda },
-      { name: "moeda_unidade", label: "Volume fisico moeda", ...catalogSelectFields.moedaUnidade, optional: true },
       {
         name: "objetivo_venda_dolarizada",
         label: "Objetivo venda dolarizada",
@@ -1022,10 +997,6 @@ const baseResourceDefinitions = {
           notEquals: "R$",
         },
       },
-      { name: "pf_paf", label: "PF/PAF", type: "select", options: pfPafOptions },
-      { name: "preco", label: "Preco", type: "number" },
-      { name: "unidade_contrato", label: "Unidade contrato", ...catalogSelectFields.unidade },
-      { name: "volume_fisico", label: "Volume fisico volume", type: "number" },
       { name: "obs", label: "Obs", type: "textarea", optional: true },
       { name: "attachments", label: "Anexos", type: "file-multi" },
     ],

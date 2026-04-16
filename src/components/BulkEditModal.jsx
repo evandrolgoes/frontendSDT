@@ -251,9 +251,19 @@ export function BulkEditModal({ fields, items, onClose, onSubmit }) {
               {items.length} {items.length === 1 ? "linha selecionada" : "linhas selecionadas"}
             </div>
           </div>
-          <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSubmitting}>
-            Fechar
-          </button>
+          <div className="modal-header-actions">
+            <button className="btn btn-secondary" type="button" onClick={onClose} disabled={isSubmitting}>
+              Cancelar
+            </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={handleSubmit}
+              disabled={isSubmitting || !entries.some((e) => e.fieldName)}
+            >
+              Salvar
+            </button>
+          </div>
         </div>
 
         <div style={{ padding: "1rem 1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -358,7 +368,7 @@ export function BulkEditModal({ fields, items, onClose, onSubmit }) {
           >
             {isSubmitting
               ? `Alterando ${items.length} ${items.length === 1 ? "linha" : "linhas"}...`
-              : "Aplicar alteração"}
+              : "Salvar"}
           </button>
         </div>
       </div>

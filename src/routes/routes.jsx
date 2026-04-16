@@ -4,7 +4,6 @@ import { matchPath, Navigate, useLocation, useParams } from "react-router-dom";
 
 const loadDashboardPageModule = () => import("../pages/DashboardPage");
 const loadDerivativeOperationsPageModule = () => import("../pages/DerivativeOperationsPage");
-const loadAnotacoesPageModule = () => import("../pages/AnotacoesPage");
 const loadJsonImportPageModule = () => import("../pages/JsonImportPage");
 const loadCopyBasePageModule = () => import("../pages/CopyBasePage");
 const loadMassImportPageModule = () => import("../pages/MassImportPage");
@@ -22,6 +21,7 @@ const loadAgendaPageModule = () => import("../pages/AgendaPage");
 const loadAgendaClientsPageModule = () => import("../pages/AgendaClientsPage");
 const loadAsaasExtratePageModule = () => import("../pages/AsaasExtratePage");
 const loadGamingPageModule = () => import("../pages/GamingPage");
+const loadDreBalacoPageModule = () => import("../pages/DreBalacoPage");
 const loadResourcePageModule = () => import("../pages/ResourcePage");
 const loadResourceDefinitionsModule = () => import("../modules/resourceDefinitions.jsx");
 
@@ -39,7 +39,6 @@ const lazyResourcePage = (definitionKey) =>
 
 const DashboardPage = lazyNamedExport(loadDashboardPageModule, "DashboardPage");
 const DerivativeOperationsPage = lazyNamedExport(loadDerivativeOperationsPageModule, "DerivativeOperationsPage");
-const AnotacoesPage = lazyNamedExport(loadAnotacoesPageModule, "AnotacoesPage");
 const JsonImportPage = lazyNamedExport(loadJsonImportPageModule, "JsonImportPage");
 const CopyBasePage = lazyNamedExport(loadCopyBasePageModule, "CopyBasePage");
 const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage");
@@ -57,6 +56,7 @@ const AgendaGooglePage = lazyNamedExport(loadAgendaPageModule, "AgendaPage");
 const AgendaClientsPage = lazyNamedExport(loadAgendaClientsPageModule, "AgendaClientsPage");
 const AsaasExtratePage = lazyNamedExport(loadAsaasExtratePageModule, "AsaasExtratePage");
 const GamingPage = lazyNamedExport(loadGamingPageModule, "GamingPage");
+const DreBalacoPage = lazyNamedExport(loadDreBalacoPageModule, "DreBalacoPage");
 
 function LegacyBlogNewsRedirect() {
   const { postId } = useParams();
@@ -101,6 +101,7 @@ const baseNavigationSections = [
       { path: "/dashboard/exposicao-hedge-cambial", label: "Exposição e Hedge cambial", module: "dashboard_currency_exposure" },
       { path: "/dashboard/simulacoes", label: "Simulacoes", module: "dashboard_simulations" },
       { path: "/dashboard/ranking-clientes", label: "Ranking Clientes", module: "dashboard_summary" },
+      { path: "/dashboard/dre-balanco", label: "DRE e Balanço", module: "dashboard_dre_balanco" },
     ],
   },
   {
@@ -123,7 +124,6 @@ const baseNavigationSections = [
       { path: "/politica-hedge", label: "Politica de Hedge", module: "ops_hedge_policies" },
       { path: "/custo-orcamento", label: "Custo Orcamento", module: "ops_budget_costs" },
       { path: "/custo-realizado", label: "Custo Realizado", module: "ops_actual_costs" },
-      { path: "/anotacoes", label: "Anotacoes", module: "cad_anotacoes" },
       { path: "/grupos", label: "Grupo", module: "cad_groups", allowedUserTypes: ["tenant_can_manage_groups"] },
       { path: "/subgrupos", label: "Subgrupo", module: "cad_subgroups", allowedUserTypes: ["tenant_can_manage_subgroups"] },
       { path: "/contrapartes", label: "Contrapartes", module: "cad_counterparties" },
@@ -149,14 +149,13 @@ const baseNavigationSections = [
       { path: "/agenda-config", label: "Config Agenda Google", module: "agenda_config" },
       { path: "/extrato-recebimentos", label: "Extrato Recebimentos", module: "admin_asaas_extrato" },
       { path: "/gaming", label: "Gaming", module: "admin_gaming" },
+      { path: "/config", label: "Config", module: "tool_missing_fields", superuserOnly: true },
     ],
   },
   {
     label: "Ferramentas",
     items: [
       { path: "/logs", label: "Log", module: "sys_logs" },
-      { path: "/bolsas", label: "Bolsas", module: "sys_exchanges", superuserOnly: true },
-      { path: "/config", label: "Config", module: "tool_missing_fields", superuserOnly: true },
       { path: "/pendencias-cadastrais", label: "Pendencias Cadastrais", module: "tool_missing_fields" },
       { path: "/criar-resumo-de-mercado", label: "Resumo Semanal de Mercado - 2", module: "tool_market_summary", superuserOnly: true },
       { path: "/importacao-em-massa", label: "Importacao em Massa", module: "sys_mass_update", superuserOnly: true },
@@ -245,6 +244,7 @@ export const appRoutes = [
   dashboardRoute("/dashboard/exposicao-hedge-cambial", "currencyExposure", "dashboard_currency_exposure"),
   dashboardRoute("/dashboard/simulacoes", "simulations", "dashboard_simulations"),
   dashboardRoute("/dashboard/mtm", "mtm", "dashboard_mtm"),
+  { path: "/dashboard/dre-balanco", element: <DreBalacoPage />, module: "dashboard_dre_balanco", title: "DRE e Balanço" },
   {
     path: "/mercado",
     element: <Navigate to="/mercado/blog" replace />,
@@ -267,8 +267,6 @@ export const appRoutes = [
   { ...resourceRoute("/entradas", "receiptEntries", "receipt-entries"), module: "sys_receipt_entries" },
   { path: "/entradas-recebimentos", element: <Navigate to="/entradas" replace />, module: "sys_receipt_entries" },
   { ...resourceRoute("/contrapartes", "counterparties", "counterparties"), module: "cad_counterparties" },
-  { path: "/anotacoes", element: <AnotacoesPage />, module: "cad_anotacoes", resource: "anotacoes", editPattern: "/anotacoes/:id" },
-  { path: "/anotacoes/:postId", element: <AnotacoesPage />, module: "cad_anotacoes", title: "Anotacoes", resource: "anotacoes", editPattern: "/anotacoes/:id" },
   { ...resourceRoute("/cotacoes-fisico", "physicalQuotes", "physical-quotes"), module: "ops_physical_quotes" },
   resourceRoute("/tradingview-experimental", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"),
   { ...resourceRoute("/custo-orcamento", "budgetCosts", "budget-costs"), module: "ops_budget_costs" },
@@ -299,7 +297,6 @@ export const appRoutes = [
     module: "sys_admin_invites",
     allowedUserTypes: ["invitation_tenants"],
   },
-  { ...resourceRoute("/bolsas", "exchanges", "exchanges"), module: "sys_exchanges" },
   {
     ...resourceRoute("/contas-a-pagar", "accountsPayable", "accounts-payable"),
     module: "sys_accounts_payable",

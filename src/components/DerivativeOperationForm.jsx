@@ -610,11 +610,11 @@ export function DerivativeOperationForm({
             <div className="muted">Operacao mae com derivativos filhos vinculados ao mesmo codigo.</div>
           </div>
           <div className="modal-header-actions">
+            <button className="btn btn-secondary" type="button" onClick={onClose}>
+              Cancelar
+            </button>
             <button className="btn btn-primary" type="submit">
               Salvar
-            </button>
-            <button className="btn btn-secondary" type="button" onClick={onClose}>
-              Fechar
             </button>
           </div>
         </div>

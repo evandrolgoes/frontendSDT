@@ -1012,15 +1012,22 @@ export function ResourcePage({ definition }) {
 
     const loadLogLookups = async () => {
       try {
-        const results = await Promise.all(
-          resourcesToLoad.map(async (resourceName) => [resourceName, await resourceService.listAll(resourceName)]),
-        );
+        const [lookupResults, formulariosResult] = await Promise.all([
+          Promise.all(
+            resourcesToLoad.map(async (resourceName) => [resourceName, await resourceService.listAll(resourceName)]),
+          ),
+          api.get("/audit-logs/formularios/").then((res) => res.data).catch(() => []),
+        ]);
         if (active) {
-          setLookupOptions((currentState) => ({ ...currentState, ...Object.fromEntries(results) }));
+          setLookupOptions((currentState) => ({
+            ...currentState,
+            ...Object.fromEntries(lookupResults),
+            formularios: Array.isArray(formulariosResult) ? formulariosResult : [],
+          }));
         }
       } catch {
         if (active) {
-          setLookupOptions((currentState) => ({ ...currentState, users: [], tenants: [] }));
+          setLookupOptions((currentState) => ({ ...currentState, users: [], tenants: [], formularios: [] }));
         }
       }
     };
@@ -1430,8 +1437,8 @@ export function ResourcePage({ definition }) {
         <section className="audit-log-filters-card">
           <div className="form-header audit-log-filters-head">
             <div>
-              <h3>Filtros do Log</h3>
-              <div className="muted">A tabela so sera carregada depois que pelo menos um filtro for aplicado.</div>
+              <h3>Filtros</h3>
+              <div className="muted">Aplique ao menos um filtro para carregar os registros.</div>
             </div>
             <div className="audit-log-filters-actions">
               <button type="button" className="bubble-btn bubble-btn-light" onClick={handleClearLogFilters}>
@@ -1443,7 +1450,7 @@ export function ResourcePage({ definition }) {
                 onClick={handleApplyLogFilters}
                 disabled={loading || !hasAnyLogFilter}
               >
-                {loading ? "Filtrando..." : "Aplicar filtros"}
+                {loading ? "Buscando..." : "Aplicar"}
               </button>
             </div>
           </div>
@@ -1499,18 +1506,20 @@ export function ResourcePage({ definition }) {
             </div>
             <div className="field">
               <label htmlFor="audit-log-formulario">Formulario</label>
-              <select
+              <input
                 id="audit-log-formulario"
                 className="form-control"
+                type="text"
+                list="audit-log-formulario-list"
                 value={logFilters.formulario}
                 onChange={(event) => setLogFilters((currentState) => ({ ...currentState, formulario: event.target.value }))}
-              >
-                {logFormOptions.map((item) => (
-                  <option key={item.value || "all"} value={item.value}>
-                    {item.label}
-                  </option>
+                placeholder="Ex.: Operacao Derivativa"
+              />
+              <datalist id="audit-log-formulario-list">
+                {(lookupOptions.formularios || []).map((item) => (
+                  <option key={item} value={item} />
                 ))}
-              </select>
+              </datalist>
             </div>
             <div className="field">
               <label htmlFor="audit-log-object-id">ID alterado</label>
@@ -1556,7 +1565,7 @@ export function ResourcePage({ definition }) {
               />
             </div>
           </div>
-          {!hasAppliedLogFilters ? <div className="audit-log-filters-hint field-help">Nenhum registro sera exibido ate que voce aplique os filtros.</div> : null}
+          {!hasAppliedLogFilters && hasAnyLogFilter ? <div className="audit-log-filters-hint">Clique em "Aplicar" para buscar os registros.</div> : null}
         </section>
       ) : null}
       {isAuditLogResource && !hasAppliedLogFilters ? null : useSimpleQuotesTable ? (
@@ -1772,9 +1781,21 @@ export function ResourcePage({ definition }) {
                 }
               }
 
-              const saved = current?.id && definition.resource === "users"
-                ? await resourceService.patch(definition.resource, current.id, cleanPayload)
-                : await save(cleanPayload, current);
+              let saved;
+              if (current?.id && definition.resource === "users") {
+                try {
+                  saved = await resourceService.patch(definition.resource, current.id, cleanPayload);
+                } catch (patchError) {
+                  const data = patchError?.response?.data;
+                  const message = data
+                    ? (typeof data === "string" ? data : Object.entries(data).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(" ") : v}`).join(" | "))
+                    : "Nao foi possivel salvar. Verifique os campos e tente novamente.";
+                  setError(message);
+                  return;
+                }
+              } else {
+                saved = await save(cleanPayload, current);
+              }
               if (saved && current?.id && definition.resource === "users") {
                 upsertRows(saved);
               }

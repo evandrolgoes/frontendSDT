@@ -14,7 +14,6 @@ const BUNDLE_LOADERS = [
   () => import("../pages/AgendaClientsPage"),
   () => import("../pages/BasisPage"),
   () => import("../pages/MercadoPage"),
-  () => import("../pages/AnotacoesPage"),
   () => import("../pages/FundPositionsPage"),
   () => import("../pages/MarketSummaryPage"),
   () => import("../pages/ConfigPage"),

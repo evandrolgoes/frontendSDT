@@ -37,7 +37,6 @@ const TABLE_COLUMN_CONFIG_GROUPS = [
       "actualCosts",
       "cropBoards",
       "hedgePolicies",
-      "anotacoes",
       "crops",
       "seasons",
       "currencies",

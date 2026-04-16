@@ -28,7 +28,9 @@ const COMMERCIAL_RISK_DERIVATIVE_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#7c
 const CHART_BAR_RADIUS = 2;
 const CASHFLOW_DEFAULT_PAST_DAYS = 30;
 const CASHFLOW_DEFAULT_FUTURE_DAYS = 365;
-const CASHFLOW_DAILY_DEFAULT_FUTURE_DAYS = 180;
+const CASHFLOW_DAILY_DEFAULT_FUTURE_DAYS = 90;
+const CASHFLOW_DAILY_SLIDER_MIN = -365;
+const CASHFLOW_DAILY_SLIDER_MAX = 730;
 const EMPTY_DASHBOARD_FILTER_ARRAY = [];
 const DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA = {
   productionSummary: {
@@ -316,87 +318,41 @@ function HedgeByCultureChart({ rows, insightTitle, insightMessage }) {
     (culture, season) => rows.find((r) => r.label === culture && (r.badge === season || (!r.badge && season === "Hedge"))),
     [rows],
   );
-  const renderChart = (large = false) => {
-    const width = large ? 980 : 720;
-    const height = large ? 520 : 190;
-    const plot = large
-      ? { left: 50, right: 18, top: 68, bottom: 62 }
-      : { left: 58, right: 8, top: 34, bottom: 36 };
-    const plotWidth = width - plot.left - plot.right;
-    const plotHeight = height - plot.top - plot.bottom;
-    const groupWidth = plotWidth / Math.max(seasons.length, 1);
-    const barGap = large ? 7 : 8;
-    const barWidth = Math.max(10, Math.min(large ? 38 : 34, (groupWidth - 18) / Math.max(cultures.length, 1) - barGap));
-    const yFor = (value) => plot.top + plotHeight - (Math.max(0, Math.min(value, 100)) / 100) * plotHeight;
-    const labelLift = large ? 6 : 9;
-
-    return (
-      <div className={`hedge-culture-native-chart${large ? " is-large" : ""}`}>
-        {cultures.length > 1 ? (
-          <div className="hedge-culture-native-legend">
-            {cultures.map((culture, index) => (
-              <span key={culture} className="hedge-culture-native-legend-item">
-                <span style={{ background: HEDGE_CULTURE_SERIES_COLORS[index % HEDGE_CULTURE_SERIES_COLORS.length] }} />
-                {culture}
-              </span>
-            ))}
+  const renderChart = (large = false) => (
+    <div className={`hedge-culture-list${large ? " is-large" : ""}`}>
+      {seasons.map((season) => (
+        <div key={season} className="hedge-culture-group">
+          <div className="hedge-culture-group-season">{season}</div>
+          <div className="hedge-culture-group-bars">
+            {cultures.map((culture, cultureIndex) => {
+              const row = findCultureRow(culture, season);
+              if (!row) return null;
+              const value = Math.max(0, Math.min(Number(row.progress || 0), 100));
+              const color = HEDGE_CULTURE_SERIES_COLORS[cultureIndex % HEDGE_CULTURE_SERIES_COLORS.length];
+              const Tag = row.onClick ? "button" : "div";
+              return (
+                <Tag
+                  key={`${season}-${culture}`}
+                  type={Tag === "button" ? "button" : undefined}
+                  className={`hedge-culture-row${row.isActive ? " is-active" : ""}${row.onClick ? " is-clickable" : ""}`}
+                  title={`${culture} · ${season}: ${Math.round(value)}%`}
+                  onClick={row.onClick}
+                >
+                  <span className="hedge-culture-row-label">{culture}</span>
+                  <span className="hedge-culture-row-inner">
+                    <span className="hedge-culture-row-track">
+                      <span className="hedge-culture-row-bar" style={{ width: `${value}%`, background: color }} />
+                    </span>
+                    <span className="hedge-culture-row-value">{Math.round(value)}%</span>
+                  </span>
+                </Tag>
+              );
+            })}
           </div>
-        ) : null}
-        <svg className="hedge-culture-chart-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Hedge por cultura">
-          {[0, 25, 50, 75, 100].map((tick) => {
-            const y = yFor(tick);
-            return (
-              <g key={tick}>
-                <line x1={plot.left} x2={width - plot.right} y1={y} y2={y} className="hedge-culture-grid-line" />
-                <text x={plot.left - 12} y={y + (large ? 4 : 6)} textAnchor="end" className="hedge-culture-axis-label">{tick}%</text>
-              </g>
-            );
-          })}
-          {seasons.map((season, seasonIndex) => {
-            const groupStart = plot.left + seasonIndex * groupWidth;
-            const groupCenter = groupStart + groupWidth / 2;
-            return (
-              <g key={season}>
-                {cultures.map((culture, cultureIndex) => {
-                  const row = findCultureRow(culture, season);
-                  if (!row) return null;
-                  const value = Math.max(0, Math.min(Number(row.progress || 0), 100));
-                  const x =
-                    groupCenter -
-                    ((cultures.length * barWidth + Math.max(cultures.length - 1, 0) * barGap) / 2) +
-                    cultureIndex * (barWidth + barGap);
-                  const y = yFor(value);
-                  const color = HEDGE_CULTURE_SERIES_COLORS[cultureIndex % HEDGE_CULTURE_SERIES_COLORS.length];
-                  return (
-                    <g key={`${season}-${culture}`}>
-                      <rect
-                        x={x}
-                        y={y}
-                        width={barWidth}
-                        height={Math.max(2, plot.top + plotHeight - y)}
-                        rx="4"
-                        className={`hedge-culture-bar${row.isActive ? " is-active" : ""}${row.onClick ? " is-clickable" : ""}`}
-                        fill={color}
-                        onClick={row.onClick}
-                      >
-                        <title>{`${culture} · ${season}: ${Math.round(value)}%`}</title>
-                      </rect>
-                      <text x={x + barWidth / 2} y={Math.max(plot.top + (large ? 12 : 18), y - labelLift)} textAnchor="middle" className="hedge-culture-value-label">
-                        {Math.round(value)}%
-                      </text>
-                    </g>
-                  );
-                })}
-                <text x={groupCenter} y={height - (large ? 10 : 9)} textAnchor="middle" className="hedge-culture-axis-label hedge-culture-season-label">
-                  {season}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-    );
-  };
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <>
@@ -2014,8 +1970,8 @@ function ScenarioBars({ data, insightTitle = "", insightMessage = null }) {
         </div>
       </div>
       <div className="scenario-list">
-        {data.map((item) => (
-          <div key={item.label} className="scenario-row">
+        {data.map((item, index) => (
+          <div key={`${index}-${item.label}`} className="scenario-row">
             <div className="scenario-head">
               <span>{item.label}</span>
               <strong>{item.formatted}</strong>
@@ -3992,7 +3948,6 @@ function ComponentSalesDetailsPopup({ selectedBar, onClose, onOpenOperation }) {
 
 function ComponentSalesDashboard({ dashboardFilter }) {
   const { user } = useAuth();
-  const defaultDateRange = useMemo(() => buildComponentSalesDefaultDateRange(), []);
   const dashboardCacheKey = useMemo(
     () => buildDashboardPageCacheKey("component-sales", dashboardFilter, user),
     [dashboardFilter, user],
@@ -4001,11 +3956,14 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   const initialUiState = initialDashboardCache?.componentSalesUi || {};
   const chartWrapRef = useRef(null);
   const [interval, setInterval] = useState(() => initialUiState.interval || "monthly");
-  const [dateFrom, setDateFrom] = useState(() => initialUiState.dateFrom || defaultDateRange.fromBrazilian);
-  const [dateTo, setDateTo] = useState(() => initialUiState.dateTo || defaultDateRange.toBrazilian);
   const [selectedTableModal, setSelectedTableModal] = useState(null);
-  const [zoomRange, setZoomRange] = useState(() => initialUiState.zoomRange || null);
+  const [zoomRange, setZoomRange] = useState(() => {
+    if (initialUiState.zoomRange) return initialUiState.zoomRange;
+    const today = startOfDashboardDay(new Date());
+    return { start: today, end: shiftDateByYears(today, 1) };
+  });
   const [chartWidth, setChartWidth] = useState(0);
+  const [chartHeight, setChartHeight] = useState(360);
   const [datasetVisibility, setDatasetVisibility] = useState(() =>
     initialUiState.datasetVisibility || Object.fromEntries(COMPONENT_DATASETS.map((dataset) => [dataset.key, true])),
   );
@@ -4015,7 +3973,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     setSales,
     derivatives,
     setDerivatives,
-  } = useComponentSalesSource(dashboardFilter, dateFrom, dateTo, dashboardCacheKey);
+  } = useComponentSalesSource(dashboardFilter, null, null, dashboardCacheKey);
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
     sales,
     setSales,
@@ -4260,40 +4218,32 @@ function ComponentSalesDashboard({ dashboardFilter }) {
       };
     }
 
+    const visibleTimelinePeriods = visiblePeriodLabels
+      ? timelinePeriods.filter((p) => visiblePeriodLabels.has(p.label))
+      : timelinePeriods;
+    const periodFmtLabel = (p) =>
+      interval === "monthly" ? formatCashflowMonthYear(p.start) : formatBrazilianDate(p.start);
+
     return {
       animationDuration: 250,
-      grid: { top: 28, right: 18, bottom: 80, left: 18, containLabel: true },
+      grid: { top: 28, right: 18, bottom: 56, left: 18, containLabel: true },
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow" },
         formatter: (params) => {
-          const validItems = params.filter((item) => Number(item?.value?.[1] || 0) > 0);
+          const validItems = params.filter((item) => Number(item?.value || 0) > 0);
           if (!validItems.length) return "";
           const periodLabel = validItems[0]?.data?.periodLabel || "";
           const rowsHtml = validItems
-            .map((item) => `${item.marker}${item.seriesName}: U$ ${Number(item.value?.[1] || 0).toLocaleString("pt-BR")}`)
+            .map((item) => `${item.marker}${item.seriesName}: U$ ${Number(item.value || 0).toLocaleString("pt-BR")}`)
             .join("<br/>");
           return `<strong>${periodLabel}</strong><br/>${rowsHtml}`;
         },
       },
       legend: { show: false },
-      dataZoom: [
-        {
-          type: "inside",
-          xAxisIndex: 0,
-          filterMode: "none",
-          zoomOnMouseWheel: true,
-          moveOnMouseMove: true,
-          moveOnMouseWheel: true,
-        },
-      ],
       xAxis: {
         type: "category",
-        data: timelinePeriods.map((p) =>
-          interval === "monthly"
-            ? formatCashflowMonthYear(p.start)
-            : formatBrazilianDate(p.start)
-        ),
+        data: visibleTimelinePeriods.map(periodFmtLabel),
         axisTick: { show: false },
         axisLabel: {
           color: "#475569",
@@ -4332,16 +4282,14 @@ function ComponentSalesDashboard({ dashboardFilter }) {
           fontWeight: 700,
           distance: 6,
           formatter: ({ data }) => {
-            const numericValue = Number(data?.value?.[1] || 0);
+            const numericValue = Number(data?.value || 0);
             if (!(numericValue > 0)) return "";
             const period = totalsByLabel.get(data?.periodLabel || "");
             const total = dataset.stack === "stack_dolar" ? period?.dolar || 0 : period?.stackTotal || 0;
             return total > 0 ? `U$ ${Number(total).toLocaleString("pt-BR")}` : "";
           },
         },
-        labelLayout: {
-          hideOverlap: true,
-        },
+        labelLayout: { hideOverlap: true },
         markLine: datasetIndex === 0
           ? {
               symbol: ["none", "none"],
@@ -4364,20 +4312,19 @@ function ComponentSalesDashboard({ dashboardFilter }) {
                 width: 2,
               },
               data: (() => {
-                const tp = timelinePeriods.find((p) => today >= p.start.getTime() && today <= p.end.getTime());
+                const tp = visibleTimelinePeriods.find((p) => today >= p.start.getTime() && today <= p.end.getTime());
                 if (!tp) return [];
-                const lbl = interval === "monthly" ? formatCashflowMonthYear(tp.start) : formatBrazilianDate(tp.start);
-                return [{ xAxis: lbl }];
+                return [{ xAxis: periodFmtLabel(tp) }];
               })(),
             }
           : undefined,
-        data: timelinePeriods.map((period) => ({
+        data: visibleTimelinePeriods.map((period) => ({
           value: Number(dataset.data[period.labelIndex] || 0),
           periodLabel: period.label,
         })),
       })),
     };
-  }, [chartState, chartWidth, interval, timelinePeriods, visiblePeriodCount]);
+  }, [chartState, chartWidth, interval, timelinePeriods, visiblePeriodCount, visiblePeriodLabels]);
   const chartEvents = useMemo(() => ({
     click: (params) => {
       if (!params?.seriesName) return;
@@ -4386,53 +4333,35 @@ function ComponentSalesDashboard({ dashboardFilter }) {
       const period = params?.data?.periodLabel || chartState.labels[params.dataIndex];
       openTableModal(period, params.seriesName);
     },
-    datazoom: (params) => {
-      if (!timelinePeriods.length) return;
-      const payload = Array.isArray(params?.batch) ? params.batch[0] : params;
-      const rawStart = Number(payload?.startValue);
-      const rawEnd = Number(payload?.endValue);
-      let startPeriod, endPeriod;
-      if (Number.isFinite(rawStart) && Number.isFinite(rawEnd) && rawStart >= 0) {
-        const startIdx = Math.max(0, Math.min(Math.round(rawStart), timelinePeriods.length - 1));
-        const endIdx = Math.max(0, Math.min(Math.round(rawEnd), timelinePeriods.length - 1));
-        startPeriod = timelinePeriods[startIdx];
-        endPeriod = timelinePeriods[endIdx];
-      } else {
-        const startPct = Math.min(Math.max(Number(payload?.start ?? 0), 0), 100);
-        const endPct = Math.min(Math.max(Number(payload?.end ?? 100), 0), 100);
-        const startIdx = Math.round((startPct / 100) * (timelinePeriods.length - 1));
-        const endIdx = Math.min(timelinePeriods.length - 1, Math.round((endPct / 100) * (timelinePeriods.length - 1)));
-        startPeriod = timelinePeriods[startIdx];
-        endPeriod = timelinePeriods[endIdx];
-      }
-      if (!startPeriod?.start || !endPeriod?.end) return;
-      setZoomRange({ start: startPeriod.start, end: endPeriod.end });
-    },
-  }), [chartState.labels, openTableModal, timelinePeriods]);
+  }), [chartState.labels, openTableModal]);
 
   useEffect(() => {
-    setZoomRange(null);
-  }, [interval, dateFrom, dateTo]);
+    const today = startOfDashboardDay(new Date());
+    setZoomRange({ start: today, end: shiftDateByYears(today, 1) });
+  }, [interval]);
 
   useEffect(() => {
     setDashboardPageCache(dashboardCacheKey, {
       componentSalesUi: {
         interval,
-        dateFrom,
-        dateTo,
         zoomRange,
         datasetVisibility,
       },
     });
-  }, [dashboardCacheKey, datasetVisibility, dateFrom, dateTo, interval, zoomRange]);
+  }, [dashboardCacheKey, datasetVisibility, interval, zoomRange]);
 
   useEffect(() => {
     const node = chartWrapRef.current;
     if (!node || typeof ResizeObserver === "undefined") return undefined;
     const observer = new ResizeObserver((entries) => {
-      const nextWidth = entries?.[0]?.contentRect?.width;
+      const rect = entries?.[0]?.contentRect;
+      const nextWidth = rect?.width;
+      const nextHeight = rect?.height;
       if (Number.isFinite(nextWidth) && nextWidth > 0) {
         setChartWidth(nextWidth);
+      }
+      if (Number.isFinite(nextHeight) && nextHeight > 0) {
+        setChartHeight(nextHeight);
       }
     });
     observer.observe(node);
@@ -4521,23 +4450,13 @@ function ComponentSalesDashboard({ dashboardFilter }) {
               </button>
             ))}
           </div>
-          <div className="chart-date-filters">
-            <label className="chart-date-filter">
-              <span>De:</span>
-              <DatePickerField value={dateFrom} onChange={setDateFrom} />
-            </label>
-            <label className="chart-date-filter">
-              <span>Até:</span>
-              <DatePickerField value={dateTo} onChange={setDateTo} />
-            </label>
-          </div>
         </div>
 
         <div ref={chartWrapRef} className="component-chartjs-wrap">
           <ReactECharts
             option={chartOption}
             onEvents={chartEvents}
-            style={{ height: "100%" }}
+            style={{ height: `${chartHeight}px` }}
             opts={{ renderer: "svg" }}
           />
         </div>
@@ -5762,6 +5681,7 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
     start: defaultSelectionRange.fromBrazilian,
     end: defaultSelectionRange.toBrazilian,
   });
+  const [isLoading, setIsLoading] = useState(() => !cashflowDataCache.data);
   const [sales, setSales] = useState([]);
   const [cashPayments, setCashPayments] = useState([]);
   const [otherCashOutflows, setOtherCashOutflows] = useState([]);
@@ -5799,42 +5719,40 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
     }
 
     let isMounted = true;
-    const timeoutId = window.setTimeout(() => {
-      Promise.all([
-        resourceService.listAll("physical-sales").catch(() => []),
-        resourceService.listAll("cash-payments").catch(() => []),
-        resourceService.listAll("other-cash-outflows").catch(() => []),
-        resourceService.listAll("other-entries").catch(() => []),
-        resourceService.listAll("derivative-operations").catch(() => []),
-        resourceService.listAll("counterparties").catch(() => []),
-        resourceService.listAll("crops").catch(() => []),
-        resourceService.listTradingviewQuotes().catch(() => []),
-      ]).then(([salesResponse, cashPaymentsResponse, otherCashOutflowsResponse, otherEntriesResponse, derivativesResponse, counterpartiesResponse, cropsResponse, tradingviewQuotesResponse]) => {
-        if (!isMounted) return;
-        const d = {
-          sales: salesResponse || [],
-          cashPayments: cashPaymentsResponse || [],
-          otherCashOutflows: otherCashOutflowsResponse || [],
-          otherEntries: otherEntriesResponse || [],
-          derivatives: derivativesResponse || [],
-          counterparties: counterpartiesResponse || [],
-          crops: cropsResponse || [],
-          tradingviewQuotes: tradingviewQuotesResponse || [],
-        };
-        cashflowDataCache.data = d;
-        setSales(d.sales);
-        setCashPayments(d.cashPayments);
-        setOtherCashOutflows(d.otherCashOutflows);
-        setOtherEntries(d.otherEntries);
-        setDerivatives(d.derivatives);
-        setCounterparties(d.counterparties);
-        setCrops(d.crops);
-        setTradingviewQuotes(d.tradingviewQuotes);
-      });
-    }, 1800);
+    Promise.all([
+      resourceService.listAll("physical-sales").catch(() => []),
+      resourceService.listAll("cash-payments").catch(() => []),
+      resourceService.listAll("other-cash-outflows").catch(() => []),
+      resourceService.listAll("other-entries").catch(() => []),
+      resourceService.listAll("derivative-operations").catch(() => []),
+      resourceService.listAll("counterparties").catch(() => []),
+      resourceService.listAll("crops").catch(() => []),
+      resourceService.listTradingviewQuotes().catch(() => []),
+    ]).then(([salesResponse, cashPaymentsResponse, otherCashOutflowsResponse, otherEntriesResponse, derivativesResponse, counterpartiesResponse, cropsResponse, tradingviewQuotesResponse]) => {
+      if (!isMounted) return;
+      const d = {
+        sales: salesResponse || [],
+        cashPayments: cashPaymentsResponse || [],
+        otherCashOutflows: otherCashOutflowsResponse || [],
+        otherEntries: otherEntriesResponse || [],
+        derivatives: derivativesResponse || [],
+        counterparties: counterpartiesResponse || [],
+        crops: cropsResponse || [],
+        tradingviewQuotes: tradingviewQuotesResponse || [],
+      };
+      cashflowDataCache.data = d;
+      setSales(d.sales);
+      setCashPayments(d.cashPayments);
+      setOtherCashOutflows(d.otherCashOutflows);
+      setOtherEntries(d.otherEntries);
+      setDerivatives(d.derivatives);
+      setCounterparties(d.counterparties);
+      setCrops(d.crops);
+      setTradingviewQuotes(d.tradingviewQuotes);
+      setIsLoading(false);
+    });
     return () => {
       isMounted = false;
-      window.clearTimeout(timeoutId);
     };
   }, []);
 
@@ -6044,6 +5962,22 @@ function CashflowDashboard({ dashboardFilter, compact = false }) {
 
   return (
     <section className="component-sales-shell">
+      {isLoading ? (
+        <div className="cashflow-loading-skeleton">
+          {[1, 2].map((i) => (
+            <div key={i} className="chart-card risk-kpi-skeleton-card risk-kpi-skeleton-card-tall" style={{ padding: "20px", borderRadius: "16px", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" style={{ marginBottom: 8 }} />
+              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-subtitle" style={{ marginBottom: 20 }} />
+              <div style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+                {[1, 2, 3, 4].map((j) => (
+                  <div key={j} className="risk-kpi-skeleton-line" style={{ flex: 1, height: 48, borderRadius: 10 }} />
+                ))}
+              </div>
+              <div className="risk-kpi-skeleton-chart" style={{ minHeight: 280 }} />
+            </div>
+          ))}
+        </div>
+      ) : null}
       {compact ? (
         <div className="cashflow-dashboard-toolbar">
           <div className="cashflow-currency-links">
@@ -6746,6 +6680,79 @@ function CashflowDailyDashboard({ dashboardFilter }) {
     [visibleEntries],
   );
 
+  const forecastSummaries = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+    return [7, 30, 90, 365].map((days) => {
+      const endDate = new Date(today);
+      endDate.setDate(endDate.getDate() + days - 1);
+      endDate.setHours(23, 59, 59, 999);
+      const endTime = endDate.getTime();
+      const periodEntries = entries.filter((entry) => {
+        const t = entry.date?.getTime?.();
+        return Number.isFinite(t) && t >= todayTime && t <= endTime;
+      });
+      const totalIn = periodEntries.reduce((sum, e) => sum + (Number(e.amount || 0) > 0 ? Number(e.amount || 0) : 0), 0);
+      const totalOut = periodEntries.reduce((sum, e) => sum + (Number(e.amount || 0) < 0 ? Math.abs(Number(e.amount || 0)) : 0), 0);
+      return { days, totalIn, totalOut };
+    });
+  }, [entries]);
+
+  const sliderStartVal = useMemo(() => {
+    if (!rangeStart) return 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.max(CASHFLOW_DAILY_SLIDER_MIN, Math.min(CASHFLOW_DAILY_SLIDER_MAX, Math.round((rangeStart.getTime() - today.getTime()) / 86400000)));
+  }, [rangeStart]);
+
+  const sliderEndVal = useMemo(() => {
+    if (!normalizedEnd) return 90;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.max(CASHFLOW_DAILY_SLIDER_MIN, Math.min(CASHFLOW_DAILY_SLIDER_MAX, Math.round((normalizedEnd.getTime() - today.getTime()) / 86400000)));
+  }, [normalizedEnd]);
+
+  const handleSliderStartChange = useCallback((val) => {
+    const numVal = Number(val);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const newDate = new Date(today);
+    newDate.setDate(today.getDate() + numVal);
+    setDateStart(formatIsoDate(newDate));
+  }, []);
+
+  const handleSliderEndChange = useCallback((val) => {
+    const numVal = Number(val);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const newDate = new Date(today);
+    newDate.setDate(today.getDate() + numVal);
+    setDateEnd(formatIsoDate(newDate));
+  }, []);
+
+  const handleForecastCardClick = useCallback((days) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    setDateStart(formatIsoDate(today));
+    const end = new Date(today);
+    end.setDate(today.getDate() + days - 1);
+    setDateEnd(formatIsoDate(end));
+  }, []);
+
+  const activeForecastPeriod = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayIso = formatIsoDate(today);
+    if (dateStart !== todayIso) return null;
+    for (const days of [7, 30, 90, 365]) {
+      const end = new Date(today);
+      end.setDate(today.getDate() + days - 1);
+      if (dateEnd === formatIsoDate(end)) return days;
+    }
+    return null;
+  }, [dateStart, dateEnd]);
+
   const groupedChartRows = useMemo(() => {
     if (chartInterval === "daily") {
       return dayRows.map((row) => ({
@@ -7067,27 +7074,29 @@ function CashflowDailyDashboard({ dashboardFilter }) {
         </div>
       </div>
 
-      <section className="stats-grid cashflow-daily-summary-grid">
-        <article className="card stat-card">
-          <span>Saldo inicial</span>
-          <strong>{formatCashflowDailyCurrency(initialBalance)}</strong>
-        </article>
-        <button type="button" className="card stat-card cashflow-daily-summary-card-button is-positive" onClick={() => openSummaryModal("in")}>
-          <span>Entradas</span>
-          <strong>{formatCashflowDailyCurrency(summary.totalIn)}</strong>
-        </button>
-        <button type="button" className="card stat-card cashflow-daily-summary-card-button is-negative" onClick={() => openSummaryModal("out")}>
-          <span>Saídas</span>
-          <strong>{formatCashflowDailyCurrency(summary.totalOut)}</strong>
-        </button>
-        <article className="card stat-card">
-          <span>Saldo final</span>
-          <strong>{formatCashflowDailyCurrency(summary.finalBalance)}</strong>
-        </article>
-        <article className="card stat-card">
-          <span>Dias com movimento</span>
-          <strong>{summary.activeDays} / {summary.totalDays}</strong>
-        </article>
+      <section className="cashflow-daily-forecast-grid">
+        {forecastSummaries.map(({ days, totalIn, totalOut }) => (
+          <button
+            key={days}
+            type="button"
+            className="card cashflow-daily-forecast-card"
+            onClick={() => handleForecastCardClick(days)}
+          >
+            <span className="cashflow-daily-forecast-label">
+              Próximos {days === 365 ? "365 dias" : `${days} dias`}
+            </span>
+            <div className="cashflow-daily-forecast-values">
+              <span className="cashflow-daily-forecast-in">
+                <small>Entradas</small>
+                <strong>{formatCashflowDailyCurrency(totalIn)}</strong>
+              </span>
+              <span className="cashflow-daily-forecast-out">
+                <small>Saídas</small>
+                <strong>{formatCashflowDailyCurrency(totalOut)}</strong>
+              </span>
+            </div>
+          </button>
+        ))}
       </section>
 
       <div className="card cashflow-daily-chart-card">
@@ -7113,6 +7122,46 @@ function CashflowDailyDashboard({ dashboardFilter }) {
                 {label}
               </button>
             ))}
+          </div>
+        </div>
+        <div className="cashflow-daily-chart-controls">
+          <div className="cashflow-daily-slider-presets">
+            {[[7, "7 dias"], [30, "30 dias"], [90, "90 dias"], [365, "1 ano"]].map(([days, label]) => (
+              <button
+                key={days}
+                type="button"
+                className={`chart-period-btn${activeForecastPeriod === days ? " active" : ""}`}
+                onClick={() => handleForecastCardClick(days)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="cashflow-daily-range-slider">
+            <div className="cashflow-daily-range-slider-track" />
+            <div
+              className="cashflow-daily-range-slider-fill"
+              style={{
+                left: `${((sliderStartVal - CASHFLOW_DAILY_SLIDER_MIN) / (CASHFLOW_DAILY_SLIDER_MAX - CASHFLOW_DAILY_SLIDER_MIN)) * 100}%`,
+                right: `${100 - ((sliderEndVal - CASHFLOW_DAILY_SLIDER_MIN) / (CASHFLOW_DAILY_SLIDER_MAX - CASHFLOW_DAILY_SLIDER_MIN)) * 100}%`,
+              }}
+            />
+            <input
+              type="range"
+              min={CASHFLOW_DAILY_SLIDER_MIN}
+              max={CASHFLOW_DAILY_SLIDER_MAX}
+              value={sliderStartVal}
+              onChange={(e) => handleSliderStartChange(e.target.value)}
+              className="cashflow-slider-input"
+            />
+            <input
+              type="range"
+              min={CASHFLOW_DAILY_SLIDER_MIN}
+              max={CASHFLOW_DAILY_SLIDER_MAX}
+              value={sliderEndVal}
+              onChange={(e) => handleSliderEndChange(e.target.value)}
+              className="cashflow-slider-input"
+            />
           </div>
         </div>
         <div className="cashflow-daily-chart-wrap">
@@ -7531,19 +7580,31 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [maturityFormError, setMaturityFormError] = useState("");
   const [resourceTableModal, setResourceTableModal] = useState(null);
   const summaryReadyEventDispatchedRef = useRef(false);
+  const prevBaseParamsKeyRef = useRef(null);
+  const prevAnalyticsBaseKeyRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
+
+    // Only treat as a "base change" (requiring loading skeleton) when grupo/subgrupo
+    // change — cultura/safra filter locally and must not blank the page.
+    const baseKey = JSON.stringify({ grupo: summaryParams.grupo, subgrupo: summaryParams.subgrupo });
+    const isBaseChange = prevBaseParamsKeyRef.current !== baseKey;
+    prevBaseParamsKeyRef.current = baseKey;
+
     const cachedDashboard = getCommercialRiskDashboardCache(dashboardCacheKey);
     const cachedSummary = cachedDashboard?.summaryData || resourceService.getCachedCommercialRiskSummary(summaryParams);
 
     if (cachedSummary) {
       setSummaryData(cachedSummary);
       setSummaryLoading(false);
-    } else {
+    } else if (isBaseChange) {
+      // Full loading state only for grupo/subgrupo changes
       setSummaryData(DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA);
       setSummaryLoading(true);
     }
+    // When only cultura/safra changed and no cache: keep current data visible,
+    // update silently in background when the API responds.
 
     resourceService
       .getCommercialRiskSummary(summaryParams, cachedSummary ? { force: true } : {})
@@ -7569,6 +7630,11 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   useEffect(() => {
     let isMounted = true;
     let timeoutId = 0;
+
+    const baseKey = JSON.stringify({ grupo: summaryParams.grupo, subgrupo: summaryParams.subgrupo });
+    const isBaseChange = prevAnalyticsBaseKeyRef.current !== baseKey;
+    prevAnalyticsBaseKeyRef.current = baseKey;
+
     const cachedDashboard = getCommercialRiskDashboardCache(dashboardCacheKey);
 
     if (cachedDashboard?.analyticsReady) {
@@ -7585,7 +7651,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       setTriggerQuotes(cachedDashboard.triggerQuotes || []);
       setTriggerExchanges(cachedDashboard.triggerExchanges || []);
       setAnalyticsReady(true);
-    } else {
+    } else if (isBaseChange) {
+      // Only reset raw data when grupo/subgrupo actually change — cultura/safra
+      // don't affect the listAll fetches and must not clear existing data.
       setPhysicalSales([]);
       setDerivatives([]);
       setCropBoards([]);
@@ -7670,7 +7738,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [dashboardCacheKey]);
+  }, [dashboardCacheKey, summaryParams]);
 
   useEffect(() => {
     let isMounted = true;
@@ -11508,26 +11576,32 @@ function HedgePolicyDashboard({ dashboardFilter }) {
           </div>
         </div>
       ) : null}
-      <section className={`hedge-dashboard-grid${focusedChart ? " single-visible" : ""}`}>
-        {!focusedChart ? costChartNode : null}
-        {!focusedChart ? (productionChartMounted ? productionChartNode : <HedgePolicyChartPlaceholder title="Gráfico 2 — Hedge produção liquida (sc)" />) : null}
-        {focusedChart ? (
-          <div className="hedge-focus-layout">
-            <div className="hedge-focus-main">
-              {focusedChart === "cost" ? costChartNode : productionChartNode}
-            </div>
-            <div className="hedge-focus-side">
-              <div className="hedge-focus-side-panels">
-                {focusedSummaryProps ? <HedgeSummaryGaugeCards {...focusedSummaryProps} /> : null}
-                {focusedStatusSummaryProps ? <HedgeStatusSummaryCard {...focusedStatusSummaryProps} /> : null}
+      <section className="hedge-dashboard-grid">
+        {costChartNode}
+        {productionChartMounted ? productionChartNode : <HedgePolicyChartPlaceholder title="Gráfico 2 — Hedge produção liquida (sc)" />}
+      </section>
+      <div className="hedge-shared-slider-wrap">
+        {sharedSliderNode}
+      </div>
+      {focusedChart ? (
+        <div
+          className="hedge-fullscreen-backdrop"
+          onClick={(e) => { if (e.target === e.currentTarget) setFocusedChart(null); }}
+        >
+          <div className="hedge-fullscreen-modal">
+            <button type="button" className="component-popup-close hedge-fullscreen-close" onClick={() => setFocusedChart(null)} aria-label="Fechar gráfico">×</button>
+            <div className="hedge-fullscreen-body">
+              <div className="hedge-fullscreen-chart-area">
+                {focusedChart === "cost" ? costChartNode : productionChartNode}
+              </div>
+              <div className="hedge-fullscreen-side">
+                <div className="hedge-focus-side-panels">
+                  {focusedSummaryProps ? <HedgeSummaryGaugeCards {...focusedSummaryProps} /> : null}
+                  {focusedStatusSummaryProps ? <HedgeStatusSummaryCard {...focusedStatusSummaryProps} /> : null}
+                </div>
               </div>
             </div>
           </div>
-        ) : null}
-      </section>
-      {!focusedChart ? (
-        <div className="hedge-shared-slider-wrap">
-          {sharedSliderNode}
         </div>
       ) : null}
     </section>
@@ -14259,20 +14333,22 @@ function StrategiesTriggersDashboard({ dashboardFilter }) {
       .slice(0, 6);
   }, [visibleEvaluatedTriggers]);
 
-  const strategyLoadBars = useMemo(
-    () =>
-      strategyCardRows
-        .slice()
-        .sort((left, right) => right.totalTriggers - left.totalTriggers)
-        .slice(0, 6)
-        .map((item, index) => ({
-          label: item.descricao_estrategia || `Estratégia ${item.id}`,
-          value: item.totalTriggers || 0.01,
-          formatted: `${item.totalTriggers} gatilho(s)`,
-          color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
-        })),
-    [strategyCardRows],
-  );
+  const strategyLoadBars = useMemo(() => {
+    const aggregated = new Map();
+    strategyCardRows.forEach((item) => {
+      const label = item.descricao_estrategia || `Estratégia ${item.id}`;
+      aggregated.set(label, (aggregated.get(label) || 0) + (item.totalTriggers || 0));
+    });
+    return Array.from(aggregated.entries())
+      .sort(([, left], [, right]) => right - left)
+      .slice(0, 6)
+      .map(([label, total], index) => ({
+        label,
+        value: total || 0.01,
+        formatted: `${total} gatilho(s)`,
+        color: COMMERCIAL_RISK_DERIVATIVE_COLORS[index % COMMERCIAL_RISK_DERIVATIVE_COLORS.length],
+      }));
+  }, [strategyCardRows]);
 
   const hitVsMonitoringBars = useMemo(() => {
     const hit = visibleEvaluatedTriggers.filter((item) => item.derivedSituation === "atingido").length;
@@ -17679,9 +17755,17 @@ function MtmDashboard({ dashboardFilter }) {
     ],
   };
 
+  const _heatmapMaxCount = Math.max(...heatmapSource.data.map((item) => item[2]), 1);
   const heatmapOption = {
     animationDuration: 220,
-    tooltip: { position: "top" },
+    tooltip: {
+      formatter: (params) => {
+        if (!Array.isArray(params.value)) return "";
+        const exchangeLabel = heatmapSource.exchanges[params.value[0]];
+        const typeLabel = heatmapSource.types[params.value[1]];
+        return `${exchangeLabel}<br/>${typeLabel}<br/>${params.value[2]} ops`;
+      },
+    },
     grid: { left: 120, right: 20, top: 18, bottom: 24 },
     xAxis: {
       type: "category",
@@ -17699,28 +17783,25 @@ function MtmDashboard({ dashboardFilter }) {
     },
     series: [
       {
-        type: "heatmap",
-        data: heatmapSource.data,
-        label: { show: true, color: "#431407", fontWeight: 800 },
-        emphasis: { itemStyle: { shadowBlur: 12, shadowColor: "rgba(15, 23, 42, 0.15)" } },
-        itemStyle: {
-          borderColor: "rgba(255, 255, 255, 0.7)",
-          borderWidth: 1,
+        type: "scatter",
+        data: heatmapSource.data.filter((d) => d[2] > 0),
+        symbolSize: (val) => Math.max(14, Math.sqrt(val[2] / _heatmapMaxCount) * 72),
+        itemStyle: { color: "#f97316" },
+        label: {
+          show: true,
+          position: "inside",
+          color: "#431407",
+          fontWeight: 800,
+          formatter: ({ value }) => value[2],
         },
+        emphasis: { itemStyle: { shadowBlur: 12, shadowColor: "rgba(15, 23, 42, 0.15)" } },
       },
     ],
-    visualMap: {
-      show: false,
-      min: 0,
-      max: Math.max(...heatmapSource.data.map((item) => item[2]), 1),
-      inRange: { color: ["#fff7ed", "#fdba74", "#f97316", "#9a3412"] },
-    },
   };
 
   const heatmapMtmOption = {
     animationDuration: 220,
     tooltip: {
-      position: "top",
       formatter: (params) => {
         if (!Array.isArray(params.value)) return "";
         const exchangeLabel = heatmapMtmSource.exchanges[params.value[0]];
@@ -17745,40 +17826,36 @@ function MtmDashboard({ dashboardFilter }) {
     },
     series: [
       {
-        type: "heatmap",
-        data: heatmapMtmSource.data,
+        type: "scatter",
+        name: "positive",
+        data: heatmapMtmSource.data.filter((d) => d[2] > 0),
+        symbolSize: (val) => Math.max(14, Math.sqrt(Math.abs(val[2]) / heatmapMtmSource.maxAbs) * 72),
+        itemStyle: { color: "#15803d" },
         label: {
           show: true,
-          fontWeight: 800,
+          position: "inside",
           color: "#0f172a",
-          formatter: ({ value }) => {
-            const numericValue = Array.isArray(value) ? value[2] : value;
-            return Math.abs(Number(numericValue || 0)) > 0 ? formatMtmCompactLabel(numericValue) : "R$ 0";
-          },
+          fontWeight: 800,
+          formatter: ({ value }) => formatMtmCompactLabel(value[2]),
         },
         emphasis: { itemStyle: { shadowBlur: 12, shadowColor: "rgba(15, 23, 42, 0.15)" } },
-        itemStyle: {
-          borderColor: "rgba(255, 255, 255, 0.7)",
-          borderWidth: 1,
+      },
+      {
+        type: "scatter",
+        name: "negative",
+        data: heatmapMtmSource.data.filter((d) => d[2] < 0),
+        symbolSize: (val) => Math.max(14, Math.sqrt(Math.abs(val[2]) / heatmapMtmSource.maxAbs) * 72),
+        itemStyle: { color: "#dc2626" },
+        label: {
+          show: true,
+          position: "inside",
+          color: "#0f172a",
+          fontWeight: 800,
+          formatter: ({ value }) => formatMtmCompactLabel(value[2]),
         },
+        emphasis: { itemStyle: { shadowBlur: 12, shadowColor: "rgba(15, 23, 42, 0.15)" } },
       },
     ],
-    visualMap: {
-      show: false,
-      min: -heatmapMtmSource.maxAbs,
-      max: heatmapMtmSource.maxAbs,
-      inRange: {
-        color: [
-          "#991b1b",
-          "#dc2626",
-          "#fca5a5",
-          "#fff7ed",
-          "#dcfce7",
-          "#4ade80",
-          "#15803d",
-        ],
-      },
-    },
   };
 
   const openExchangeModal = useCallback((exchangeLabel) => {
@@ -18149,14 +18226,14 @@ function MtmDashboard({ dashboardFilter }) {
           <article className="card mtm-chart-card">
             <div className="mtm-chart-head">
               <h3>Matriz bolsa x tipo</h3>
-              <p>Heatmap com a concentração operacional por tipo de derivativo.</p>
+              <p>Concentração operacional por tipo de derivativo. Tamanho da bolha proporcional ao número de operações.</p>
             </div>
             <ReactECharts option={heatmapOption} onEvents={heatmapEvents} style={{ height: 300, width: "100%" }} opts={{ renderer: "svg" }} />
           </article>
           <article className="card mtm-chart-card">
             <div className="mtm-chart-head">
               <h3>Matriz MTM R$ x tipo</h3>
-              <p>Heatmap com os ajustes MTM em R$ por bolsa e estrutura.</p>
+              <p>Ajustes MTM em R$ por bolsa e estrutura. Verde = positivo, vermelho = negativo. Tamanho proporcional ao valor absoluto.</p>
             </div>
             <ReactECharts option={heatmapMtmOption} onEvents={heatmapEvents} style={{ height: 300, width: "100%" }} opts={{ renderer: "svg" }} />
           </article>
