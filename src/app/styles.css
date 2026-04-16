@@ -16606,3 +16606,584 @@ tfoot td {
     width: 90px;
   }
 }
+
+/* ── Toolbar buttons (Simular / Editar Política) ── */
+.hedge-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.hedge-toolbar-btn:hover {
+  border-color: #ea580c;
+  color: #ea580c;
+  background: #fff7ed;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.12);
+}
+
+.hedge-toolbar-btn--active {
+  border-color: #ea580c;
+  color: #ea580c;
+}
+
+.hedge-toolbar-btn--primary {
+  background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+  border-color: transparent;
+  color: #fff;
+}
+
+.hedge-toolbar-btn--primary:hover {
+  background: linear-gradient(135deg, #c2410c 0%, #ea580c 100%);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.32);
+}
+
+/* ── Editor de Política de Hedge ── */
+.hedge-policy-editor-backdrop {
+  z-index: 1060;
+}
+
+.hedge-policy-editor-modal {
+  position: relative;
+  width: 98vw;
+  height: 98vh;
+  background: #ffffff;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(15, 23, 42, 0.28);
+}
+
+/* Header */
+.hedge-policy-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.hedge-policy-editor-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px;
+  line-height: 1.3;
+}
+
+.hedge-policy-editor-subtitle {
+  font-size: 0.76rem;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Charts row */
+.hedge-policy-editor-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  flex-shrink: 0;
+  height: 190px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.hedge-policy-editor-mini-chart-wrap {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.hedge-policy-editor-mini-chart-wrap + .hedge-policy-editor-mini-chart-wrap {
+  border-left: 1px solid #e2e8f0;
+}
+
+.hedge-policy-editor-mini-chart-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.69rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  padding: 7px 14px 0;
+  flex-shrink: 0;
+}
+
+.hedge-policy-editor-mini-chart-badge {
+  font-size: 0.63rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, #ea580c, #fb923c);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.hedge-policy-editor-mini-chart-inner {
+  flex: 1 1 0;
+  min-height: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.hedge-policy-editor-mini-chart-inner .hedge-chart-card {
+  height: 100% !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.hedge-policy-editor-mini-chart-inner .hedge-chart-wrap {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+.hedge-policy-editor-mini-chart-inner .hedge-chart-card-header,
+.hedge-policy-editor-mini-chart-inner .hedge-chart-slider-wrap,
+.hedge-policy-editor-mini-chart-inner .hedge-chart-legend {
+  display: none !important;
+}
+
+/* Global filter bar */
+.hedge-policy-editor-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: #fff7ed;
+  border-bottom: 1px solid #fed7aa;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.hedge-policy-editor-filter-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #ea580c;
+}
+
+.hedge-policy-editor-filter-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #ea580c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.hedge-policy-editor-filter-clear {
+  padding: 3px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #ea580c;
+  background: transparent;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.hedge-policy-editor-filter-clear:hover {
+  background: #fff7ed;
+  border-color: #ea580c;
+}
+
+.hedge-policy-editor-filter-count {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: #94a3b8;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hedge-policy-editor-filter-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: default;
+}
+
+.hedge-policy-editor-filter-field span {
+  white-space: nowrap;
+}
+
+.hedge-policy-editor-filter-field .hedge-policy-editor-input {
+  min-width: 160px;
+  width: auto;
+  border-color: #fed7aa;
+}
+
+.hedge-policy-editor-filter-field .hedge-policy-editor-input:focus {
+  border-color: #ea580c;
+}
+
+/* Table section */
+.hedge-policy-editor-table-section {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.hedge-policy-editor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.hedge-policy-editor-thead-group th,
+.hedge-policy-editor-thead-sub th {
+  position: sticky;
+  background: #f8fafc;
+  z-index: 2;
+}
+
+.hedge-policy-editor-thead-group th {
+  top: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #475569;
+  padding: 10px 10px 4px;
+  border-bottom: none;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.hedge-policy-editor-thead-sub th {
+  top: 33px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+  padding: 0 10px 8px;
+  border-bottom: 2px solid #e2e8f0;
+  text-align: center;
+}
+
+.hedge-policy-editor-th-mes {
+  top: 0 !important;
+  text-align: left !important;
+  padding-left: 16px !important;
+  width: 150px;
+  min-width: 150px;
+}
+
+.hedge-policy-editor-th-assoc {
+  top: 0 !important;
+  text-align: left !important;
+  min-width: 130px;
+  width: 130px;
+}
+
+.hedge-policy-editor-th-actions {
+  top: 0 !important;
+  width: 44px;
+  min-width: 44px;
+}
+
+.hedge-policy-editor-th-custo {
+  background-color: #eff6ff !important;
+  color: #1d4ed8 !important;
+  border-left: 2px solid #bfdbfe;
+  border-right: 2px solid #bfdbfe;
+}
+
+.hedge-policy-editor-th-prod {
+  background-color: #f0fdf4 !important;
+  color: #15803d !important;
+  border-left: 2px solid #bbf7d0;
+  border-right: 2px solid #bbf7d0;
+}
+
+.hedge-policy-editor-row td {
+  padding: 5px 8px;
+  vertical-align: middle;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.hedge-policy-editor-row:hover td {
+  background: #fafafa;
+}
+
+.hedge-policy-editor-td-mes {
+  padding-left: 16px !important;
+}
+
+.hedge-policy-editor-td-custo {
+  border-left: 1px solid #dbeafe;
+  border-right: 1px solid #dbeafe;
+  background: rgba(239,246,255,0.35);
+}
+
+.hedge-policy-editor-td-prod {
+  border-left: 1px solid #dcfce7;
+  border-right: 1px solid #dcfce7;
+  background: rgba(240,253,244,0.35);
+}
+
+.hedge-policy-editor-td-assoc {
+  min-width: 130px;
+}
+
+.hedge-policy-editor-td-actions {
+  text-align: center;
+  padding-right: 12px !important;
+}
+
+/* Inputs */
+.hedge-policy-editor-input {
+  width: 100%;
+  padding: 4px 7px;
+  font-size: 0.8rem;
+  height: 30px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+}
+
+.hedge-policy-editor-input:focus {
+  border-color: #ea580c;
+  box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.1);
+}
+
+.hpe-date {
+  min-width: 130px;
+}
+
+.hpe-select {
+  min-width: 110px;
+}
+
+.hedge-policy-editor-input-num {
+  width: 62px;
+  text-align: right;
+}
+
+.hedge-policy-editor-pct-field {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  justify-content: center;
+}
+
+.hedge-policy-editor-pct-sign {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* Empty state */
+.hedge-policy-editor-empty {
+  padding: 28px 16px;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+/* Remove button */
+.hedge-policy-editor-remove-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.hedge-policy-editor-remove-btn:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+/* Multi-select component */
+.hpe-multisel {
+  position: relative;
+  min-width: 110px;
+}
+
+.hpe-multisel-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 30px;
+  padding: 3px 7px;
+  font-size: 0.78rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.hpe-multisel-btn:hover,
+.hpe-multisel-btn:focus {
+  border-color: #ea580c;
+  outline: none;
+}
+
+.hpe-multisel-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hpe-multisel-tag {
+  background: #fff7ed;
+  color: #ea580c;
+  border: 1px solid #fed7aa;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+.hpe-multisel-placeholder {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  flex: 1;
+}
+
+.hpe-multisel-chevron {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.hpe-multisel-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  min-width: 160px;
+  max-width: 240px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.12);
+  z-index: 100;
+  padding: 4px;
+}
+
+.hpe-multisel-empty {
+  padding: 8px 10px;
+  font-size: 0.76rem;
+  color: #94a3b8;
+}
+
+.hpe-multisel-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  color: #0f172a;
+  border-radius: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.hpe-multisel-option:hover {
+  background: #fff7ed;
+}
+
+.hpe-multisel-option input[type="checkbox"] {
+  accent-color: #ea580c;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+/* Footer */
+.hedge-policy-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  background: #fff;
+}
+
+.hedge-policy-editor-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #ea580c;
+  background: #fff7ed;
+  border: 1.5px solid #fed7aa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.hedge-policy-editor-add-btn:hover {
+  background: #ffedd5;
+  border-color: #ea580c;
+}
+
+.hedge-policy-editor-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hedge-policy-editor-footer-actions .btn-primary {
+  background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.hedge-policy-editor-footer-actions .btn-primary:hover {
+  background: linear-gradient(135deg, #c2410c 0%, #ea580c 100%);
+}
+
+.hedge-policy-editor-error {
+  font-size: 0.76rem;
+  color: #dc2626;
+  max-width: 280px;
+  word-break: break-word;
+}

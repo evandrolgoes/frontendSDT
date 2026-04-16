@@ -3954,12 +3954,12 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   );
   const initialUiState = getDashboardPageCache(dashboardCacheKey)?.componentSalesUi || {};
   const chartWrapRef = useRef(null);
+  const zoomIntervalMountRef = useRef(true);
   const [interval, setInterval] = useState(() => initialUiState.interval || "monthly");
   const [selectedTableModal, setSelectedTableModal] = useState(null);
   const [zoomRange, setZoomRange] = useState(() => {
     if (initialUiState.zoomRange) return initialUiState.zoomRange;
-    const today = startOfDashboardDay(new Date());
-    return { start: today, end: shiftDateByYears(today, 1) };
+    return { start: new Date(0), end: new Date(2999, 11, 31) };
   });
   const [chartWidth, setChartWidth] = useState(0);
   const [chartHeight, setChartHeight] = useState(360);
@@ -4020,10 +4020,10 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     [visibleRows, interval],
   );
 
-  // Reset zoom when interval changes
+  // Reset zoom when interval changes (skip mount so cached value is preserved)
   useEffect(() => {
-    const today = startOfDashboardDay(new Date());
-    setZoomRange({ start: today, end: shiftDateByYears(today, 1) });
+    if (zoomIntervalMountRef.current) { zoomIntervalMountRef.current = false; return; }
+    setZoomRange({ start: new Date(0), end: new Date(2999, 11, 31) });
   }, [interval]);
 
   // Save UI state
@@ -10770,6 +10770,498 @@ function HedgePolicyPercentChart({
   );
 }
 
+function HedgePolicyMultiSelect({ options, value, onChange, labelKey, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const selected = new Set((value || []).map(String));
+  const toggle = (id) => {
+    const s = new Set(selected);
+    if (s.has(String(id))) s.delete(String(id)); else s.add(String(id));
+    onChange([...s].map(Number));
+  };
+  const labels = (options || []).filter((o) => selected.has(String(o.id))).map((o) => o[labelKey] || String(o.id));
+
+  return (
+    <div className="hpe-multisel" ref={ref}>
+      <button type="button" className="hpe-multisel-btn" onClick={() => setOpen((v) => !v)}>
+        {labels.length > 0
+          ? <span className="hpe-multisel-tags">{labels.map((l) => <span key={l} className="hpe-multisel-tag">{l}</span>)}</span>
+          : <span className="hpe-multisel-placeholder">{placeholder || "Selecionar…"}</span>
+        }
+        <svg className="hpe-multisel-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      {open && (
+        <div className="hpe-multisel-dropdown">
+          {(options || []).length === 0 && <div className="hpe-multisel-empty">Sem opções</div>}
+          {(options || []).map((o) => (
+            <label key={o.id} className="hpe-multisel-option">
+              <input
+                type="checkbox"
+                checked={selected.has(String(o.id))}
+                onChange={() => toggle(o.id)}
+              />
+              {o[labelKey] || String(o.id)}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HedgePolicySingleSelect({ options, value, onChange, labelKey, placeholder }) {
+  const idStr = value != null ? String(value) : "";
+  return (
+    <select
+      className="hedge-policy-editor-input hpe-select"
+      value={idStr}
+      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+    >
+      <option value="">{placeholder || "—"}</option>
+      {(options || []).map((o) => (
+        <option key={o.id} value={String(o.id)}>{o[labelKey] || String(o.id)}</option>
+      ))}
+    </select>
+  );
+}
+
+function HedgePolicyEditorModal({
+  policies,
+  onClose,
+  onSaved,
+  buildPreviewChartStates,
+  optionGroups = [],
+  optionSubgroups = [],
+  optionCrops = [],
+  optionSeasons = [],
+  initialFilter = {},
+}) {
+  const extractIds = (val) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val.map((v) => (typeof v === "object" ? v?.id : v)).filter(Boolean).map(Number);
+    return [typeof val === "object" ? val?.id : val].filter(Boolean).map(Number);
+  };
+
+  const extractId = (val) => {
+    if (!val) return null;
+    if (typeof val === "object") return val?.id ?? null;
+    return val;
+  };
+
+  // Convert stored decimal (0.15) to display percentage (15)
+  const decimalToPct = (v) => {
+    if (v == null || v === "") return "";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "";
+    return String(Math.round(n * 100 * 1000) / 1000); // keep up to 3 decimal places of precision
+  };
+
+  // ALL rows — every policy across every cultura/safra combination
+  const [rows, setRows] = useState(() =>
+    (policies || [])
+      .slice()
+      .sort((a, b) => String(a.mes_ano || "").localeCompare(String(b.mes_ano || "")))
+      .map((p) => ({
+        _draftId: Math.random().toString(36).slice(2),
+        id: p.id ?? null,
+        mes_ano: p.mes_ano ? String(p.mes_ano).slice(0, 10) : "",
+        vendas_x_prod_total_minimo: decimalToPct(p.vendas_x_prod_total_minimo),
+        vendas_x_prod_total_maximo: decimalToPct(p.vendas_x_prod_total_maximo),
+        vendas_x_custo_minimo: decimalToPct(p.vendas_x_custo_minimo),
+        vendas_x_custo_maximo: decimalToPct(p.vendas_x_custo_maximo),
+        grupos: extractIds(p.grupos),
+        subgrupos: extractIds(p.subgrupos),
+        cultura: extractId(p.cultura),
+        safra: extractId(p.safra),
+        obs: p.obs ?? "",
+        _original: p,
+      })),
+  );
+
+  // Filter state — cultura/safra work as display filters, not assignment
+  const seedCultura = useMemo(() => {
+    const first = (policies || []).find((p) => extractId(p.cultura) != null);
+    return first ? extractId(first.cultura) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const seedSafra = useMemo(() => {
+    const first = (policies || []).find((p) => extractId(p.safra) != null);
+    return first ? extractId(first.safra) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [filterCultura, setFilterCultura] = useState(initialFilter.cultura ?? seedCultura);
+  const [filterSafra, setFilterSafra] = useState(initialFilter.safra ?? seedSafra);
+  const [filterGrupo, setFilterGrupo] = useState(initialFilter.grupo ?? null);
+  const [filterSubgrupo, setFilterSubgrupo] = useState(initialFilter.subgrupo ?? null);
+
+  // Subgroups visible in the filter (depend on selected grupo filter)
+  const filterVisibleSubgroups = useMemo(
+    () => filterGrupo != null
+      ? (optionSubgroups || []).filter((s) => String(s.grupo) === String(filterGrupo))
+      : (optionSubgroups || []),
+    [filterGrupo, optionSubgroups],
+  );
+
+  // Rows visible in the table (apply all filters)
+  const visibleRows = useMemo(() => {
+    return rows.filter((r) => {
+      const culturaMatch = filterCultura == null || String(r.cultura) === String(filterCultura);
+      const safraMatch = filterSafra == null || String(r.safra) === String(filterSafra);
+      const grupoMatch = filterGrupo == null || r.grupos.map(String).includes(String(filterGrupo));
+      const subgrupoMatch = filterSubgrupo == null || r.subgrupos.map(String).includes(String(filterSubgrupo));
+      return culturaMatch && safraMatch && grupoMatch && subgrupoMatch;
+    });
+  }, [rows, filterCultura, filterSafra, filterGrupo, filterSubgrupo]);
+
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  // pctToDecimal: draft stores display % (50 = 50%), chart/save need decimal (0.5)
+  const pctToDecimal = (v) => (v !== "" && v != null ? Number(v) / 100 : null);
+
+  // Preview policies = visible rows only (filtered by cultura/safra) converted to decimal
+  const previewPolicies = useMemo(() =>
+    visibleRows.map((row) => ({
+      id: row.id,
+      mes_ano: row.mes_ano || null,
+      vendas_x_prod_total_minimo: pctToDecimal(row.vendas_x_prod_total_minimo),
+      vendas_x_prod_total_maximo: pctToDecimal(row.vendas_x_prod_total_maximo),
+      vendas_x_custo_minimo: pctToDecimal(row.vendas_x_custo_minimo),
+      vendas_x_custo_maximo: pctToDecimal(row.vendas_x_custo_maximo),
+    })),
+    [visibleRows],
+  );
+
+  const previewChartStates = useMemo(
+    () => buildPreviewChartStates
+      ? buildPreviewChartStates(previewPolicies, { cultura: filterCultura, safra: filterSafra, grupo: filterGrupo, subgrupo: filterSubgrupo })
+      : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [previewPolicies, buildPreviewChartStates, filterCultura, filterSafra, filterGrupo, filterSubgrupo],
+  );
+
+  const updateRow = (draftId, field, value) =>
+    setRows((prev) => prev.map((r) => (r._draftId === draftId ? { ...r, [field]: value } : r)));
+
+  // New row inherits current filter values
+  const addRow = () => setRows((prev) => [...prev, {
+    _draftId: Math.random().toString(36).slice(2),
+    id: null,
+    mes_ano: "",
+    vendas_x_prod_total_minimo: "",
+    vendas_x_prod_total_maximo: "",
+    vendas_x_custo_minimo: "",
+    vendas_x_custo_maximo: "",
+    grupos: filterGrupo ? [filterGrupo] : [],
+    subgrupos: filterSubgrupo ? [filterSubgrupo] : [],
+    cultura: filterCultura ?? null,
+    safra: filterSafra ?? null,
+    obs: "",
+    _original: null,
+  }]);
+
+  const removeRow = (draftId) => setRows((prev) => prev.filter((r) => r._draftId !== draftId));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const originalIds = new Set((policies || []).map((p) => p.id).filter(Boolean));
+      const keptIds = new Set(rows.map((r) => r.id).filter(Boolean));
+      const deletedIds = [...originalIds].filter((id) => !keptIds.has(id));
+      await Promise.all(deletedIds.map((id) => resourceService.remove("hedge-policies", id)));
+      await Promise.all(
+        rows.map((row) => {
+          const payload = {
+            mes_ano: row.mes_ano || null,
+            vendas_x_prod_total_minimo: pctToDecimal(row.vendas_x_prod_total_minimo),
+            vendas_x_prod_total_maximo: pctToDecimal(row.vendas_x_prod_total_maximo),
+            vendas_x_custo_minimo: pctToDecimal(row.vendas_x_custo_minimo),
+            vendas_x_custo_maximo: pctToDecimal(row.vendas_x_custo_maximo),
+            grupos: row.grupos || [],
+            subgrupos: row.subgrupos || [],
+            cultura: row.cultura ?? null,
+            safra: row.safra ?? null,
+            obs: row.obs || "",
+            insumos_travados_minimo: row._original?.insumos_travados_minimo ?? null,
+            insumos_travados_maximo: row._original?.insumos_travados_maximo ?? null,
+            margem_alvo_minimo: row._original?.margem_alvo_minimo ?? null,
+          };
+          return row.id
+            ? resourceService.update("hedge-policies", row.id, payload)
+            : resourceService.create("hedge-policies", payload);
+        }),
+      );
+      onSaved();
+    } catch (err) {
+      setError(err?.response?.data ? JSON.stringify(err.response.data) : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const miniChartProps = {
+    unit: "SC",
+    frequency: "monthly",
+    baseValue: 0,
+    physicalRows: [],
+    derivativeRows: [],
+    policies: [],
+    physicalValueGetter: () => 0,
+    derivativeValueGetter: () => 0,
+    showFloatingCard: false,
+    insightTitle: "",
+    insightMessage: null,
+    activeIndex: null,
+    onActiveIndexChange: () => {},
+    onFocusToggle: null,
+  };
+
+  return (
+    <div
+      className="hedge-fullscreen-backdrop hedge-policy-editor-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="hedge-policy-editor-modal" onClick={(e) => e.stopPropagation()}>
+
+        {/* Header */}
+        <div className="hedge-policy-editor-header">
+          <div>
+            <h2 className="hedge-policy-editor-title">Editar Política de Hedge</h2>
+            <p className="hedge-policy-editor-subtitle">Defina limites mínimo e máximo por período. Valores em percentual (%).</p>
+          </div>
+          <button type="button" className="component-popup-close" onClick={onClose} aria-label="Fechar">×</button>
+        </div>
+
+        {/* Mini charts side by side — atualizam ao vivo conforme edição */}
+        {previewChartStates && (
+          <div className="hedge-policy-editor-charts-row">
+            <div className="hedge-policy-editor-mini-chart-wrap">
+              <div className="hedge-policy-editor-mini-chart-label">
+                Gráfico 1 — Hedge × Custo (R$)
+                <span className="hedge-policy-editor-mini-chart-badge">prévia ao vivo</span>
+              </div>
+              <div className="hedge-policy-editor-mini-chart-inner">
+                <HedgePolicyChart
+                  {...miniChartProps}
+                  title=""
+                  unit="BRL"
+                  baseValue={previewChartStates.costBaseValue || 0}
+                  comparisonSeriesName="Custo Realizado"
+                  precomputedChartState={previewChartStates.cost}
+                />
+              </div>
+            </div>
+            <div className="hedge-policy-editor-mini-chart-wrap">
+              <div className="hedge-policy-editor-mini-chart-label">
+                Gráfico 2 — Hedge × Produção (sc)
+                <span className="hedge-policy-editor-mini-chart-badge">prévia ao vivo</span>
+              </div>
+              <div className="hedge-policy-editor-mini-chart-inner">
+                <HedgePolicyChart
+                  {...miniChartProps}
+                  title=""
+                  unit="SC"
+                  baseValue={previewChartStates.productionBaseValue || 0}
+                  precomputedChartState={previewChartStates.production}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Filter bar — filtra quais linhas aparecem na tabela */}
+        <div className="hedge-policy-editor-filter-bar">
+          <div className="hedge-policy-editor-filter-label-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            <span className="hedge-policy-editor-filter-label">Filtrar linhas:</span>
+          </div>
+          <label className="hedge-policy-editor-filter-field">
+            <span>Cultura</span>
+            <HedgePolicySingleSelect
+              options={optionCrops}
+              value={filterCultura}
+              labelKey="ativo"
+              placeholder="Todas"
+              onChange={setFilterCultura}
+            />
+          </label>
+          <label className="hedge-policy-editor-filter-field">
+            <span>Safra</span>
+            <HedgePolicySingleSelect
+              options={optionSeasons}
+              value={filterSafra}
+              labelKey="safra"
+              placeholder="Todas"
+              onChange={setFilterSafra}
+            />
+          </label>
+          <label className="hedge-policy-editor-filter-field">
+            <span>Grupo</span>
+            <HedgePolicySingleSelect
+              options={optionGroups}
+              value={filterGrupo}
+              labelKey="grupo"
+              placeholder="Todos"
+              onChange={(val) => { setFilterGrupo(val); setFilterSubgrupo(null); }}
+            />
+          </label>
+          <label className="hedge-policy-editor-filter-field">
+            <span>Subgrupo</span>
+            <HedgePolicySingleSelect
+              options={filterVisibleSubgroups}
+              value={filterSubgrupo}
+              labelKey="subgrupo"
+              placeholder="Todos"
+              onChange={setFilterSubgrupo}
+            />
+          </label>
+          {(filterCultura != null || filterSafra != null || filterGrupo != null || filterSubgrupo != null) && (
+            <button
+              type="button"
+              className="hedge-policy-editor-filter-clear"
+              onClick={() => { setFilterCultura(null); setFilterSafra(null); setFilterGrupo(null); setFilterSubgrupo(null); }}
+            >
+              Limpar filtro
+            </button>
+          )}
+          <span className="hedge-policy-editor-filter-count">
+            {visibleRows.length} de {rows.length} {rows.length === 1 ? "linha" : "linhas"}
+          </span>
+        </div>
+
+        {/* Table */}
+        <div className="hedge-policy-editor-table-section">
+          <table className="hedge-policy-editor-table">
+            <thead>
+              <tr className="hedge-policy-editor-thead-group">
+                <th rowSpan={2} className="hedge-policy-editor-th-mes">Data</th>
+                <th colSpan={2} className="hedge-policy-editor-th-group hedge-policy-editor-th-custo">Hedge × Custo Total</th>
+                <th colSpan={2} className="hedge-policy-editor-th-group hedge-policy-editor-th-prod">Hedge × Produção Total</th>
+                <th rowSpan={2} className="hedge-policy-editor-th-assoc">Grupos</th>
+                <th rowSpan={2} className="hedge-policy-editor-th-assoc">Subgrupos</th>
+                <th rowSpan={2} className="hedge-policy-editor-th-actions"></th>
+              </tr>
+              <tr className="hedge-policy-editor-thead-sub">
+                <th className="hedge-policy-editor-th-sub hedge-policy-editor-th-custo">Mín</th>
+                <th className="hedge-policy-editor-th-sub hedge-policy-editor-th-custo">Máx</th>
+                <th className="hedge-policy-editor-th-sub hedge-policy-editor-th-prod">Mín</th>
+                <th className="hedge-policy-editor-th-sub hedge-policy-editor-th-prod">Máx</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="hedge-policy-editor-empty">
+                    {rows.length === 0
+                      ? "Nenhuma linha. Clique em \"+ Adicionar linha\" para começar."
+                      : "Nenhuma linha corresponde ao filtro selecionado. Mude o filtro ou clique em \"+ Adicionar linha\"."}
+                  </td>
+                </tr>
+              )}
+              {visibleRows.map((row) => {
+                const visibleSubgroups = row.grupos.length > 0
+                  ? (optionSubgroups || []).filter((s) => row.grupos.map(String).includes(String(s.grupo)))
+                  : optionSubgroups;
+                return (
+                  <tr key={row._draftId} className="hedge-policy-editor-row">
+                    <td className="hedge-policy-editor-td-mes">
+                      <input
+                        type="date"
+                        className="hedge-policy-editor-input hpe-date"
+                        value={row.mes_ano}
+                        onChange={(e) => updateRow(row._draftId, "mes_ano", e.target.value)}
+                      />
+                    </td>
+                    {[
+                      ["vendas_x_custo_minimo", "hedge-policy-editor-td-custo"],
+                      ["vendas_x_custo_maximo", "hedge-policy-editor-td-custo"],
+                      ["vendas_x_prod_total_minimo", "hedge-policy-editor-td-prod"],
+                      ["vendas_x_prod_total_maximo", "hedge-policy-editor-td-prod"],
+                    ].map(([field, cls]) => (
+                      <td key={field} className={cls}>
+                        <div className="hedge-policy-editor-pct-field">
+                          <input
+                            type="number"
+                            className="hedge-policy-editor-input hedge-policy-editor-input-num"
+                            value={row[field]}
+                            placeholder="0"
+                            min={0}
+                            max={200}
+                            onChange={(e) => updateRow(row._draftId, field, e.target.value)}
+                          />
+                          <span className="hedge-policy-editor-pct-sign">%</span>
+                        </div>
+                      </td>
+                    ))}
+                    <td className="hedge-policy-editor-td-assoc">
+                      <HedgePolicyMultiSelect
+                        options={optionGroups}
+                        value={row.grupos}
+                        labelKey="grupo"
+                        placeholder="Grupos…"
+                        onChange={(v) => updateRow(row._draftId, "grupos", v)}
+                      />
+                    </td>
+                    <td className="hedge-policy-editor-td-assoc">
+                      <HedgePolicyMultiSelect
+                        options={visibleSubgroups}
+                        value={row.subgrupos}
+                        labelKey="subgrupo"
+                        placeholder="Subgrupos…"
+                        onChange={(v) => updateRow(row._draftId, "subgrupos", v)}
+                      />
+                    </td>
+                    <td className="hedge-policy-editor-td-actions">
+                      <button
+                        type="button"
+                        className="hedge-policy-editor-remove-btn"
+                        onClick={() => removeRow(row._draftId)}
+                        title="Remover linha"
+                        aria-label="Remover linha"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div className="hedge-policy-editor-footer">
+          <button type="button" className="hedge-policy-editor-add-btn" onClick={addRow}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Adicionar linha
+          </button>
+          <div className="hedge-policy-editor-footer-actions">
+            {error && <span className="hedge-policy-editor-error">{error}</span>}
+            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose} disabled={saving}>
+              Cancelar
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+              {saving ? "Salvando…" : "Salvar alterações"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HedgePolicyDashboard({ dashboardFilter }) {
   const { matchesDashboardFilter, options } = useDashboardFilter();
   const [frequency, setFrequency] = useState("monthly");
@@ -10778,6 +11270,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
   const [costActiveIndex, setCostActiveIndex] = useState(0);
   const [productionActiveIndex, setProductionActiveIndex] = useState(0);
   const [showSimulationBox, setShowSimulationBox] = useState(false);
+  const [showPolicyEditor, setShowPolicyEditor] = useState(false);
   const [simulationVolume, setSimulationVolume] = useState("");
   const [simulationValue, setSimulationValue] = useState("");
   const [simulationCurrency, setSimulationCurrency] = useState("BRL");
@@ -11380,6 +11873,72 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     setShowSimulationBox(false);
   };
 
+  const buildPreviewChartStates = useCallback((previewPolicies, modalFilter = null) => {
+    const hasModalFilter = modalFilter != null && (
+      modalFilter.cultura != null || modalFilter.safra != null ||
+      modalFilter.grupo != null || modalFilter.subgrupo != null
+    );
+    const filterObj = hasModalFilter ? {
+      cultura: modalFilter.cultura != null ? [modalFilter.cultura] : [],
+      safra: modalFilter.safra != null ? [modalFilter.safra] : [],
+      grupo: modalFilter.grupo != null ? [modalFilter.grupo] : [],
+      subgrupo: modalFilter.subgrupo != null ? [modalFilter.subgrupo] : [],
+    } : null;
+    const usePhysical = hasModalFilter
+      ? physicalSales.filter((item) => rowMatchesDashboardFilter(item, filterObj))
+      : filteredPhysicalSales;
+    const useActualCosts = hasModalFilter
+      ? actualCosts.filter((item) => rowMatchesDashboardFilter(item, filterObj))
+      : filteredActualCosts;
+    const useDerivatives = hasModalFilter
+      ? derivatives.filter((item) => rowMatchesDashboardFilter(item, filterObj, { cultureKeys: DERIVATIVE_CULTURE_KEYS }))
+      : filteredDerivatives;
+    const useCommodityDerivatives = useDerivatives.filter((item) => normalizeText(item.moeda_ou_cmdtye) === "cmdtye");
+    // Recompute base values using the same filter applied to physical/derivative data
+    const useCostBase = hasModalFilter
+      ? budgetCosts
+          .filter((item) => rowMatchesDashboardFilter(item, filterObj))
+          .reduce((sum, item) => sum + convertValueToBrl(item.valor, item.moeda, usdBrlRate), 0) || costBase
+      : costBase;
+    const useProductionBase = hasModalFilter
+      ? getNetProductionValue(
+          cropBoards.filter((item) => rowMatchesDashboardFilter(item, filterObj)),
+          physicalPayments.filter((item) => rowMatchesDashboardFilter(item, filterObj, { cultureKeys: ["fazer_frente_com"] })),
+          (item) => item.producao_total,
+          (item) => item.volume,
+        ) || productionBase
+      : productionBase;
+    return {
+      cost: buildHedgePolicyChartState({
+        unit: "BRL",
+        frequency,
+        baseValue: useCostBase,
+        physicalRows: usePhysical,
+        derivativeRows: useDerivatives,
+        policies: previewPolicies,
+        physicalValueGetter: (item) => getPhysicalCostValue(item, usdBrlRate),
+        derivativeValueGetter: (item) => getDerivativeCostValue(item, usdBrlRate),
+        comparisonRows: useActualCosts,
+        comparisonDateGetter: (item) => item.data_travamento,
+        comparisonValueGetter: (item) => convertValueToBrl(item.valor, item.moeda, usdBrlRate),
+        dateMarkers: cropBoardDateMarkers,
+      }),
+      production: buildHedgePolicyChartState({
+        unit: "SC",
+        frequency,
+        baseValue: useProductionBase,
+        physicalRows: usePhysical,
+        derivativeRows: useCommodityDerivatives,
+        policies: previewPolicies,
+        physicalValueGetter: getPhysicalVolumeValue,
+        derivativeValueGetter: derivativeStandardVolumeGetter,
+        dateMarkers: cropBoardDateMarkers,
+      }),
+      costBaseValue: useCostBase,
+      productionBaseValue: useProductionBase,
+    };
+  }, [actualCosts, budgetCosts, costBase, cropBoardDateMarkers, cropBoards, derivativeStandardVolumeGetter, derivatives, filteredActualCosts, filteredDerivatives, filteredPhysicalSales, frequency, physicalPayments, physicalSales, productionBase, usdBrlRate]);
+
   return (
     <section className="hedge-dashboard-shell">
       <div className="hedge-dashboard-toolbar">
@@ -11390,7 +11949,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         </select>
         <button
           type="button"
-          className="btn btn-outline-secondary btn-sm"
+          className={`hedge-toolbar-btn${hasSimulationValues ? " hedge-toolbar-btn--active" : ""}`}
           onClick={() => {
             if (hasSimulationValues) {
               resetSimulation();
@@ -11400,6 +11959,13 @@ function HedgePolicyDashboard({ dashboardFilter }) {
           }}
         >
           {hasSimulationValues ? "Limpar simulação" : "Simular nova operação"}
+        </button>
+        <button
+          type="button"
+          className="hedge-toolbar-btn hedge-toolbar-btn--primary"
+          onClick={() => setShowPolicyEditor(true)}
+        >
+          Editar Política
         </button>
       </div>
       {showSimulationBox ? (
@@ -11460,6 +12026,27 @@ function HedgePolicyDashboard({ dashboardFilter }) {
             </div>
           </div>
         </div>
+      ) : null}
+      {showPolicyEditor ? (
+        <HedgePolicyEditorModal
+          policies={filteredPolicies}
+          buildPreviewChartStates={buildPreviewChartStates}
+          optionGroups={options.groups || []}
+          optionSubgroups={options.subgroups || []}
+          optionCrops={[...(options.cropBoardCrops || []), ...(options.crops || [])]}
+          optionSeasons={[...(options.cropBoardSeasons || []), ...(options.seasons || [])]}
+          initialFilter={{
+            cultura: dashboardFilter?.cultura?.[0] ? Number(dashboardFilter.cultura[0]) : null,
+            safra: dashboardFilter?.safra?.[0] ? Number(dashboardFilter.safra[0]) : null,
+            grupo: dashboardFilter?.grupo?.[0] ? Number(dashboardFilter.grupo[0]) : null,
+            subgrupo: dashboardFilter?.subgrupo?.[0] ? Number(dashboardFilter.subgrupo[0]) : null,
+          }}
+          onClose={() => setShowPolicyEditor(false)}
+          onSaved={() => {
+            setShowPolicyEditor(false);
+            resourceService.listAll("hedge-policies").then((data) => setPolicies(data || []));
+          }}
+        />
       ) : null}
     </section>
   );
