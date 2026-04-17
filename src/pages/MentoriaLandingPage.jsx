@@ -16,7 +16,7 @@ const NAV_ITEMS = [
 ];
 
 const LANDING_PAGE_TITLE = "Traders do Agro - turma 02";
-const WHATSAPP_CONTACT_NUMBER = "554237420699";
+const WHATSAPP_CONTACT_NUMBER = "5542988113456";
 
 const INITIAL_FORM = {
   nome: "",

@@ -16665,12 +16665,15 @@ function ClientRankingDashboard({ dashboardFilter }) {
 }
 
 function MtmDashboard({ dashboardFilter }) {
+  const { options: filterOptions } = useDashboardFilter();
   const [derivatives, setDerivatives] = useState([]);
   const [physicalSales, setPhysicalSales] = useState([]);
   const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
   const [resourceTableModal, setResourceTableModal] = useState(null);
   const [mtmScope, setMtmScope] = useState("all");
   const [mtmFacet, setMtmFacet] = useState("all");
+  const [mtmCultura, setMtmCultura] = useState([]);
+  const [mtmSafra, setMtmSafra] = useState([]);
   const [operationFilterOpen, setOperationFilterOpen] = useState(false);
   const [selectedOperationNames, setSelectedOperationNames] = useState([]);
   const [mtmTimelineSliderStart, setMtmTimelineSliderStart] = useState(null);
@@ -16704,9 +16707,10 @@ function MtmDashboard({ dashboardFilter }) {
   const mtmFilter = useMemo(
     () => ({
       ...dashboardFilter,
-      cultura: [],
+      cultura: mtmCultura,
+      safra: mtmSafra,
     }),
-    [dashboardFilter],
+    [dashboardFilter, mtmCultura, mtmSafra],
   );
 
   const usdBrlQuote = useMemo(() => {
@@ -16732,7 +16736,7 @@ function MtmDashboard({ dashboardFilter }) {
     const rows = derivatives
       .filter((item) =>
         rowMatchesDashboardFilter(item, mtmFilter, {
-          cultureKeys: [],
+          cultureKeys: DERIVATIVE_CULTURE_KEYS,
         }),
       )
       .map((item) => {
@@ -16818,7 +16822,8 @@ function MtmDashboard({ dashboardFilter }) {
       if (mtmScope === "open") {
         if (mtmFacet === "open_all") return item.statusLabel === "Em aberto";
         if (mtmFacet === "due7") return item.daysToSettlement != null && item.daysToSettlement >= 0 && item.daysToSettlement <= 7;
-        if (mtmFacet === "due30") return item.daysToSettlement != null && item.daysToSettlement >= 0 && item.daysToSettlement <= 30;
+        if (mtmFacet === "due30") return item.daysToSettlement != null && item.daysToSettlement >= 8 && item.daysToSettlement <= 30;
+        if (mtmFacet === "due90") return item.daysToSettlement != null && item.daysToSettlement >= 31 && item.daysToSettlement <= 90;
       }
 
       if (mtmScope === "closed") {
@@ -16891,8 +16896,9 @@ function MtmDashboard({ dashboardFilter }) {
         } else {
           acc.neutral += 1;
         }
-        if (item.daysToSettlement != null && item.daysToSettlement <= 30) acc.due30 += 1;
-        if (item.daysToSettlement != null && item.daysToSettlement <= 7) acc.due7 += 1;
+        if (item.daysToSettlement != null && item.daysToSettlement >= 8 && item.daysToSettlement <= 30) acc.due30 += 1;
+        if (item.daysToSettlement != null && item.daysToSettlement >= 0 && item.daysToSettlement <= 7) acc.due7 += 1;
+        if (item.daysToSettlement != null && item.daysToSettlement >= 31 && item.daysToSettlement <= 90) acc.due90 += 1;
         return acc;
       },
       {
@@ -16914,6 +16920,7 @@ function MtmDashboard({ dashboardFilter }) {
         totalStrikeWeight: 0,
         due30: 0,
         due7: 0,
+        due90: 0,
       },
     );
     const bestOperation = rows
@@ -16959,7 +16966,7 @@ function MtmDashboard({ dashboardFilter }) {
     return (physicalSales || [])
       .filter((item) =>
         rowMatchesDashboardFilter(item, mtmFilter, {
-          cultureKeys: [],
+          cultureKeys: ["cultura", "culturas", "cultura_produto"],
         }),
       )
       .map((item) => ({
@@ -18700,9 +18707,9 @@ function MtmDashboard({ dashboardFilter }) {
           rows: allNormalizedRows.filter((item) => item.statusLabel === "Em aberto"),
           title: "MTM · Operações em aberto",
           metaItems: [
-            { key: "open_all", label: "Ativas", value: formatNumber0(openSummary.open) },
             { key: "due7", label: "Vencem em 7 dias", value: formatNumber0(openSummary.due7) },
-            { key: "due30", label: "Vencem em 30 dias", value: formatNumber0(openSummary.due30) },
+            { key: "due30", label: "Vencem 8-30 dias", value: formatNumber0(openSummary.due30) },
+            { key: "due90", label: "Vencem 31-90 dias", value: formatNumber0(openSummary.due90) },
           ],
         },
         {
@@ -18982,8 +18989,88 @@ function MtmDashboard({ dashboardFilter }) {
     </button>
   );
 
+  const cropOptions = [...(filterOptions.cropBoardCrops || []), ...(filterOptions.crops || [])].reduce((acc, item) => {
+    if (!acc.some((x) => String(x.id) === String(item.id))) acc.push(item);
+    return acc;
+  }, []);
+  const seasonOptions = [...(filterOptions.cropBoardSeasons || []), ...(filterOptions.seasons || [])].reduce((acc, item) => {
+    if (!acc.some((x) => String(x.id) === String(item.id))) acc.push(item);
+    return acc;
+  }, []);
+
+  const toggleMtmCultura = (id) => {
+    const sid = String(id);
+    setMtmCultura((current) =>
+      current.includes(sid) ? current.filter((x) => x !== sid) : [...current, sid],
+    );
+  };
+  const toggleMtmSafra = (id) => {
+    const sid = String(id);
+    setMtmSafra((current) =>
+      current.includes(sid) ? current.filter((x) => x !== sid) : [...current, sid],
+    );
+  };
+  const hasMtmLocalFilter = mtmCultura.length > 0 || mtmSafra.length > 0;
+
   return (
     <section className="mtm-shell">
+      {(cropOptions.length > 0 || seasonOptions.length > 0) && (
+        <div className="mtm-local-filter">
+          {cropOptions.length > 0 && (
+            <div className="mtm-local-filter-group">
+              <span className="mtm-local-filter-label">Cultura</span>
+              <div className="mtm-local-filter-buttons">
+                {cropOptions.map((item) => {
+                  const id = String(item.id);
+                  const label = item.ativo || item.cultura || item.nome || id;
+                  const isActive = mtmCultura.includes(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`mtm-local-filter-btn${isActive ? " is-active" : ""}`}
+                      onClick={() => toggleMtmCultura(id)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {seasonOptions.length > 0 && (
+            <div className="mtm-local-filter-group">
+              <span className="mtm-local-filter-label">Safra</span>
+              <div className="mtm-local-filter-buttons">
+                {seasonOptions.map((item) => {
+                  const id = String(item.id);
+                  const label = item.safra || item.nome || id;
+                  const isActive = mtmSafra.includes(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`mtm-local-filter-btn${isActive ? " is-active" : ""}`}
+                      onClick={() => toggleMtmSafra(id)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {hasMtmLocalFilter && (
+            <button
+              type="button"
+              className="mtm-local-filter-clear"
+              onClick={() => { setMtmCultura([]); setMtmSafra([]); }}
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
+      )}
       <section className="mtm-phase-section">
         <div className="mtm-filter-note">
           Os cards grandes e os mini cards abaixo funcionam como filtros do dashboard.
