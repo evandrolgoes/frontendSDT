@@ -429,6 +429,26 @@ export function MassImportWorkspace() {
     cellFormulasRef.current = cellFormulas;
   }, [cellFormulas]);
 
+  // Refs always pointing to latest state/functions, used by the document paste listener
+  const selectedCellRef = useRef(selectedCell);
+  const applyPastedTextRef = useRef(null);
+  selectedCellRef.current = selectedCell;
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (!tableWrapRef.current) return;
+      const activeEl = document.activeElement;
+      if (!tableWrapRef.current.contains(activeEl)) return;
+      const clipboard = event.clipboardData?.getData("text/plain");
+      if (!clipboard) return;
+      event.preventDefault();
+      const { rowIndex, columnIndex } = selectedCellRef.current;
+      applyPastedTextRef.current?.(clipboard, rowIndex, columnIndex);
+    };
+    document.addEventListener("paste", handler);
+    return () => document.removeEventListener("paste", handler);
+  }, []);
+
   useEffect(() => {
     let active = true;
     const loadResources = async () => {
@@ -577,54 +597,60 @@ export function MassImportWorkspace() {
       .map((line) => line.split("\t"));
 
     if (!parsedRows.length) return;
-    setRows((currentRows) => {
-      const nextRows = [...currentRows];
-      const nextFormulaMap = { ...cellFormulasRef.current };
-      const missingRows = Math.max(0, rowIndex + parsedRows.length - nextRows.length);
-      for (let extraIndex = 0; extraIndex < missingRows; extraIndex += 1) {
-        nextRows.push(createEmptyRow(fields, resource, buildRowDefaults(resource)));
-      }
-      setRowMeta((currentMeta) => {
-        const nextMeta = resizeRowMeta(currentMeta, nextRows.length);
-        parsedRows.forEach((values, pasteRowOffset) => {
-          const absoluteRowIndex = rowIndex + pasteRowOffset;
-          let nextRow = { ...nextRows[absoluteRowIndex] };
-          values.forEach((rawValue, pasteColumnOffset) => {
-            const field = fields[columnIndex + pasteColumnOffset];
-            if (!field) return;
-            const cellKey = buildCellKey(absoluteRowIndex, columnIndex + pasteColumnOffset);
-            const normalizedRawValue = String(rawValue || "").trim();
-            if (isSelectLikeField(field)) {
-              nextRow[field.name] = findSelectValue(field, rawValue, lookupOptions, tradingviewQuotes, nextRow);
-              delete nextFormulaMap[cellKey];
-            } else if (isFormulaInput(normalizedRawValue) && field.type !== "date") {
-              nextFormulaMap[cellKey] = normalizedRawValue;
-            } else {
-              nextRow[field.name] = normalizedRawValue;
-              delete nextFormulaMap[cellKey];
-            }
-            nextMeta[absoluteRowIndex] = {
-              ...nextMeta[absoluteRowIndex],
-              touched: true,
-              ...(field.name === "cod_operacao_mae" ? { manualCode: String(rawValue || "").trim() !== "", autoCode: false } : {}),
-            };
-          });
-          if (resource === "derivative-operations") {
-            const hasAnyMeaningfulValue = fields.some((field) => field.name !== "cod_operacao_mae" && String(nextRow?.[field.name] || "").trim() !== "");
-            if (hasAnyMeaningfulValue && !String(nextRow.cod_operacao_mae || "").trim()) {
-              nextRow.cod_operacao_mae = generateUniqueOperationCode(nextRows, absoluteRowIndex);
-              nextMeta[absoluteRowIndex] = { ...nextMeta[absoluteRowIndex], autoCode: true, touched: true };
-            }
-          }
-          nextRows[absoluteRowIndex] = applyResourceDefaults(resource, nextRow, fields, lookupOptions);
-        });
-        cellFormulasRef.current = nextFormulaMap;
-        setCellFormulas(nextFormulaMap);
-        return nextMeta;
+
+    // Compute everything synchronously from the current closure state,
+    // then call setRows / setRowMeta once each — no nested setState calls.
+    const nextRows = [...rows];
+    const nextFormulaMap = { ...cellFormulasRef.current };
+
+    const missingRows = Math.max(0, rowIndex + parsedRows.length - nextRows.length);
+    for (let extraIndex = 0; extraIndex < missingRows; extraIndex += 1) {
+      nextRows.push(createEmptyRow(fields, resource, buildRowDefaults(resource)));
+    }
+
+    const nextMeta = resizeRowMeta([...rowMeta], nextRows.length);
+
+    parsedRows.forEach((values, pasteRowOffset) => {
+      const absoluteRowIndex = rowIndex + pasteRowOffset;
+      let nextRow = { ...nextRows[absoluteRowIndex] };
+      values.forEach((rawValue, pasteColumnOffset) => {
+        const field = fields[columnIndex + pasteColumnOffset];
+        if (!field) return;
+        const cellKey = buildCellKey(absoluteRowIndex, columnIndex + pasteColumnOffset);
+        const normalizedRawValue = String(rawValue || "").trim();
+        if (isSelectLikeField(field)) {
+          nextRow[field.name] = findSelectValue(field, rawValue, lookupOptions, tradingviewQuotes, nextRow);
+          delete nextFormulaMap[cellKey];
+        } else if (isFormulaInput(normalizedRawValue) && field.type !== "date") {
+          nextFormulaMap[cellKey] = normalizedRawValue;
+        } else {
+          nextRow[field.name] = normalizedRawValue;
+          delete nextFormulaMap[cellKey];
+        }
+        nextMeta[absoluteRowIndex] = {
+          ...nextMeta[absoluteRowIndex],
+          touched: true,
+          ...(field.name === "cod_operacao_mae" ? { manualCode: String(rawValue || "").trim() !== "", autoCode: false } : {}),
+        };
       });
-      return recalculateFormulaRows(nextRows, fields, nextFormulaMap);
+      if (resource === "derivative-operations") {
+        const hasAnyMeaningfulValue = fields.some((f) => f.name !== "cod_operacao_mae" && String(nextRow?.[f.name] || "").trim() !== "");
+        if (hasAnyMeaningfulValue && !String(nextRow.cod_operacao_mae || "").trim()) {
+          nextRow.cod_operacao_mae = generateUniqueOperationCode(nextRows, absoluteRowIndex);
+          nextMeta[absoluteRowIndex] = { ...nextMeta[absoluteRowIndex], autoCode: true, touched: true };
+        }
+      }
+      nextRows[absoluteRowIndex] = applyResourceDefaults(resource, nextRow, fields, lookupOptions);
     });
+
+    cellFormulasRef.current = nextFormulaMap;
+    setCellFormulas(nextFormulaMap);
+    setRows(recalculateFormulaRows(nextRows, fields, nextFormulaMap));
+    setRowMeta(nextMeta);
   };
+
+  // Keep ref in sync so the document-level paste listener always uses the latest closure
+  applyPastedTextRef.current = applyPastedText;
 
   const handlePaste = (event, rowIndex, columnIndex) => {
     const clipboard = event.clipboardData?.getData("text/plain");
@@ -1185,7 +1211,6 @@ export function MassImportWorkspace() {
           ref={tableWrapRef}
           className="derivative-bulk-import-table-wrap custom-scrollbar"
           tabIndex={0}
-          onPaste={(event) => handlePaste(event, selectedCell.rowIndex, selectedCell.columnIndex)}
           onCopy={handleCopy}
         >
           <table className="derivative-bulk-import-table">
@@ -1308,7 +1333,7 @@ export function MassImportWorkspace() {
                         >
                           {isSelectLikeField(field) ? (
                             <>
-                              <div className="derivative-sheet-display" onPaste={(event) => handlePaste(event, rowIndex, columnIndex)}>
+                              <div className="derivative-sheet-display">
                                 {formatCellDisplayValue(field, row, lookupOptions, tradingviewQuotes)}
                               </div>
                               <button
@@ -1392,7 +1417,6 @@ export function MassImportWorkspace() {
                                 setEditingCell((current) => (current === cellKey ? null : current));
                               }}
                               onKeyDown={(event) => handleKeyboardNavigation(event, rowIndex, columnIndex)}
-                              onPaste={(event) => handlePaste(event, rowIndex, columnIndex)}
                             />
                           )}
                           {cellActive ? (

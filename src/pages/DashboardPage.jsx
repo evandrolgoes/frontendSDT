@@ -2998,8 +2998,8 @@ const getAverageDashboardDate = (rows = [], fieldName) => {
 
 const buildCropBoardDateMarkers = (cropBoardRows = []) =>
   [
-    { key: "plantio", label: "plantio", date: getAverageDashboardDate(cropBoardRows, "data_plantio"), color: "#1d4ed8" },
-    { key: "colheita", label: "colheita", date: getAverageDashboardDate(cropBoardRows, "data_colheita"), color: "#1d4ed8" },
+    { key: "plantio", label: "plantio", date: getAverageDashboardDate(cropBoardRows, "data_plantio"), color: "#f97316" },
+    { key: "colheita", label: "colheita", date: getAverageDashboardDate(cropBoardRows, "data_colheita"), color: "#f97316" },
   ].filter((item) => item.date);
 
 const formatMi3 = (value) =>
@@ -3506,6 +3506,7 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
         resourceKey: "physical-sales",
         categoria: "Venda Físico em U$",
         subcategoria: item.cultura_produto || "Outros",
+        cultura: item.cultura_produto || "",
         data: formatBrazilianDate(item.data_pagamento || date),
         date,
         valor: value,
@@ -3546,6 +3547,7 @@ const buildComponentSalesRows = ({ sales, derivatives, counterpartyMap, matchesD
         categoria: `${marketLabel} · ${operationLabel}`,
         categoriaBase: marketLabel,
         subcategoria: item.nome_da_operacao || "Outros",
+        cultura: String(getDerivativeCultureValue(item) || ""),
         data: formatBrazilianDate(item.data_liquidacao || date),
         date,
         valor: getDerivativeFinancialValue(item),
@@ -3959,7 +3961,9 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   const [selectedTableModal, setSelectedTableModal] = useState(null);
   const [zoomRange, setZoomRange] = useState(() => {
     if (initialUiState.zoomRange) return initialUiState.zoomRange;
-    return { start: new Date(0), end: new Date(2999, 11, 31) };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return { start: today, end: shiftDateByDays(today, 365) };
   });
   const [chartWidth, setChartWidth] = useState(0);
   const [chartHeight, setChartHeight] = useState(360);
@@ -3971,10 +3975,26 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     sales, setSales, derivatives, setDerivatives,
   });
 
-  // Timeline from ALL rows (drives slider range)
+  const [selectedCultura, setSelectedCultura] = useState(null);
+
+  const culturas = useMemo(() => {
+    const set = new Set(rows.map((r) => String(r.cultura || "")).filter(Boolean));
+    return [...set].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  }, [rows]);
+
+  useEffect(() => {
+    if (selectedCultura && !culturas.includes(selectedCultura)) setSelectedCultura(null);
+  }, [culturas, selectedCultura]);
+
+  const culturaFilteredRows = useMemo(() => {
+    if (!selectedCultura) return rows;
+    return rows.filter((r) => r.cultura === selectedCultura);
+  }, [rows, selectedCultura]);
+
+  // Timeline from ALL cultura-filtered rows (drives slider range)
   const allChartState = useMemo(
-    () => buildComponentSalesChartState(rows, interval, {}),
-    [rows, interval],
+    () => buildComponentSalesChartState(culturaFilteredRows, interval, {}),
+    [culturaFilteredRows, interval],
   );
   const timelinePeriods = useMemo(() => {
     if (interval === "geral") return [];
@@ -4006,13 +4026,13 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 
   // Visible rows — data in the selected slider range
   const visibleRows = useMemo(() => {
-    if (interval === "geral") return rows;
-    if (!timelinePeriods.length) return rows;
+    if (interval === "geral") return culturaFilteredRows;
+    if (!timelinePeriods.length) return culturaFilteredRows;
     const visibleLabels = new Set(
       timelinePeriods.slice(sliderStartIdx, sliderEndIdx + 1).map((p) => p.label),
     );
-    return rows.filter((item) => visibleLabels.has(buildComponentPeriodKey(item.date, interval)));
-  }, [interval, rows, timelinePeriods, sliderStartIdx, sliderEndIdx]);
+    return culturaFilteredRows.filter((item) => visibleLabels.has(buildComponentPeriodKey(item.date, interval)));
+  }, [interval, culturaFilteredRows, timelinePeriods, sliderStartIdx, sliderEndIdx]);
 
   // Single source of truth: visible chart state drives BOTH cards and chart
   const visibleChartState = useMemo(
@@ -4023,7 +4043,9 @@ function ComponentSalesDashboard({ dashboardFilter }) {
   // Reset zoom when interval changes (skip mount so cached value is preserved)
   useEffect(() => {
     if (zoomIntervalMountRef.current) { zoomIntervalMountRef.current = false; return; }
-    setZoomRange({ start: new Date(0), end: new Date(2999, 11, 31) });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    setZoomRange({ start: today, end: shiftDateByDays(today, 365) });
   }, [interval]);
 
   // Save UI state
@@ -4196,15 +4218,79 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     },
   }), [openTableModal, visibleChartState.labels]);
 
+  const timelineCards = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+    return [7, 30, 90, 365].map((days) => {
+      const endDate = shiftDateByDays(new Date(todayTime), days);
+      endDate.setHours(23, 59, 59, 999);
+      const endTime = endDate.getTime();
+      const rowsInRange = culturaFilteredRows.filter((r) => {
+        const t = r.date?.getTime?.();
+        return Number.isFinite(t) && t >= todayTime && t <= endTime;
+      });
+      const byGroup = COMPONENT_CATEGORY_GROUPS.map((group) => ({
+        label: group.label,
+        color: group.color,
+        value: rowsInRange
+          .filter((r) => group.keys.includes(r.categoria))
+          .reduce((sum, r) => sum + (Number(r.valor) || 0), 0),
+      }));
+      return { days, byGroup };
+    });
+  }, [culturaFilteredRows]);
+
   const sliderFmtLabel = useCallback(
     (p) => (interval === "monthly" ? formatCashflowMonthYear(p.start) : formatBrazilianDate(p.start)),
     [interval],
   );
+  const [sliderTopHandle, setSliderTopHandle] = useState("end");
 
   return (
     <section className="component-sales-shell">
-      <section className="stats-grid">
-        {visibleChartState.totalsByCategory.map((item) => (
+      <div className="cs-top-section">
+        {culturas.length > 0 && (
+          <div className="cs-cultura-filter">
+            <button
+              type="button"
+              className={`cs-cultura-btn${!selectedCultura ? " active" : ""}`}
+              onClick={() => setSelectedCultura(null)}
+            >
+              Todas
+            </button>
+            {culturas.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`cs-cultura-btn${selectedCultura === c ? " active" : ""}`}
+                onClick={() => setSelectedCultura(selectedCultura === c ? null : c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="cs-timeline-cards">
+          {timelineCards.map(({ days, byGroup }) => (
+            <article key={`cs-timeline-${days}`} className="card stat-card component-summary-card cs-timeline-card">
+              <span className="cs-timeline-label">Próximos {days} dias</span>
+              <div className="cs-timeline-breakdown">
+                {byGroup.map((g) => (
+                  <div key={g.label} className="cs-timeline-row">
+                    <span className="cs-timeline-row-dot" style={{ background: g.color }} />
+                    <span className="cs-timeline-row-label">{g.label}</span>
+                    <span className="cs-timeline-row-value">{formatCurrency0(g.value)}</span>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div className="cs-category-cards">
+          {visibleChartState.totalsByCategory.map((item) => (
           <article
             key={`cs-card-${item.label}`}
             className="card stat-card component-summary-card summary-insight-card"
@@ -4245,7 +4331,8 @@ function ComponentSalesDashboard({ dashboardFilter }) {
             ) : null}
           </article>
         ))}
-      </section>
+        </div>
+      </div>
 
       <div className="chart-card component-chartjs-card cashflow-chart-card summary-insight-card">
         <SummaryInsightButton
@@ -4295,20 +4382,29 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 
         {interval !== "geral" && timelinePeriods.length > 1 ? (() => {
           const total = timelinePeriods.length;
-          const startPct = (sliderStartIdx / Math.max(total - 1, 1)) * 100;
-          const endPct = (sliderEndIdx / Math.max(total - 1, 1)) * 100;
+          const maxIdx = Math.max(total - 1, 1);
+          const startPct = (sliderStartIdx / maxIdx) * 100;
+          const endPct = (sliderEndIdx / maxIdx) * 100;
+          const handleTrackPointerMove = (e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const hovered = pct * maxIdx;
+            const next = Math.abs(hovered - sliderStartIdx) <= Math.abs(hovered - sliderEndIdx) ? "start" : "end";
+            if (next !== sliderTopHandle) setSliderTopHandle(next);
+          };
           return (
             <div className="hedge-slider-wrap">
               <div className="hedge-slider-dates">
                 <span>{sliderFmtLabel(timelinePeriods[0])}</span>
                 <span>{sliderFmtLabel(timelinePeriods[total - 1])}</span>
               </div>
-              <div className="hedge-slider-track">
+              <div className="hedge-slider-track" onPointerMove={handleTrackPointerMove}>
                 <div className="hedge-slider-track-bg" />
                 <div className="hedge-slider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
                 <input
                   type="range"
-                  className="hedge-slider-input"
+                  className="hedge-slider-input hedge-slider-input--active"
+                  style={{ zIndex: sliderTopHandle === "start" ? 5 : 3 }}
                   min={0} max={total - 1}
                   value={sliderStartIdx}
                   onChange={(e) => {
@@ -4320,7 +4416,8 @@ function ComponentSalesDashboard({ dashboardFilter }) {
                 />
                 <input
                   type="range"
-                  className="hedge-slider-input"
+                  className="hedge-slider-input hedge-slider-input--active"
+                  style={{ zIndex: sliderTopHandle === "end" ? 5 : 3 }}
                   min={0} max={total - 1}
                   value={sliderEndIdx}
                   onChange={(e) => {
@@ -10096,14 +10193,18 @@ function HedgePolicyChart({
         const x = xForDate(marker.date);
         if (x == null) return null;
         const anchor = x > width - plot.right - 90 ? "end" : "start";
+        const labelX = anchor === "end" ? x - 7 : x + 7;
+        const labelY = plot.top + 14 + index * 18;
         return {
           ...marker,
           key: marker.key || `${marker.label}-${index}`,
           x,
-          labelX: anchor === "end" ? x - 7 : x + 7,
-          labelY: plot.top + 18 + index * 18,
+          labelX,
+          labelY,
           anchor,
           color: marker.color || "#0f766e",
+          xPercent: `${(labelX / width) * 100}%`,
+          yPercent: `${(labelY / height) * 100}%`,
         };
       })
       .filter(Boolean);
@@ -10286,15 +10387,6 @@ function HedgePolicyChart({
                   className="hedge-chart-svg-crop-marker-line"
                   stroke={marker.color}
                 />
-                <text
-                  x={marker.labelX}
-                  y={marker.labelY}
-                  textAnchor={marker.anchor}
-                  className="hedge-chart-svg-crop-marker-label"
-                  fill={marker.color}
-                >
-                  {marker.label}
-                </text>
               </g>
             ))}
             {nativeChart.todayX != null ? (
@@ -10354,6 +10446,15 @@ function HedgePolicyChart({
                   {nativeChart.todayLabel.label}
                 </span>
               ) : null}
+              {nativeChart.cropDateMarkers.map((marker) => (
+                <span
+                  key={`crop-label-${marker.key}`}
+                  className={`hedge-chart-today-overlay-label hedge-chart-today-overlay-label--${marker.anchor}`}
+                  style={{ left: marker.xPercent, top: marker.yPercent, color: marker.color }}
+                >
+                  {marker.label}
+                </span>
+              ))}
               {nativeChart.totalDataLabels.map((label) => (
                 <span
                   key={label.key}
