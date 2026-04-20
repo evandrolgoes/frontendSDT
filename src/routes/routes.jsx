@@ -10,6 +10,8 @@ const loadMassImportPageModule = () => import("../pages/MassImportPage");
 const loadMassUpdatePageModule = () => import("../pages/MassUpdatePage");
 const loadMercadoPageModule = () => import("../pages/MercadoPage");
 const loadMercadoTestesPageModule = () => import("../pages/MercadoTestesPage");
+const loadCotacoesV2PageModule = () => import("../pages/CotacoesV2Page");
+const loadCotacoesV3TradingviewPageModule = () => import("../pages/CotacoesV3TradingviewPage");
 const loadBasisPageModule = () => import("../pages/BasisPage");
 const loadFundPositionsPageModule = () => import("../pages/FundPositionsPage");
 const loadBlogStudioPageModule = () => import("../pages/BlogStudioPage");
@@ -46,6 +48,8 @@ const MassImportPage = lazyNamedExport(loadMassImportPageModule, "MassImportPage
 const MassUpdatePage = lazyNamedExport(loadMassUpdatePageModule, "MassUpdatePage");
 const MercadoPage = lazyNamedExport(loadMercadoPageModule, "MercadoPage");
 const MercadoTestesPage = lazyNamedExport(loadMercadoTestesPageModule, "MercadoTestesPage");
+const CotacoesV2Page = lazyNamedExport(loadCotacoesV2PageModule, "CotacoesV2Page");
+const CotacoesV3TradingviewPage = lazyNamedExport(loadCotacoesV3TradingviewPageModule, "CotacoesV3TradingviewPage");
 const BasisPage = lazyNamedExport(loadBasisPageModule, "BasisPage");
 const FundPositionsPage = lazyNamedExport(loadFundPositionsPageModule, "FundPositionsPage");
 const BlogStudioPage = lazyNamedExport(loadBlogStudioPageModule, "BlogStudioPage");
@@ -170,6 +174,8 @@ const baseNavigationSections = [
     items: [
       { path: "/mercado/blog", label: "Blog", module: "market_blog_news" },
       { path: "/mercado/cotacoes", label: "Cotacoes", module: "market_quotes" },
+      { path: "/mercado/cotacoes-2", label: "Cotacoes 2", module: "market_quotes" },
+      { path: "/mercado/cotacoes-3", label: "Cotacoes 3 TV", module: "market_quotes" },
       { path: "/mercado/exportacoes", label: "Exportacoes", module: "market_exports" },
       { path: "/mercado/basis", label: "Basis", module: "market_basis" },
       { path: "/mercado/posicao-fundos", label: "Posicao de Fundos", module: "market_fund_positions" },
@@ -252,6 +258,8 @@ export const appRoutes = [
     title: "Mercado",
   },
   { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes" },
+  { path: "/mercado/cotacoes-2", element: <CotacoesV2Page />, module: "market_quotes", title: "Cotacoes 2" },
+  { path: "/mercado/cotacoes-3", element: <CotacoesV3TradingviewPage />, module: "market_quotes", title: "Cotacoes 3 TradingView" },
   { path: "/mercado/blog", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id" },
   { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id" },
   { path: "/mercado/blog-news", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },

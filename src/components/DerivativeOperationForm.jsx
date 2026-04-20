@@ -391,6 +391,9 @@ export function DerivativeOperationForm({
     if (!contractOptions.length || !values.contrato_derivativo) {
       return;
     }
+    if (values.status_operacao === "Encerrado") {
+      return;
+    }
     const contractStillAllowed = contractOptions.some(
       (option) => normalizeLookupValue(option.value) === normalizeLookupValue(values.contrato_derivativo),
     );
@@ -398,7 +401,7 @@ export function DerivativeOperationForm({
       return;
     }
     setValues((current) => ({ ...current, contrato_derivativo: "" }));
-  }, [contractOptions, values.contrato_derivativo]);
+  }, [contractOptions, values.contrato_derivativo, values.status_operacao]);
 
   const groupOptions = lookupOptions.groups || [];
   const subgroupOptions = lookupOptions.subgroups || [];
@@ -674,12 +677,22 @@ export function DerivativeOperationForm({
           ) : null}
           <div className="field">
             <label>Contrato derivativo</label>
-            {renderSelect(
-              "contrato_derivativo",
-              values.contrato_derivativo,
-              contractOptions,
-              (value) => updateValue("contrato_derivativo", value),
-              values.bolsa_ref ? "Selecione" : "Selecione a bolsa",
+            {values.status_operacao === "Encerrado" ? (
+              <input
+                className="form-control"
+                id="contrato_derivativo"
+                type="text"
+                value={values.contrato_derivativo ?? ""}
+                onChange={(e) => updateValue("contrato_derivativo", e.target.value)}
+              />
+            ) : (
+              renderSelect(
+                "contrato_derivativo",
+                values.contrato_derivativo,
+                contractOptions,
+                (value) => updateValue("contrato_derivativo", value),
+                values.bolsa_ref ? "Selecione" : "Selecione a bolsa",
+              )
             )}
           </div>
           <div className="field">

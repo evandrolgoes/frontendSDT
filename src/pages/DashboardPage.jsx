@@ -17342,21 +17342,13 @@ function MtmDashboard({ dashboardFilter }) {
   const formatMtmCompactLabel = (value) => {
     const numericValue = Number(value || 0);
     const prefix = numericValue < 0 ? "-R$ " : "R$ ";
-    const absoluteValue = Math.abs(numericValue);
-    if (absoluteValue >= 1000) {
-      return `${prefix}${Math.round(absoluteValue / 1000).toLocaleString("pt-BR")} mil`;
-    }
-    return `${prefix}${Math.round(absoluteValue).toLocaleString("pt-BR")}`;
+    return `${prefix}${Math.round(Math.abs(numericValue)).toLocaleString("pt-BR")}`;
   };
 
   const formatSignedMtmCompactLabel = (value) => {
     const numericValue = Number(value || 0);
     const prefix = numericValue > 0 ? "+ R$ " : numericValue < 0 ? "- R$ " : "R$ ";
-    const absoluteValue = Math.abs(numericValue);
-    if (absoluteValue >= 1000) {
-      return `${prefix}${Math.round(absoluteValue / 1000).toLocaleString("pt-BR")} mil`;
-    }
-    return `${prefix}${Math.round(absoluteValue).toLocaleString("pt-BR")}`;
+    return `${prefix}${Math.round(Math.abs(numericValue)).toLocaleString("pt-BR")}`;
   };
 
   const formatMtmIntegerValue = (value) =>
@@ -18084,7 +18076,7 @@ function MtmDashboard({ dashboardFilter }) {
           { name: "Positivas", value: summary.positive, itemStyle: { color: "#16a34a" } },
           { name: "Negativas", value: summary.negative, itemStyle: { color: "#dc2626" } },
           { name: "Neutras", value: summary.neutral, itemStyle: { color: "#94a3b8" } },
-        ],
+        ].filter((item) => item.value > 0),
       },
     ],
   };
@@ -18113,7 +18105,7 @@ function MtmDashboard({ dashboardFilter }) {
         data: [
           { name: "Em aberto", value: summary.open, itemStyle: { color: "#2563eb" } },
           { name: "Encerradas", value: summary.closed, itemStyle: { color: "#7c3aed" } },
-        ],
+        ].filter((item) => item.value > 0),
       },
     ],
   };
