@@ -6489,6 +6489,119 @@ textarea {
   gap: 14px;
 }
 
+.hedge-chart-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ── Mini cards compactos: mesma identidade visual, altura fixa ── */
+.hedge-chart-inline-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  flex-shrink: 0;
+  height: 66px;
+}
+
+.hedge-chart-inline-cards .risk-kpi-gauge-card,
+.hedge-chart-inline-cards .risk-kpi-hedge-summary-card {
+  height: 66px;
+  max-height: 66px;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+
+/* Botão de info */
+.hedge-chart-inline-cards .summary-insight-button {
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+}
+
+/* Gauge card */
+.hedge-chart-inline-cards .risk-kpi-gauge-card {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+}
+
+.hedge-chart-inline-cards .risk-kpi-chart-card-head--centered {
+  position: static;
+  text-align: left;
+  padding-inline: 0;
+  justify-items: start;
+  flex-shrink: 0;
+}
+
+.hedge-chart-inline-cards .risk-kpi-chart-card-head--centered .risk-kpi-chart-card-title,
+.hedge-chart-inline-cards .risk-kpi-chart-card-head--centered .risk-kpi-card-title {
+  text-align: left;
+  font-size: 0.62rem;
+  color: #475569;
+}
+
+.hedge-chart-inline-cards .risk-kpi-chart-card-volume {
+  font-size: 0.62rem;
+  text-align: left;
+}
+
+.hedge-chart-inline-cards .risk-kpi-chart-card-subtitle {
+  font-size: 0.58rem;
+  text-align: left;
+}
+
+.hedge-chart-inline-cards .risk-kpi-sales-gauge-shell {
+  flex-shrink: 0;
+  height: 58px;
+  width: 88px;
+  overflow: hidden;
+}
+
+.hedge-chart-inline-cards .risk-kpi-sales-gauge-svg {
+  width: 88px;
+  max-width: 88px;
+  height: 58px;
+  margin-top: 0;
+}
+
+.hedge-chart-inline-cards .risk-kpi-sales-gauge-tick {
+  font-size: 5px;
+}
+
+.hedge-chart-inline-cards .risk-kpi-sales-gauge-value {
+  font-size: 13px;
+}
+
+/* Summary card */
+.hedge-chart-inline-cards .risk-kpi-hedge-summary-card {
+  padding-top: 22px;
+  padding-bottom: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hedge-chart-inline-cards .risk-kpi-hedge-summary-lines {
+  gap: 2px;
+  overflow: hidden;
+}
+
+.hedge-chart-inline-cards .risk-kpi-hedge-summary-total {
+  font-size: 0.6rem;
+  line-height: 1.2;
+}
+
+/* Ocultar Politica Min/Max nos mini cards */
+.hedge-chart-inline-cards .risk-kpi-hedge-summary-line {
+  display: none;
+}
+
 .hedge-dashboard-grid.single-visible {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -6515,6 +6628,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0;
+  overflow: hidden;
 }
 
 .hedge-policy-fullscreen-page .hedge-dashboard-toolbar {
@@ -6522,11 +6636,31 @@ textarea {
   padding: 6px 12px;
 }
 
+.hedge-policy-fullscreen-page .hedge-shared-slider-wrap {
+  flex-shrink: 0;
+}
+
 .hedge-policy-fullscreen-page .hedge-dashboard-grid {
   flex: 1;
   min-height: 0;
   gap: 0;
+}
+
+.hedge-policy-fullscreen-page .hedge-chart-column {
+  min-width: 0;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.hedge-policy-fullscreen-page .hedge-chart-inline-cards {
+  flex-shrink: 0;
+}
+
+.hedge-policy-fullscreen-page .hedge-chart-column > .hedge-chart-card {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .hedge-policy-fullscreen-page .hedge-chart-card {
@@ -6541,29 +6675,9 @@ textarea {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.hedge-policy-fullscreen-page .hedge-floating-card {
-  padding: 3px 6px;
-}
-
-.hedge-policy-fullscreen-page .hedge-floating-topline {
-  margin-bottom: 1px;
-}
-
-.hedge-policy-fullscreen-page .hedge-floating-total-box {
-  margin-top: 2px;
-  padding: 2px 6px;
-}
-
-.hedge-policy-fullscreen-page .hedge-floating-line {
-  line-height: 1.1;
-}
-
-.hedge-policy-fullscreen-page .hedge-floating-line + .hedge-floating-line {
-  margin-top: 1px;
-}
-
 .hedge-policy-fullscreen-page .hedge-chart-wrap {
-  height: 100% !important;
+  height: 100%;
+  min-height: 0;
 }
 
 @media (max-width: 768px) {
@@ -7475,6 +7589,7 @@ textarea {
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
   padding: 16px 16px 14px;
 }
+
 
 .dashboard-resource-table-modal {
   width: min(90vw, 1720px);
@@ -13072,6 +13187,10 @@ tfoot td {
 
 .mtm-spotlight-table tbody tr:hover {
   background: rgba(249, 115, 22, 0.08);
+}
+
+.mtm-mini-card--wide {
+  grid-column: 1 / -1;
 }
 
 .mtm-mini-table-wrap {
