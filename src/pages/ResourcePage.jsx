@@ -217,6 +217,10 @@ const calculateDerivativeMtm = (row, strikeMtm, openUsdBrlQuote = 0) => {
     };
   }
 
+  if (!parseLocalizedNumber(strikeMtm)) {
+    return { usd: 0, brl: 0 };
+  }
+
   const operationName = resolveDerivativeOperationName(row);
   const normalizedOperationName = normalizeOperationText(operationName);
   const volume = resolveDerivativeVolume(row);
