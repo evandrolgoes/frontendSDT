@@ -642,6 +642,10 @@ export function ResourceForm({
   const handleChange = (field, value) => {
     const nextValue = isPhoneField(field) ? formatBrazilianPhone(value) : value;
     setValues((current) => ({ ...current, [field.name]: nextValue }));
+    if (field.onFieldChange) {
+      const nextValues = { ...values, [field.name]: nextValue };
+      field.onFieldChange({ value: nextValue, values: nextValues, setValues });
+    }
   };
 
   const handleClearField = (field) => {

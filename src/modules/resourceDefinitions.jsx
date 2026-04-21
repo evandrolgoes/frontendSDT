@@ -1,5 +1,7 @@
 import { moduleOptions as availableModuleOptions } from "../routes/routes.jsx";
-import { normalizeLookupValue } from "../utils/formatters";
+import { resourceService } from "../services/resourceService";
+import { parseBrazilianDate, formatBrazilianDate } from "../utils/date";
+import { normalizeLookupValue, formatBrazilianNumber } from "../utils/formatters";
 
 const yesNoOptions = [
   { value: "true", label: "Sim" },
@@ -105,6 +107,25 @@ const receiptEntryStatusOptions = [
   { value: "Recebido", label: "Recebido" },
   { value: "Previsto", label: "Previsto" },
 ];
+
+const fetchAndSetCotacaoBolsa = async ({ values, setValues }) => {
+  const bolsaRef = values.bolsa_ref;
+  const dataNeg = values.data_negociacao;
+  if (!bolsaRef || !dataNeg) return;
+  const isoDate = parseBrazilianDate(dataNeg);
+  if (!isoDate) return;
+  try {
+    const price = await resourceService.fetchHistoricalExchangePrice(bolsaRef, isoDate);
+    if (price != null) {
+      setValues((current) => ({
+        ...current,
+        cotacao_bolsa_ref: formatBrazilianNumber(Number(price)),
+      }));
+    }
+  } catch (_err) {
+    // silently ignore fetch errors
+  }
+};
 
 const formatExchangeOptionLabel = (exchangeName) =>
   String(exchangeName || "")
@@ -298,6 +319,10 @@ const baseResourceDefinitions = {
       { name: "moeda_cmdtye", label: "Moeda/Cmdtye", type: "select", options: moedaCmdtyeOptions },
       { name: "moeda_unidade_padrao", label: "Moeda/Unidade padrao", ...catalogSelectFields.moedaUnidade },
       { name: "fator_conversao_unidade_padrao_cultura", label: "Fator de conversao para unidade padrao da cultura", type: "number" },
+      { name: "tv_symbol_fmt",  label: "TradingView — símbolo",        placeholder: "Ex: BMFBOVESPA:DOL{month}{year4}" },
+      { name: "tv_ticker_fmt",  label: "TradingView — ticker",         placeholder: "Ex: DOL{month}{year}" },
+      { name: "tv_months",      label: "TradingView — meses (vírgula)",placeholder: "Ex: 1,2,3,4,5,6,7,8,9,10,11,12" },
+      { name: "tv_n_contracts", label: "TradingView — nº vencimentos", type: "number" },
     ],
   },
   derivativeOperationNames: {
@@ -858,7 +883,6 @@ const baseResourceDefinitions = {
       { key: "localidade", label: "Localidade" },
       { key: "safra", label: "Safra", type: "relation", ...commonRelationFields.safra },
       { key: "bolsa_ref", label: "Bolsa ref" },
-      { key: "contrato_bolsa", label: "Contrato bolsa" },
       { key: "compra_venda", label: "Compra/Venda" },
       { key: "preco", label: "Preco", type: "number" },
       { key: "moeda_unidade", label: "Volume fisico moeda" },
@@ -930,7 +954,13 @@ const baseResourceDefinitions = {
       { name: "volume_fisico", label: "Volume fisico volume", type: "number" },
       { name: "unidade_contrato", label: "Unidade contrato", ...catalogSelectFields.unidade },
       { name: "pf_paf", label: "PF/PAF", type: "select", options: pfPafOptions },
-      { name: "data_negociacao", label: "Data negociacao", type: "date" },
+      {
+        name: "data_negociacao",
+        label: "Data negociacao",
+        type: "date",
+        onFieldChange: ({ value, values, setValues }) =>
+          fetchAndSetCotacaoBolsa({ values: { ...values, data_negociacao: value }, setValues }),
+      },
       { name: "data_entrega", label: "Data entrega", type: "date" },
       { name: "data_pagamento", label: "Data pagamento", type: "date" },
       { name: "basis_valor", label: "Basis valor", type: "number" },
@@ -955,32 +985,8 @@ const baseResourceDefinitions = {
           }));
         },
         optional: true,
-      },
-      {
-        name: "contrato_bolsa",
-        label: "Contrato bolsa",
-        type: "select",
-        resource: "tradingview-watchlist-quotes",
-        getOptions: ({ lookupOptions, values }) => {
-          const quotes = Array.isArray(lookupOptions["tradingview-watchlist-quotes"])
-            ? lookupOptions["tradingview-watchlist-quotes"]
-            : [];
-          const normalizedBolsa = normalizeLookupValue(values.bolsa_ref);
-
-          if (!normalizedBolsa) {
-            return [];
-          }
-
-          return quotes
-            .filter((item) => normalizeLookupValue(getQuoteSectionName(item)) === normalizedBolsa)
-            .map((item) => ({
-              value: item?.ticker || "",
-              label: item?.ticker || "",
-            }))
-            .filter((option) => String(option.value).trim())
-            .filter((option, index, self) => self.findIndex((current) => current.value === option.value) === index);
-        },
-        optional: true,
+        onFieldChange: ({ value, values, setValues }) =>
+          fetchAndSetCotacaoBolsa({ values: { ...values, bolsa_ref: value }, setValues }),
       },
       { name: "cif_fob", label: "CIF/FOB", type: "select", options: cifFobOptions },
       { name: "cotacao_bolsa_ref", label: "Cotacao bolsa ref", type: "number" },

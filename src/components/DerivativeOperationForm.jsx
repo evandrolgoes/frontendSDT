@@ -286,13 +286,79 @@ export function DerivativeOperationForm({
         return;
       }
 
+      const MONTH_CODE_NUM = {F:1,G:2,H:3,J:4,K:5,M:6,N:7,Q:8,U:9,V:10,X:11,Z:12};
+      const MONTH_LABEL    = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+
+      // Avança para o próximo dia útil (sem feriados, apenas fins de semana)
+      const prevBizDay = (date) => {
+        const d = new Date(date);
+        d.setDate(d.getDate() - 1);
+        while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+        return d;
+      };
+      const nthBizDay = (year, month0, n) => {
+        const d = new Date(year, month0, 1);
+        let count = 0;
+        while (count < n) {
+          if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+          if (count < n) d.setDate(d.getDate() + 1);
+        }
+        return d;
+      };
+      const lastBizDay = (year, month0) => {
+        const d = new Date(year, month0 + 1, 0); // último dia do mês
+        while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+        return d;
+      };
+
+      const tickerExpiryDate = (ticker) => {
+        const t = String(ticker || "").toUpperCase();
+        if (t.length < 3) return null;
+        const monthCode = t.slice(-3, -2);
+        const year2 = t.slice(-2);
+        const root = t.slice(0, -3);
+        const deliveryMonth0 = (MONTH_CODE_NUM[monthCode] || 0) - 1; // 0-based
+        if (deliveryMonth0 < 0) return null;
+        const year = 2000 + parseInt(year2, 10);
+
+        if (root === "DOL" || root === "WDO") {
+          // Último dia útil do mês ANTERIOR ao vencimento
+          const prevMonth0 = deliveryMonth0 === 0 ? 11 : deliveryMonth0 - 1;
+          const prevYear   = deliveryMonth0 === 0 ? year - 1 : year;
+          return lastBizDay(prevYear, prevMonth0);
+        }
+        if (root === "CCM") {
+          // 6º dia útil do mês de vencimento
+          return nthBizDay(year, deliveryMonth0, 6);
+        }
+        if (root === "BGI") {
+          // Último dia útil do mês de vencimento
+          return lastBizDay(year, deliveryMonth0);
+        }
+        // ZS, ZW, ZC (CBOT): dia útil anterior ao dia 15
+        return prevBizDay(new Date(year, deliveryMonth0, 15));
+      };
+
+      const tickerExpiryLabel = (ticker) => {
+        const d = tickerExpiryDate(ticker);
+        if (!d) return "";
+        const dd  = String(d.getDate()).padStart(2, "0");
+        const mmm = MONTH_LABEL[d.getMonth()];
+        const yy  = String(d.getFullYear()).slice(-2);
+        return `${dd}/${mmm}/${yy}`;
+      };
+
       const normalizedBolsa = normalizeLookupValue(selectedExchange.nome);
       const options = tradingviewQuotes
         .filter((item) => normalizeLookupValue(getQuoteSectionName(item)) === normalizedBolsa)
-        .map((item) => ({
-          value: item?.ticker || "",
-          label: item?.ticker || "",
-        }))
+        .map((item) => {
+          const ticker = item?.ticker || "";
+          const expiry = tickerExpiryLabel(ticker);
+          return {
+            value: ticker,
+            label: expiry ? `${ticker}  —  ${expiry}` : ticker,
+          };
+        })
         .filter((option) => option.value)
         .filter((option, index, self) => self.findIndex((current) => current.value === option.value) === index);
 

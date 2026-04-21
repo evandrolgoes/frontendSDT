@@ -153,7 +153,7 @@ const invalidateCache = (resource = null) => {
     return;
   }
   [...responseCache.keys()].forEach((key) => {
-    if (key.startsWith(`${resource}:`) || key.includes(`:${resource}:`) || key.startsWith("dashboard:")) {
+    if (key.startsWith(`${resource}:`) || key.includes(`:${resource}:`) || key.includes(`:${resource}/`) || key.startsWith("dashboard:")) {
       responseCache.delete(key);
     }
   });
@@ -287,6 +287,12 @@ export const resourceService = {
         .then((data) => data.results || data),
     );
   },
+  fetchHistoricalExchangePrice: (bolsaRef, date) =>
+    api
+      .get("tradingview-watchlist-quotes/historical-price/", {
+        params: { bolsa_ref: bolsaRef, date },
+      })
+      .then((res) => res.data?.price ?? null),
   listTradingviewTickerPrices: (options = {}) => {
     const cacheKey = buildCacheKey("lookup", "tradingview-watchlist-ticker-price", {});
     if (options.force) {
