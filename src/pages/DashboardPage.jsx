@@ -16953,14 +16953,19 @@ function MtmDashboard({ dashboardFilter }) {
     return summarizeMtmRows(normalizedRows);
   }, [normalizedRows, summarizeMtmRows]);
 
-  const allSummary = useMemo(() => summarizeMtmRows(allNormalizedRows), [allNormalizedRows, summarizeMtmRows]);
+  const baseRows = useMemo(
+    () => mtmBolsa.length > 0 ? allNormalizedRows.filter((item) => mtmBolsa.includes(item.exchangeLabel)) : allNormalizedRows,
+    [allNormalizedRows, mtmBolsa],
+  );
+
+  const allSummary = useMemo(() => summarizeMtmRows(baseRows), [baseRows, summarizeMtmRows]);
   const openSummary = useMemo(
-    () => summarizeMtmRows(allNormalizedRows.filter((item) => item.statusLabel === "Em aberto")),
-    [allNormalizedRows, summarizeMtmRows],
+    () => summarizeMtmRows(baseRows.filter((item) => item.statusLabel === "Em aberto")),
+    [baseRows, summarizeMtmRows],
   );
   const closedSummary = useMemo(
-    () => summarizeMtmRows(allNormalizedRows.filter((item) => item.statusLabel === "Encerrado")),
-    [allNormalizedRows, summarizeMtmRows],
+    () => summarizeMtmRows(baseRows.filter((item) => item.statusLabel === "Encerrado")),
+    [baseRows, summarizeMtmRows],
   );
   const facetSummary = useMemo(() => summarizeMtmRows(normalizedRows), [normalizedRows, summarizeMtmRows]);
 
@@ -18717,7 +18722,7 @@ function MtmDashboard({ dashboardFilter }) {
           value: formatMtmIntegerLabel(allBrl),
           help: "Soma dos ajustes MTM R$ de toda a carteira.",
           className: allBrl >= 0 ? "is-positive" : allBrl < 0 ? "is-negative" : "is-neutral",
-          rows: allNormalizedRows,
+          rows: baseRows,
           title: "MTM consolidado · Todas as operações",
           metaItems: [
             { key: "positive", label: "Positivas", value: formatNumber0(allSummary.positive) },
@@ -18731,7 +18736,7 @@ function MtmDashboard({ dashboardFilter }) {
           value: formatMtmIntegerLabel(openBrl),
           help: "Soma dos ajustes MTM R$ das operações em aberto.",
           className: openBrl >= 0 ? "is-positive" : openBrl < 0 ? "is-negative" : "is-neutral",
-          rows: allNormalizedRows.filter((item) => item.statusLabel === "Em aberto"),
+          rows: baseRows.filter((item) => item.statusLabel === "Em aberto"),
           title: "MTM · Operações em aberto",
           metaItems: [
             { key: "due7", label: "Vencem em 7 dias", value: formatNumber0(openSummary.due7) },
@@ -18745,7 +18750,7 @@ function MtmDashboard({ dashboardFilter }) {
           value: formatMtmIntegerLabel(closedBrl),
           help: "Soma dos ajustes em R$ das operações encerradas.",
           className: closedBrl >= 0 ? "is-positive" : closedBrl < 0 ? "is-negative" : "is-neutral",
-          rows: allNormalizedRows.filter((item) => item.statusLabel === "Encerrado"),
+          rows: baseRows.filter((item) => item.statusLabel === "Encerrado"),
           title: "MTM · Operações encerradas",
           metaItems: [
             { key: "closed_all", label: "Encerradas", value: formatNumber0(closedSummary.closed) },
@@ -18760,7 +18765,7 @@ function MtmDashboard({ dashboardFilter }) {
         isActive: mtmScope === card.key,
       }));
     },
-    [allNormalizedRows, allSummary, closedSummary, facetAllSummary, mtmFacet, mtmScope, openSummary],
+    [baseRows, allSummary, closedSummary, facetAllSummary, mtmFacet, mtmScope, openSummary],
   );
 
   const exchangeMtmEvents = useMemo(
