@@ -16678,8 +16678,10 @@ function MtmDashboard({ dashboardFilter }) {
   const [mtmFacet, setMtmFacet] = useState("all");
   const [mtmCultura, setMtmCultura] = useState([]);
   const [mtmSafra, setMtmSafra] = useState([]);
+  const [mtmBolsa, setMtmBolsa] = useState([]);
   const [operationFilterOpen, setOperationFilterOpen] = useState(false);
   const [selectedOperationNames, setSelectedOperationNames] = useState([]);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(true);
   const [mtmTimelineSliderStart, setMtmTimelineSliderStart] = useState(null);
   const [mtmTimelineSliderEnd, setMtmTimelineSliderEnd] = useState(null);
   const operationFilterRef = useRef(null);
@@ -16805,12 +16807,16 @@ function MtmDashboard({ dashboardFilter }) {
   }, [derivativeQuotesByTicker, derivatives, mtmFilter, usdBrlQuote]);
 
   const normalizedRows = useMemo(() => {
-    const scopeRows =
+    let scopeRows =
       mtmScope === "open"
         ? allNormalizedRows.filter((item) => item.statusLabel === "Em aberto")
         : mtmScope === "closed"
           ? allNormalizedRows.filter((item) => item.statusLabel === "Encerrado")
           : allNormalizedRows;
+
+    if (mtmBolsa.length > 0) {
+      scopeRows = scopeRows.filter((item) => mtmBolsa.includes(item.exchangeLabel));
+    }
 
     if (mtmFacet === "all") {
       return scopeRows;
@@ -16838,7 +16844,7 @@ function MtmDashboard({ dashboardFilter }) {
 
       return true;
     });
-  }, [allNormalizedRows, mtmFacet, mtmScope]);
+  }, [allNormalizedRows, mtmBolsa, mtmFacet, mtmScope]);
 
   const operationOptions = useMemo(
     () =>
@@ -16956,6 +16962,26 @@ function MtmDashboard({ dashboardFilter }) {
     () => summarizeMtmRows(allNormalizedRows.filter((item) => item.statusLabel === "Encerrado")),
     [allNormalizedRows, summarizeMtmRows],
   );
+  const facetSummary = useMemo(() => summarizeMtmRows(normalizedRows), [normalizedRows, summarizeMtmRows]);
+
+  // Facet filter applied to ALL rows (ignoring scope) — used to update all three hero cards simultaneously
+  const facetOnlyRows = useMemo(() => {
+    const base = mtmBolsa.length > 0
+      ? allNormalizedRows.filter((item) => mtmBolsa.includes(item.exchangeLabel))
+      : allNormalizedRows;
+    if (mtmFacet === "all" || mtmFacet === "open_all" || mtmFacet === "closed_all") return base;
+    return base.filter((item) => {
+      if (mtmFacet === "positive") return item.direction === "positive";
+      if (mtmFacet === "negative") return item.direction === "negative";
+      if (mtmFacet === "neutral") return item.direction === "neutral";
+      if (mtmFacet === "due7") return item.daysToSettlement != null && item.daysToSettlement >= 0 && item.daysToSettlement <= 7;
+      if (mtmFacet === "due30") return item.daysToSettlement != null && item.daysToSettlement >= 8 && item.daysToSettlement <= 30;
+      if (mtmFacet === "due90") return item.daysToSettlement != null && item.daysToSettlement >= 31 && item.daysToSettlement <= 90;
+      return true;
+    });
+  }, [allNormalizedRows, mtmBolsa, mtmFacet]);
+
+  const facetAllSummary = useMemo(() => summarizeMtmRows(facetOnlyRows), [facetOnlyRows, summarizeMtmRows]);
 
   const openRowsInView = useMemo(
     () => normalizedRows.filter((item) => item.statusLabel === "Em aberto"),
@@ -18679,13 +18705,18 @@ function MtmDashboard({ dashboardFilter }) {
 
   const heroCards = useMemo(
     () => {
+      const isSubFacet = mtmFacet !== "all" && mtmFacet !== "open_all" && mtmFacet !== "closed_all";
+      const allBrl = isSubFacet ? facetAllSummary.netBrl : allSummary.netBrl;
+      const openBrl = isSubFacet ? facetAllSummary.openNetBrl : openSummary.netBrl;
+      const closedBrl = isSubFacet ? facetAllSummary.closedNetBrl : closedSummary.netBrl;
+
       const cards = [
         {
           key: "all",
           label: "MTM líquido consolidado",
-          value: formatMtmIntegerLabel(allSummary.netBrl),
+          value: formatMtmIntegerLabel(allBrl),
           help: "Soma dos ajustes MTM R$ de toda a carteira.",
-          className: allSummary.netBrl >= 0 ? "is-positive" : allSummary.netBrl < 0 ? "is-negative" : "is-neutral",
+          className: allBrl >= 0 ? "is-positive" : allBrl < 0 ? "is-negative" : "is-neutral",
           rows: allNormalizedRows,
           title: "MTM consolidado · Todas as operações",
           metaItems: [
@@ -18697,9 +18728,9 @@ function MtmDashboard({ dashboardFilter }) {
         {
           key: "open",
           label: "Operações em aberto",
-          value: formatMtmIntegerLabel(openSummary.netBrl),
+          value: formatMtmIntegerLabel(openBrl),
           help: "Soma dos ajustes MTM R$ das operações em aberto.",
-          className: openSummary.netBrl >= 0 ? "is-positive" : openSummary.netBrl < 0 ? "is-negative" : "is-neutral",
+          className: openBrl >= 0 ? "is-positive" : openBrl < 0 ? "is-negative" : "is-neutral",
           rows: allNormalizedRows.filter((item) => item.statusLabel === "Em aberto"),
           title: "MTM · Operações em aberto",
           metaItems: [
@@ -18711,9 +18742,9 @@ function MtmDashboard({ dashboardFilter }) {
         {
           key: "closed",
           label: "Operações encerradas",
-          value: formatMtmIntegerLabel(closedSummary.netBrl),
+          value: formatMtmIntegerLabel(closedBrl),
           help: "Soma dos ajustes em R$ das operações encerradas.",
-          className: closedSummary.netBrl >= 0 ? "is-positive" : closedSummary.netBrl < 0 ? "is-negative" : "is-neutral",
+          className: closedBrl >= 0 ? "is-positive" : closedBrl < 0 ? "is-negative" : "is-neutral",
           rows: allNormalizedRows.filter((item) => item.statusLabel === "Encerrado"),
           title: "MTM · Operações encerradas",
           metaItems: [
@@ -18729,7 +18760,7 @@ function MtmDashboard({ dashboardFilter }) {
         isActive: mtmScope === card.key,
       }));
     },
-    [allNormalizedRows, allSummary, closedSummary, mtmScope, openSummary],
+    [allNormalizedRows, allSummary, closedSummary, facetAllSummary, mtmFacet, mtmScope, openSummary],
   );
 
   const exchangeMtmEvents = useMemo(
@@ -18994,6 +19025,16 @@ function MtmDashboard({ dashboardFilter }) {
     return acc;
   }, []);
 
+  const bolsaOptions = useMemo(() => {
+    const seen = new Set();
+    const opts = [];
+    allNormalizedRows.forEach((row) => {
+      const label = row.exchangeLabel;
+      if (label && !seen.has(label)) { seen.add(label); opts.push(label); }
+    });
+    return opts.sort();
+  }, [allNormalizedRows]);
+
   const toggleMtmCultura = (id) => {
     const sid = String(id);
     setMtmCultura((current) =>
@@ -19006,71 +19047,84 @@ function MtmDashboard({ dashboardFilter }) {
       current.includes(sid) ? current.filter((x) => x !== sid) : [...current, sid],
     );
   };
-  const hasMtmLocalFilter = mtmCultura.length > 0 || mtmSafra.length > 0;
+  const toggleMtmBolsa = (label) => {
+    setMtmBolsa((current) =>
+      current.includes(label) ? current.filter((x) => x !== label) : [...current, label],
+    );
+  };
+  const clearAllFilters = () => {
+    setMtmSafra([]);
+    setMtmBolsa([]);
+  };
+  const activeFilterCount = mtmSafra.length + mtmBolsa.length;
 
   return (
     <section className="mtm-shell">
-      {(cropOptions.length > 0 || seasonOptions.length > 0) && (
-        <div className="mtm-local-filter">
-          {cropOptions.length > 0 && (
-            <div className="mtm-local-filter-group">
-              <span className="mtm-local-filter-label">Cultura</span>
-              <div className="mtm-local-filter-buttons">
-                {cropOptions.map((item) => {
-                  const id = String(item.id);
-                  const label = item.ativo || item.cultura || item.nome || id;
-                  const isActive = mtmCultura.includes(id);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`mtm-local-filter-btn${isActive ? " is-active" : ""}`}
-                      onClick={() => toggleMtmCultura(id)}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {seasonOptions.length > 0 && (
-            <div className="mtm-local-filter-group">
-              <span className="mtm-local-filter-label">Safra</span>
-              <div className="mtm-local-filter-buttons">
-                {seasonOptions.map((item) => {
-                  const id = String(item.id);
-                  const label = item.safra || item.nome || id;
-                  const isActive = mtmSafra.includes(id);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      className={`mtm-local-filter-btn${isActive ? " is-active" : ""}`}
-                      onClick={() => toggleMtmSafra(id)}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-          {hasMtmLocalFilter && (
+      <div className="mtm-filter-panel">
+        <div className="mtm-filter-panel-head">
+          <div className="mtm-filter-panel-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            <span>Filtros</span>
+            {activeFilterCount > 0 && (
+              <span className="mtm-filter-badge">{activeFilterCount} ativo{activeFilterCount !== 1 ? "s" : ""}</span>
+            )}
+          </div>
+          <div className="mtm-filter-panel-actions">
+            {activeFilterCount > 0 && (
+              <button type="button" className="mtm-filter-clear-all" onClick={clearAllFilters}>
+                Limpar tudo
+              </button>
+            )}
             <button
               type="button"
-              className="mtm-local-filter-clear"
-              onClick={() => { setMtmCultura([]); setMtmSafra([]); }}
+              className={`mtm-filter-collapse-btn${filterPanelOpen ? " is-open" : ""}`}
+              onClick={() => setFilterPanelOpen((v) => !v)}
+              aria-expanded={filterPanelOpen}
             >
-              Limpar filtros
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
             </button>
-          )}
+          </div>
         </div>
-      )}
+        {filterPanelOpen && (
+          <div className="mtm-filter-panel-body">
+            {seasonOptions.length > 0 && (
+              <div className="mtm-filter-row">
+                <span className="mtm-filter-row-label">Safra</span>
+                <div className="mtm-filter-pills">
+                  {seasonOptions.map((item) => {
+                    const id = String(item.id);
+                    const label = item.safra || item.nome || id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className={`mtm-filter-pill${mtmSafra.includes(id) ? " is-active" : ""}`}
+                        onClick={() => toggleMtmSafra(id)}
+                      >{label}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {bolsaOptions.length > 0 && (
+              <div className="mtm-filter-row">
+                <span className="mtm-filter-row-label">Bolsa</span>
+                <div className="mtm-filter-pills">
+                  {bolsaOptions.map((label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      className={`mtm-filter-pill mtm-filter-pill--exchange${mtmBolsa.includes(label) ? " is-active" : ""}`}
+                      onClick={() => toggleMtmBolsa(label)}
+                    >{label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <section className="mtm-phase-section">
-        <div className="mtm-filter-note">
-          Os cards grandes e os mini cards abaixo funcionam como filtros do dashboard.
-        </div>
         <div className="mtm-hero-grid">
           {heroCards.map((card) => renderHeroCard(card))}
         </div>
@@ -19136,46 +19190,6 @@ function MtmDashboard({ dashboardFilter }) {
           <div className="mtm-section-head">
             <div>
               <h3>Cards por bolsa</h3>
-             
-            </div>
-            <div className="mtm-operation-filter" ref={operationFilterRef}>
-              <button
-                type="button"
-                className={`mtm-operation-filter-toggle${operationFilterOpen ? " is-open" : ""}`}
-                onClick={() => setOperationFilterOpen((current) => !current)}
-              >
-                <span>{operationFilterLabel}</span>
-                <strong>{selectedOperationNames.length || 0}</strong>
-              </button>
-              {operationFilterOpen ? (
-                <div className="mtm-operation-filter-panel">
-                  <div className="mtm-operation-filter-actions">
-                    <button type="button" onClick={() => setSelectedOperationNames(operationOptions)}>Selecionar todas</button>
-                    <button type="button" onClick={() => setSelectedOperationNames([])}>Limpar</button>
-                  </div>
-                  <div className="mtm-operation-filter-list">
-                    {operationOptions.map((operationName) => {
-                      const checked = selectedOperationNames.includes(operationName);
-                      return (
-                        <label key={operationName} className="mtm-operation-filter-option">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              setSelectedOperationNames((current) =>
-                                current.includes(operationName)
-                                  ? current.filter((item) => item !== operationName)
-                                  : [...current, operationName],
-                              );
-                            }}
-                          />
-                          <span>{operationName}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
             </div>
           </div>
           <div className="mtm-exchange-grid">
