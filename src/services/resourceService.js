@@ -282,7 +282,7 @@ export const resourceService = {
     }
     return remember(cacheKey, () =>
       api
-        .get("tradingview-watchlist-quotes/", { params: { format: "json", page_size: 100 } })
+        .get("tradingview-watchlist-quotes/", { params: { format: "json", page_size: 1000 } })
         .then((response) => response.data)
         .then((data) => data.results || data),
     );
