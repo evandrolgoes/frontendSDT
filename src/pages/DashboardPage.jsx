@@ -3172,6 +3172,10 @@ const calculatePriceCompositionDerivativeMtm = (item, strikeMtm, openUsdBrlQuote
     };
   }
 
+  if (!parseLocalizedNumber(strikeMtm)) {
+    return { usd: 0, brl: 0 };
+  }
+
   const operationName = normalizeText(item?.nome_da_operacao || `${item?.posicao || ""} ${item?.tipo_derivativo || ""}`.trim());
   const volume = resolvePriceCompositionDerivativeVolume(item);
   const strikeUnit = normalizeText(item?.moeda_unidade ?? item?.strike_moeda_unidade);
@@ -16686,7 +16690,7 @@ function MtmDashboard({ dashboardFilter }) {
       resourceService.listAll("derivative-operations").catch(() => []),
       resourceService.listAll("exchanges").catch(() => []),
       resourceService.listAll("physical-sales").catch(() => []),
-      resourceService.listAll("tradingview-watchlist-quotes").catch(() => []),
+      resourceService.listTradingviewQuotes().catch(() => []),
     ]).then(([derivativeResponse, exchangeResponse, physicalSalesResponse, quotesResponse]) => {
       if (!isMounted) return;
       setDerivatives(
