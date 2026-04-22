@@ -1546,8 +1546,8 @@ function buildHedgeExplanation(periodSummary, currencyConfig) {
   return lines;
 }
 
-function CashflowMultiTableModal({ period, tables, periodSummary, currencyConfig, onClose, onEdit }) {
-  const [activeIndex, setActiveIndex] = useState(0);
+function CashflowMultiTableModal({ period, tables, periodSummary, currencyConfig, onClose, onEdit, initialActiveIndex = 0 }) {
+  const [activeIndex, setActiveIndex] = useState(initialActiveIndex);
   const [searchValue, setSearchValue] = useState("");
   const [showAi, setShowAi] = useState(true);
   const safeIndex = Math.min(activeIndex, tables.length - 1);
@@ -2562,10 +2562,10 @@ function HedgeSummaryGaugeCards({
               fill="#0f172a"
             />
             <circle cx={gaugeCenterX} cy={gaugeCenterY} r="11" fill="#fff" stroke="#0f172a" strokeWidth="4" />
-            <text x={gaugeCenterX} y="166" textAnchor="middle" className="risk-kpi-sales-gauge-value">
-              {`${rawTotalValue.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
-            </text>
           </svg>
+          <div className="risk-kpi-sales-gauge-pct">
+            {`${rawTotalValue.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+          </div>
         </div>
       </article>
 
@@ -9838,13 +9838,13 @@ function HedgePolicyChart({
   const [detailIndex, setDetailIndex] = useState(null);
   const [showPhysical, setShowPhysical] = useState(true);
   const [showDerivatives, setShowDerivatives] = useState(true);
-  const [detailPhysicalSearch, setDetailPhysicalSearch] = useState("");
-  const [detailDerivativeSearch, setDetailDerivativeSearch] = useState("");
   const [hoverSnapshot, setHoverSnapshot] = useState(null);
   const [hoverExactDate, setHoverExactDate] = useState(null);
   const [hoverExactX, setHoverExactX] = useState(null);
   const [sliderStart, setSliderStart] = useState(0);
   const [sliderEnd, setSliderEnd] = useState(null);
+  const [detailPhysicalSearch, setDetailPhysicalSearch] = useState("");
+  const [detailDerivativeSearch, setDetailDerivativeSearch] = useState("");
 
   const chartState = useMemo(
     () => {
@@ -10543,50 +10543,34 @@ function HedgePolicyChart({
         ) : null}
       </div>
 
-      {detailPoint && detailRows ? (
-        <div className="hedge-detail-backdrop" onClick={() => setDetailIndex(null)}>
-          <div className="hedge-detail-modal" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="hedge-detail-close" onClick={() => setDetailIndex(null)}>
-              ×
-            </button>
-            <div className="hedge-detail-header">
-              <strong>Detalhes — {formatHedgeTitleDate(detailPoint.date)}</strong>
-            </div>
-            {detailRows.physical.length ? (
-              <section className="hedge-detail-section">
-                <ResourceTable
-                  definition={resourceDefinitions.physicalSales}
-                  rows={detailRows.physical}
-                  cardTitle="Vendas Físico (≤ dia)"
-                  searchValue={detailPhysicalSearch}
-                  searchPlaceholder={resourceDefinitions.physicalSales.searchPlaceholder || "Buscar..."}
-                  onSearchChange={setDetailPhysicalSearch}
-                  onClear={() => setDetailPhysicalSearch("")}
-                  onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.physicalSales.resource, row) : undefined}
-                  tableHeight="100%"
-                  showClearButton={false}
-                />
-              </section>
-            ) : null}
-            {detailRows.derivatives.length ? (
-              <section className="hedge-detail-section">
-                <ResourceTable
-                  definition={resourceDefinitions.derivativeOperations}
-                  rows={detailRows.derivatives}
-                  cardTitle="Derivativos (dia entre início e liquidação — inclusivo)"
-                  searchValue={detailDerivativeSearch}
-                  searchPlaceholder={resourceDefinitions.derivativeOperations.searchPlaceholder || "Buscar..."}
-                  onSearchChange={setDetailDerivativeSearch}
-                  onClear={() => setDetailDerivativeSearch("")}
-                  onEdit={onOpenResourceRow ? (row) => onOpenResourceRow(resourceDefinitions.derivativeOperations.resource, row) : undefined}
-                  tableHeight="100%"
-                  showClearButton={false}
-                />
-              </section>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      {detailPoint && detailRows ? (() => {
+        const hedgeTabs = [
+          detailRows.physical.length ? {
+            key: "fisico",
+            label: "Vendas físicas",
+            rows: detailRows.physical,
+            definition: resourceDefinitions.physicalSales,
+          } : null,
+          detailRows.derivatives.length ? {
+            key: "derivativos",
+            label: "Derivativos",
+            rows: detailRows.derivatives,
+            definition: resourceDefinitions.derivativeOperations,
+          } : null,
+        ].filter(Boolean);
+        if (!hedgeTabs.length) return null;
+        return (
+          <CashflowMultiTableModal
+            period={`Detalhes — ${formatHedgeTitleDate(detailPoint.date)}`}
+            tables={hedgeTabs}
+            initialActiveIndex={0}
+            periodSummary={null}
+            currencyConfig={null}
+            onClose={() => setDetailIndex(null)}
+            onEdit={onOpenResourceRow ? (row, resource) => onOpenResourceRow(resource, row) : () => {}}
+          />
+        );
+      })() : null}
     </article>
   );
 }
@@ -16796,6 +16780,261 @@ function ClientRankingDashboard({ dashboardFilter }) {
 }
 
 
+function MtmDerivativeMaturityPanel({ rows, onOpenItem, onOpenDateRows }) {
+  const [hoveredDate, setHoveredDate] = useState(null);
+  const [hoveredItemKey, setHoveredItemKey] = useState(null);
+  const echartsRef = useRef(null);
+
+  // Adapta as rows de derivativos para o formato esperado pelo painel
+  const maturityRows = useMemo(() => {
+    return rows
+      .filter((item) => item.settlementDate)
+      .map((item, index) => {
+        const absVal = Math.round(Math.abs(item.mtmBrl));
+        const sign = item.mtmBrl < 0 ? "-" : "+";
+        const valueLabel = `${sign}R$ ${absVal.toLocaleString("pt-BR")}`;
+        return {
+          dateText: item.settlementDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+          dateKey: item.settlementDate.toISOString().slice(0, 10),
+          app: item.exchangeLabel || "Sem bolsa",
+          valueLabel,
+          valueColor: item.direction === "positive" ? "positive" : item.direction === "negative" ? "negative" : undefined,
+          summaryLabel: `${item.operationName}${item.derivativeType ? ` · ${item.derivativeType}` : ""}`,
+          recordId: item.id,
+          title: item.operationName,
+          _raw: item,
+          _index: index,
+        };
+      })
+      .sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1));
+  }, [rows]);
+
+  const dates = useMemo(
+    () => [...new Set(maturityRows.map((r) => r.dateText))].sort((a, b) => {
+      const parse = (d) => d.split("/").reverse().join("-");
+      return parse(a) < parse(b) ? -1 : 1;
+    }),
+    [maturityRows],
+  );
+
+  const apps = useMemo(() => [...new Set(maturityRows.map((r) => r.app))], [maturityRows]);
+
+  const fmtChartValue = useCallback((v) => {
+    const n = Number(v || 0);
+    const abs = Math.abs(n);
+    const sign = n < 0 ? "−" : "+";
+    if (abs >= 1_000_000) return `${sign} R$ ${(abs / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`;
+    if (abs >= 1_000) return `${sign} R$ ${(abs / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} mil`;
+    if (abs > 0) return `${sign} R$ ${abs.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`;
+    return "R$ 0";
+  }, []);
+
+  const appColorFallbacks = Object.values(MATURITY_APP_COLORS);
+
+  const chartOption = useMemo(() => {
+    if (!maturityRows.length) return null;
+    return {
+      animationDuration: 220,
+      grid: { left: 8, right: 8, top: 36, bottom: 48, containLabel: true },
+      tooltip: {
+        trigger: "item",
+        backgroundColor: "#1e293b",
+        borderColor: "transparent",
+        padding: [10, 14],
+        textStyle: { color: "#f1f5f9", fontSize: 13 },
+        formatter: (params) => {
+          const ops = maturityRows.filter((r) => r.dateText === params.name);
+          const lines = ops.map((r) => {
+            const color = r.valueColor === "positive" ? "#4ade80" : r.valueColor === "negative" ? "#f87171" : "#cbd5e1";
+            return `<span style="color:#94a3b8">${r.app} · ${r.summaryLabel || r.title || ""}</span> <b style="color:${color}">${r.valueLabel}</b>`;
+          });
+          const totalColor = params.value >= 0 ? "#4ade80" : "#f87171";
+          return [
+            `<b style="color:#f1f5f9">${params.name}</b>`,
+            ...lines,
+            `<span style="border-top:1px solid #334155;display:block;margin:4px 0"></span>`,
+            `<b style="font-size:14px;color:${totalColor}">${fmtChartValue(params.value)}</b>`,
+          ].join("<br/>");
+        },
+      },
+      legend: { show: false },
+      xAxis: {
+        type: "category",
+        data: dates,
+        axisTick: { show: false },
+        axisLabel: {
+          color: "#64748b",
+          fontWeight: 600,
+          fontSize: 11,
+          rotate: dates.length > 8 ? 35 : 0,
+          interval: 0,
+          margin: 12,
+        },
+        axisLine: { lineStyle: { color: "rgba(148,163,184,0.2)" } },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: {
+          color: "#94a3b8",
+          fontSize: 11,
+          fontWeight: 600,
+          formatter: (v) => {
+            const abs = Math.abs(v);
+            const sign = v < 0 ? "−" : "";
+            if (abs >= 1_000_000) return `${sign}R$ ${(abs / 1_000_000).toFixed(1)} mi`;
+            if (abs >= 1_000) return `${sign}R$ ${(abs / 1_000).toFixed(0)} mil`;
+            return v === 0 ? "R$ 0" : `${sign}R$ ${Math.abs(v).toFixed(0)}`;
+          },
+        },
+        splitLine: { lineStyle: { color: "rgba(148,163,184,0.12)", type: "dashed" } },
+        axisLine: { show: false },
+        axisTick: { show: false },
+      },
+      series: [
+        // Uma barra por data com a soma total de todas as apps
+        {
+          name: "MTM Total",
+          type: "bar",
+          barMaxWidth: 60,
+          barCategoryGap: "40%",
+          itemStyle: {
+            color: (params) => {
+              const v = params.value;
+              return v >= 0 ? "#22c55e" : "#ef4444";
+            },
+            borderRadius: [4, 4, 0, 0],
+          },
+          emphasis: { itemStyle: { opacity: 0.8 } },
+          label: {
+            show: true,
+            position: "outside",
+            color: "#334155",
+            fontWeight: 800,
+            fontSize: 11,
+            formatter: ({ value }) => value ? fmtChartValue(value) : "",
+          },
+          data: dates.map((date) =>
+            maturityRows
+              .filter((r) => r.dateText === date)
+              .reduce((sum, r) => sum + (r._raw.mtmBrl || 0), 0)
+          ),
+        },
+      ],
+    };
+  }, [maturityRows, dates, apps, appColorFallbacks, fmtChartValue]);
+
+  // Exatamente o mesmo padrão do UpcomingMaturitiesCard
+  const chartEvents = useMemo(() => ({
+    mouseover: (params) => {
+      if (params.componentType === "series") {
+        setHoveredDate(params.name);
+        setHoveredItemKey(null);
+      }
+    },
+    mouseout: () => { setHoveredDate(null); setHoveredItemKey(null); },
+    globalout: () => { setHoveredDate(null); setHoveredItemKey(null); },
+    click: (params) => {
+      if (params.componentType === "series" && params.name && onOpenDateRows) {
+        onOpenDateRows(params.name);
+      }
+    },
+  }), [onOpenDateRows]);
+
+  const handleListMouseEnter = useCallback((dateText, app, itemKey) => {
+    setHoveredDate(dateText);
+    setHoveredItemKey(itemKey);
+    const instance = echartsRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    const dataIndex = dates.indexOf(dateText);
+    if (dataIndex >= 0) {
+      instance.setOption({ tooltip: { alwaysShowContent: true } });
+      instance.dispatchAction({ type: "showTip", seriesIndex: 0, dataIndex });
+    }
+  }, [dates]);
+
+  const handleListMouseLeave = useCallback(() => {
+    setHoveredDate(null);
+    setHoveredItemKey(null);
+    const instance = echartsRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    instance.setOption({ tooltip: { alwaysShowContent: false } });
+    instance.dispatchAction({ type: "hideTip" });
+  }, []);
+
+  if (!maturityRows.length) return null;
+
+  return (
+    <div className="maturity-expanded-body">
+      <div className="maturity-expanded-chart-panel">
+        <div className="maturity-expanded-chart-head">
+          <div>
+            <h3>MTM R$ por data de vencimento</h3>
+            <p>Barras por bolsa · passe o mouse para destacar na lista</p>
+          </div>
+        </div>
+        {chartOption ? (
+          <div className="maturity-expanded-chart-wrap">
+            <ReactECharts
+              ref={echartsRef}
+              option={chartOption}
+              style={{ height: "100%", width: "100%" }}
+              opts={{ renderer: "svg" }}
+              onEvents={chartEvents}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="maturity-expanded-list-panel">
+        <div className="maturity-expanded-list-head">
+          <span>Operações derivativos</span>
+          <span>{maturityRows.length} op{maturityRows.length !== 1 ? "s" : ""}</span>
+        </div>
+        <div className="maturity-expanded-list">
+          {maturityRows.map((item, index) => {
+            const appColor = MATURITY_APP_COLORS[item.app] || "#94a3b8";
+            const itemKey = `${item.app}-${item.dateKey}-${index}`;
+            const isHl = hoveredItemKey ? hoveredItemKey === itemKey : hoveredDate === item.dateText;
+            return (
+              <div
+                key={itemKey}
+                className={`maturity-expanded-item${isHl ? " is-highlighted" : ""}`}
+                role="button"
+                tabIndex={0}
+                onMouseEnter={() => handleListMouseEnter(item.dateText, item.app, itemKey)}
+                onMouseLeave={handleListMouseLeave}
+                onClick={() => {
+                  if (onOpenDateRows) onOpenDateRows(item.dateText);
+                  else if (item.recordId && onOpenItem) onOpenItem(item._raw);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    if (onOpenDateRows) onOpenDateRows(item.dateText);
+                    else if (item.recordId && onOpenItem) onOpenItem(item._raw);
+                  }
+                }}
+              >
+                <div className="maturity-expanded-item-accent" style={{ background: appColor }} />
+                <div className="maturity-expanded-item-body">
+                  <div className="maturity-expanded-item-top">
+                    <span className="maturity-expanded-item-date">{item.dateText}</span>
+                    <span className="maturity-expanded-item-app" style={{ color: appColor }}>{item.app}</span>
+                  </div>
+                  <div className="maturity-expanded-item-name">{item.summaryLabel || item.title}</div>
+                </div>
+                <b className={`maturity-expanded-item-value${item.valueColor === "positive" ? " is-positive" : item.valueColor === "negative" ? " is-negative" : ""}`}>
+                  {item.valueLabel}
+                </b>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MtmDashboard({ dashboardFilter }) {
   const { options: filterOptions } = useDashboardFilter();
   const [derivatives, setDerivatives] = useState([]);
@@ -16814,6 +17053,38 @@ function MtmDashboard({ dashboardFilter }) {
     });
     return map;
   }, [filterOptions?.seasons, filterOptions?.cropBoardSeasons]);
+  const groupLabelById = useMemo(() => {
+    const map = new Map();
+    (filterOptions?.groups || []).forEach((item) => {
+      if (item?.id != null) map.set(String(item.id), item.grupo || item.nome || item.label || String(item.id));
+    });
+    return map;
+  }, [filterOptions?.groups]);
+  const subgroupLabelById = useMemo(() => {
+    const map = new Map();
+    (filterOptions?.subgroups || []).forEach((item) => {
+      if (item?.id != null) map.set(String(item.id), item.subgrupo || item.nome || item.label || String(item.id));
+    });
+    return map;
+  }, [filterOptions?.subgroups]);
+  const cultureLabelByIdMtm = useMemo(() => {
+    const map = new Map();
+    [...(filterOptions?.crops || []), ...(filterOptions?.cropBoardCrops || [])].forEach((item) => {
+      if (item?.id != null) {
+        map.set(String(item.id), item.ativo || item.cultura || item.nome || item.label || item.descricao || String(item.id));
+      }
+    });
+    return map;
+  }, [filterOptions?.crops, filterOptions?.cropBoardCrops]);
+  const resolveMtmCultureLabel = useCallback((value) => {
+    if (!value) return null;
+    if (Array.isArray(value)) return resolveMtmCultureLabel(value[0]);
+    if (typeof value === "string" || typeof value === "number") {
+      return cultureLabelByIdMtm.get(String(value)) || String(value);
+    }
+    const nestedId = value.id != null ? cultureLabelByIdMtm.get(String(value.id)) : null;
+    return nestedId || value.ativo || value.cultura || value.nome || value.label || value.descricao || null;
+  }, [cultureLabelByIdMtm]);
   const [mtmScope, setMtmScope] = useState("all");
   const [mtmFacet, setMtmFacet] = useState("all");
   const [mtmCultura, setMtmCultura] = useState([]);
@@ -16878,13 +17149,8 @@ function MtmDashboard({ dashboardFilter }) {
     [tradingviewQuotes],
   );
 
-  const allNormalizedRows = useMemo(() => {
+  const allMappedDerivatives = useMemo(() => {
     const rows = derivatives
-      .filter((item) =>
-        rowMatchesDashboardFilter(item, mtmFilter, {
-          cultureKeys: DERIVATIVE_CULTURE_KEYS,
-        }),
-      )
       .map((item) => {
         const strikeMtm = derivativeQuotesByTicker[item?.contrato_derivativo] ?? 0;
         const mtm = calculatePriceCompositionDerivativeMtm(item, strikeMtm, usdBrlQuote);
@@ -16944,7 +17210,13 @@ function MtmDashboard({ dashboardFilter }) {
       });
 
     return rows.sort((left, right) => Math.abs(right.mtmBrl) - Math.abs(left.mtmBrl));
-  }, [derivativeQuotesByTicker, derivatives, mtmFilter, usdBrlQuote]);
+  }, [derivativeQuotesByTicker, derivatives, usdBrlQuote]);
+
+  const allNormalizedRows = useMemo(() => {
+    return allMappedDerivatives.filter((item) =>
+      rowMatchesDashboardFilter(item, mtmFilter, { cultureKeys: DERIVATIVE_CULTURE_KEYS }),
+    );
+  }, [allMappedDerivatives, mtmFilter]);
 
   const normalizedRows = useMemo(() => {
     let scopeRows =
@@ -17155,6 +17427,19 @@ function MtmDashboard({ dashboardFilter }) {
         settlementDate: parseDashboardDate(item?.data_vencimento || item?.data_fixacao || item?.data_contratacao || item?.created_at),
       }));
   }, [mtmFilter, physicalSales]);
+
+  const allSalesForPriceChart = useMemo(() => {
+    return (physicalSales || []).map((item) => ({
+      ...item,
+      exchangeLabel: item?.bolsa_ref || "Sem bolsa",
+      contractLabel: item?.contrato_bolsa || "Sem contrato",
+      cultureLabel: item?.cultura_produto || "Sem cultura",
+      basisValue: parseLocalizedNumber(item?.basis_valor),
+      priceValue: parseLocalizedNumber(item?.preco),
+      volumeValue: Math.abs(parseLocalizedNumber(item?.volume_fisico)),
+      settlementDate: parseDashboardDate(item?.data_vencimento || item?.data_fixacao || item?.data_contratacao || item?.created_at),
+    }));
+  }, [physicalSales]);
 
   const exchangeRows = useMemo(() => {
     const exchangeMap = new Map();
@@ -17403,15 +17688,15 @@ function MtmDashboard({ dashboardFilter }) {
 
   useEffect(() => {
     if (!mtmTimelineAllBuckets.length) return;
-    const defaultStart = mtmTimelineAllBuckets.findIndex((b) => b.weekOffset === -13);
-    const defaultEnd = mtmTimelineAllBuckets.findIndex((b) => b.weekOffset === 13);
-    setMtmTimelineSliderStart(defaultStart >= 0 ? defaultStart : MTM_TIMELINE_HALF - 13);
-    setMtmTimelineSliderEnd(defaultEnd >= 0 ? defaultEnd : MTM_TIMELINE_HALF + 13);
+    const defaultStart = mtmTimelineAllBuckets.findIndex((b) => b.weekOffset === -4);
+    const defaultEnd = mtmTimelineAllBuckets.findIndex((b) => b.weekOffset === 21);
+    setMtmTimelineSliderStart(defaultStart >= 0 ? defaultStart : MTM_TIMELINE_HALF - 4);
+    setMtmTimelineSliderEnd(defaultEnd >= 0 ? defaultEnd : MTM_TIMELINE_HALF + 21);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mtmTimelineAllBuckets.length]);
 
-  const mtmTimelineEffStart = mtmTimelineSliderStart ?? (MTM_TIMELINE_HALF - 13);
-  const mtmTimelineEffEnd = mtmTimelineSliderEnd ?? (MTM_TIMELINE_HALF + 13);
+  const mtmTimelineEffStart = mtmTimelineSliderStart ?? (MTM_TIMELINE_HALF - 4);
+  const mtmTimelineEffEnd = mtmTimelineSliderEnd ?? (MTM_TIMELINE_HALF + 21);
 
   const mtmTimelineBuckets = useMemo(
     () => mtmTimelineAllBuckets.slice(mtmTimelineEffStart, mtmTimelineEffEnd + 1),
@@ -17513,6 +17798,37 @@ function MtmDashboard({ dashboardFilter }) {
     () => [...normalizedRows].sort((left, right) => Math.abs(right.mtmBrl) - Math.abs(left.mtmBrl)).slice(0, 12),
     [normalizedRows],
   );
+
+  const openRowsBySettlementDate = useMemo(() => {
+    const dateMap = new Map();
+    openRowsInView
+      .filter((item) => item.settlementDate)
+      .forEach((item) => {
+        const dateText = item.settlementDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+        const dateKey = item.settlementDate.toISOString().slice(0, 10);
+        if (!dateMap.has(dateKey)) dateMap.set(dateKey, { dateText, dateKey, rows: [] });
+        dateMap.get(dateKey).rows.push(item);
+      });
+    return Array.from(dateMap.values()).sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1));
+  }, [openRowsInView]);
+
+  const openMaturityTables = useMemo(() => {
+    return openRowsBySettlementDate.map((entry) => ({
+      key: entry.dateKey,
+      label: entry.dateText,
+      rows: entry.rows,
+      definition: resourceDefinitions.derivativeOperations,
+    }));
+  }, [openRowsBySettlementDate]);
+
+  const openMtmDateModal = useCallback((dateText) => {
+    const activeIndex = openRowsBySettlementDate.findIndex((entry) => entry.dateText === dateText);
+    setExchangeDetailModal({
+      period: "Operações em aberto · por data de liquidação",
+      tables: openMaturityTables,
+      activeIndex: activeIndex >= 0 ? activeIndex : 0,
+    });
+  }, [openMaturityTables, openRowsBySettlementDate]);
 
   const formatMtmCompactLabel = (value) => {
     const numericValue = Number(value || 0);
@@ -17726,11 +18042,11 @@ function MtmDashboard({ dashboardFilter }) {
   }, [normalizedRows]);
 
   const openRiskRows = useMemo(
-    () => normalizedRows.filter((item) => item.statusLabel === "Em aberto").sort((left, right) => left.mtmBrl - right.mtmBrl).slice(0, 8),
+    () => normalizedRows.filter((item) => item.statusLabel === "Em aberto").sort((left, right) => left.mtmBrl - right.mtmBrl).slice(0, 50),
     [normalizedRows],
   );
   const closedPositiveRows = useMemo(
-    () => normalizedRows.filter((item) => item.statusLabel === "Encerrado" && item.mtmBrl > 0).sort((left, right) => right.mtmBrl - left.mtmBrl).slice(0, 8),
+    () => normalizedRows.filter((item) => item.statusLabel === "Encerrado" && item.mtmBrl > 0).sort((left, right) => right.mtmBrl - left.mtmBrl).slice(0, 50),
     [normalizedRows],
   );
   const closedNegativeRows = useMemo(
@@ -17861,23 +18177,32 @@ function MtmDashboard({ dashboardFilter }) {
     };
 
     // ── Culturas disponíveis para botões de filtro ───────────────────────────
-    const allCultureLabels = Array.from(new Set(normalizedSales.map((item) => item.cultureLabel || "Sem cultura"))).filter(Boolean).sort();
+    const allCultureLabels = Array.from(new Set(allSalesForPriceChart.map((item) => item.cultureLabel || "Sem cultura"))).filter(Boolean).sort();
 
     // ── Dados agregados por safra (compartilhado pelos 5 gráficos) ──────────
     const salesForSafra = derivEffCultureFilter
-      ? normalizedSales.filter((item) => (item.cultureLabel || "Sem cultura") === derivEffCultureFilter)
-      : normalizedSales;
+      ? allSalesForPriceChart.filter((item) => (item.cultureLabel || "Sem cultura") === derivEffCultureFilter)
+      : allSalesForPriceChart;
+    const derivsForSafra = derivEffCultureFilter
+      ? allMappedDerivatives.filter((item) => {
+          const labels = [item.ativo, item.cultura, item.culturas, item.destino_cultura]
+            .map((v) => resolveMtmCultureLabel(v))
+            .filter(Boolean);
+          return labels.some((l) => l === derivEffCultureFilter);
+        })
+      : allMappedDerivatives;
     const _salesBySafra = new Map();
     salesForSafra.forEach((item) => {
       const s = getSafraLabelMtm(item.safra, item.safra_texto);
       const cur = _salesBySafra.get(s) || { basisWeighted: 0, priceWeighted: 0, volume: 0 };
-      cur.basisWeighted += item.basisValue * item.volumeValue;
-      cur.priceWeighted += item.priceValue * item.volumeValue;
+      const fxRate = isUsdCurrency(item.moeda_contrato) && usdBrlQuote > 0 ? usdBrlQuote : 1;
+      cur.basisWeighted += item.basisValue * fxRate * item.volumeValue;
+      cur.priceWeighted += item.priceValue * fxRate * item.volumeValue;
       cur.volume += item.volumeValue;
       _salesBySafra.set(s, cur);
     });
     const _mtmBySafra = new Map();
-    normalizedRows.forEach((item) => {
+    derivsForSafra.forEach((item) => {
       const s = getSafraLabelMtm(item.safra, item.safra_texto);
       const cur = _mtmBySafra.get(s) || { netBrl: 0, netUsd: 0, strikeWeighted: 0, strikeWeight: 0, volume: 0 };
       cur.netBrl += item.mtmBrl || 0;
@@ -17903,728 +18228,6 @@ function MtmDashboard({ dashboardFilter }) {
     // ────────────────────────────────────────────────────────────────────────
 
     const cards = [
-      {
-        key: "basis-mtm-scatter",
-        title: "Basis x Cotação (venda físico por bolsa)",
-        subtitle: "Cada bolha = uma bolsa. Eixo X = basis médio da venda física. Eixo Y = cotação da bolsa no momento da venda.",
-        option: {
-          animationDuration: 180,
-          grid: { left: 56, right: 16, top: 18, bottom: 48 },
-          tooltip: {
-            formatter: (params) => {
-              const point = salesExchangeRows.find((item) => item.label === params.name);
-              if (!point) return params.name;
-              const cotacao = point.priceAvg - point.basisAvg;
-              const fisicoLabel = point.basisAvg >= 0 ? "✓ Basis positivo (físico bom)" : "✗ Basis negativo (físico ruim)";
-              return [
-                `<b>${point.label}</b>`,
-                `Basis médio: ${formatNumber2(point.basisAvg)}`,
-                `Cotação bolsa: ${formatNumber2(cotacao)}`,
-                `Preço médio: ${formatNumber2(point.priceAvg)}`,
-                `<span style="color:#64748b;font-size:11px">${fisicoLabel}</span>`,
-              ].join("<br/>");
-            },
-          },
-          xAxis: {
-            type: "value",
-            name: "Basis médio",
-            nameLocation: "middle",
-            nameGap: 28,
-            nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-            axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-            splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-          },
-          yAxis: {
-            type: "value",
-            name: "Cotação bolsa",
-            nameLocation: "middle",
-            nameGap: 44,
-            nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-            axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-            splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-          },
-          series: [
-            {
-              type: "scatter",
-              symbolSize: (value) => Math.max(14, Math.min(34, (value[2] || 0) / 15000)),
-              label: { show: true, position: "top", color: "#334155", fontWeight: 800, formatter: ({ name }) => name },
-              data: salesExchangeRows.slice(0, 6).map((item) => [
-                item.basisAvg,
-                item.priceAvg - item.basisAvg,
-                item.volume,
-                item.label,
-              ]),
-              itemStyle: { color: "#f97316", shadowBlur: 10, shadowColor: "rgba(249, 115, 22, 0.28)" },
-              markLine: {
-                silent: true,
-                symbol: "none",
-                lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-                label: { show: false },
-                data: [{ xAxis: 0 }],
-              },
-            },
-          ],
-        },
-      },
-      // Variação 1: Basis vs Strike do derivativo (scatter)
-      {
-        key: "basis-vs-strike-scatter",
-        title: "Basis físico vs Strike do derivativo",
-        subtitle: "Quando o basis era ruim, o strike do derivativo compensou?",
-        option: (() => {
-          const joined = salesExchangeRows.slice(0, 8).map((item) => {
-            const deriv = exchangeRows.find((row) => row.label === item.label);
-            return { label: item.label, basisAvg: item.basisAvg, avgStrike: deriv?.avgStrike || 0, volume: item.volume };
-          }).filter((item) => item.avgStrike > 0);
-          return {
-            animationDuration: 180,
-            grid: { left: 56, right: 16, top: 18, bottom: 48 },
-            tooltip: {
-              formatter: (params) => {
-                const item = joined.find((r) => r.label === params.name);
-                if (!item) return params.name;
-                const basisOk = item.basisAvg >= 0 ? "✓ Basis bom" : "✗ Basis ruim";
-                const strikeOk = item.avgStrike > 0 ? "✓ Strike positivo" : "✗ Strike baixo";
-                return `<b>${item.label}</b><br/>Basis médio: ${formatNumber2(item.basisAvg)}<br/>Strike médio: ${formatNumber2(item.avgStrike)}<br/><span style="color:#64748b;font-size:11px">${basisOk} | ${strikeOk}</span>`;
-              },
-            },
-            xAxis: {
-              type: "value",
-              name: "Basis médio (físico)",
-              nameLocation: "middle",
-              nameGap: 28,
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            yAxis: {
-              type: "value",
-              name: "Strike médio (deriv.)",
-              nameLocation: "middle",
-              nameGap: 44,
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            series: [
-              {
-                type: "scatter",
-                symbolSize: (value) => Math.max(14, Math.min(34, (value[2] || 0) / 15000)),
-                label: { show: true, position: "top", color: "#334155", fontWeight: 800, formatter: ({ name }) => name },
-                data: joined.map((item) => [item.basisAvg, item.avgStrike, item.volume, item.label]),
-                itemStyle: {
-                  color: (params) => {
-                    const [basisAvg, avgStrike] = params.value;
-                    if (basisAvg >= 0 && avgStrike > 0) return "#22c55e";
-                    if (basisAvg < 0 && avgStrike > 0) return "#3b82f6";
-                    if (basisAvg >= 0) return "#f59e0b";
-                    return "#ef4444";
-                  },
-                  shadowBlur: 10,
-                  shadowColor: "rgba(0,0,0,0.18)",
-                },
-                markLine: {
-                  silent: true,
-                  symbol: "none",
-                  lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-                  label: { show: false },
-                  data: [{ xAxis: 0 }],
-                },
-              },
-            ],
-          };
-        })(),
-      },
-      // Variação 2: Preço físico vs Strike derivativo (barras agrupadas)
-      {
-        key: "price-vs-strike-bars",
-        title: "Preço físico vs Strike do derivativo",
-        subtitle: "Qual canal obteve melhor preço por bolsa?",
-        option: (() => {
-          const joined = salesExchangeRows.slice(0, 6).map((item) => {
-            const deriv = exchangeRows.find((row) => row.label === item.label);
-            return { label: item.label, priceAvg: item.priceAvg, avgStrike: deriv?.avgStrike || 0 };
-          });
-          const labels = joined.map((item) => item.label);
-          return {
-            animationDuration: 180,
-            grid: { left: 56, right: 16, top: 28, bottom: 48 },
-            legend: { top: 4, textStyle: { color: "#475569", fontSize: 11 } },
-            tooltip: {
-              trigger: "axis",
-              axisPointer: { type: "shadow" },
-              formatter: (params) => {
-                const lines = params.map((p) => `${p.marker} ${p.seriesName}: ${formatNumber2(p.value)}`);
-                return [params[0].name, ...lines].join("<br/>");
-              },
-            },
-            xAxis: {
-              type: "category",
-              data: labels,
-              axisLabel: { color: "#475569", fontSize: 11, interval: 0, rotate: labels.length > 4 ? 15 : 0 },
-            },
-            yAxis: {
-              type: "value",
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            series: [
-              {
-                name: "Preço físico",
-                type: "bar",
-                data: joined.map((item) => item.priceAvg),
-                itemStyle: { color: "#f97316", borderRadius: [3, 3, 0, 0] },
-              },
-              {
-                name: "Strike derivativo",
-                type: "bar",
-                data: joined.map((item) => item.avgStrike || null),
-                itemStyle: { color: "#3b82f6", borderRadius: [3, 3, 0, 0] },
-              },
-            ],
-          };
-        })(),
-      },
-      // Variação 3: Cobertura volume físico vs derivativo
-      {
-        key: "coverage-bars",
-        title: "Cobertura: físico vs derivativo",
-        subtitle: "Volume físico vs volume coberto por derivativo por bolsa.",
-        option: (() => {
-          const joined = salesExchangeRows.slice(0, 6).map((item) => {
-            const deriv = exchangeRows.find((row) => row.label === item.label);
-            return { label: item.label, physVol: item.volume, derivVol: deriv?.volume || 0 };
-          });
-          const labels = joined.map((item) => item.label);
-          return {
-            animationDuration: 180,
-            grid: { left: 56, right: 16, top: 28, bottom: 48 },
-            legend: { top: 4, textStyle: { color: "#475569", fontSize: 11 } },
-            tooltip: {
-              trigger: "axis",
-              axisPointer: { type: "shadow" },
-              formatter: (params) => {
-                const lines = params.map((p) => `${p.marker} ${p.seriesName}: ${formatNumber0(p.value)} sc`);
-                return [params[0].name, ...lines].join("<br/>");
-              },
-            },
-            xAxis: {
-              type: "category",
-              data: labels,
-              axisLabel: { color: "#475569", fontSize: 11, interval: 0, rotate: labels.length > 4 ? 15 : 0 },
-            },
-            yAxis: {
-              type: "value",
-              axisLabel: { color: "#475569", formatter: (value) => `${formatNumber0(value)} sc` },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            series: [
-              {
-                name: "Vol. físico",
-                type: "bar",
-                data: joined.map((item) => item.physVol),
-                itemStyle: { color: "#f97316", borderRadius: [3, 3, 0, 0] },
-              },
-              {
-                name: "Vol. derivativo",
-                type: "bar",
-                data: joined.map((item) => item.derivVol || null),
-                itemStyle: { color: "#6366f1", borderRadius: [3, 3, 0, 0] },
-              },
-            ],
-          };
-        })(),
-      },
-      // Variação 4: MTM do derivativo por bolsa (barras horizontais)
-      {
-        key: "mtm-by-exchange-bars",
-        title: "Resultado do derivativo por bolsa",
-        subtitle: "MTM acumulado (R$) de cada bolsa. Verde = ganhou, vermelho = perdeu.",
-        option: (() => {
-          const rows = salesExchangeRows.slice(0, 6).map((item) => {
-            const deriv = exchangeRows.find((row) => row.label === item.label);
-            return { label: item.label, netBrl: deriv?.netBrl || 0 };
-          }).sort((a, b) => b.netBrl - a.netBrl);
-          return {
-            animationDuration: 180,
-            grid: { left: 96, right: 24, top: 12, bottom: 28 },
-            tooltip: {
-              trigger: "axis",
-              formatter: (params) => `${params[0].name}<br/>${params[0].marker} MTM: ${formatMtmIntegerLabel(params[0].value)}`,
-            },
-            xAxis: {
-              type: "value",
-              axisLabel: { color: "#475569", formatter: (value) => `R$ ${Number(value).toLocaleString("pt-BR", { notation: "compact" })}` },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            yAxis: {
-              type: "category",
-              data: rows.map((item) => item.label),
-              axisLabel: { color: "#475569", fontSize: 11 },
-            },
-            series: [
-              {
-                type: "bar",
-                data: rows.map((item) => ({
-                  value: item.netBrl,
-                  itemStyle: { color: item.netBrl >= 0 ? "#22c55e" : "#ef4444", borderRadius: item.netBrl >= 0 ? [0, 3, 3, 0] : [3, 0, 0, 3] },
-                })),
-                label: {
-                  show: true,
-                  position: (params) => params.value >= 0 ? "right" : "left",
-                  color: "#334155",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  formatter: (params) => formatMtmIntegerLabel(params.value),
-                },
-              },
-            ],
-          };
-        })(),
-      },
-      // Variação 5: Tendência do basis por mês (linha)
-      {
-        key: "basis-monthly-trend",
-        title: "Tendência do basis por mês",
-        subtitle: "Evolução do basis médio ponderado das vendas físicas ao longo do tempo.",
-        option: (() => {
-          const buckets = new Map();
-          normalizedSales.forEach((item) => {
-            const d = item.settlementDate;
-            if (!d) return;
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-            const cur = buckets.get(key) || { key, basisWeighted: 0, volume: 0 };
-            cur.basisWeighted += item.basisValue * item.volumeValue;
-            cur.volume += item.volumeValue;
-            buckets.set(key, cur);
-          });
-          const months = Array.from(buckets.values())
-            .sort((a, b) => a.key.localeCompare(b.key))
-            .map((item) => ({
-              label: item.key.slice(0, 7),
-              basisAvg: item.volume > 0 ? item.basisWeighted / item.volume : 0,
-            }));
-          const values = months.map((item) => item.basisAvg);
-          const hasPositive = values.some((v) => v >= 0);
-          const hasNegative = values.some((v) => v < 0);
-          return {
-            animationDuration: 200,
-            grid: { left: 48, right: 16, top: 18, bottom: 48 },
-            tooltip: {
-              trigger: "axis",
-              formatter: (params) => `${params[0].axisValue}<br/>${params[0].marker} Basis: ${formatNumber2(params[0].value)}`,
-            },
-            xAxis: {
-              type: "category",
-              data: months.map((item) => item.label),
-              axisLabel: { color: "#475569", fontSize: 10, rotate: 30 },
-            },
-            yAxis: {
-              type: "value",
-              axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            visualMap: hasPositive && hasNegative ? {
-              show: false,
-              type: "piecewise",
-              dimension: 1,
-              seriesIndex: 0,
-              pieces: [
-                { lt: 0, color: "#ef4444" },
-                { gte: 0, color: "#22c55e" },
-              ],
-            } : undefined,
-            series: [
-              {
-                type: "line",
-                data: values,
-                smooth: true,
-                symbol: "circle",
-                symbolSize: 6,
-                lineStyle: { width: 2, color: hasPositive && !hasNegative ? "#22c55e" : !hasPositive ? "#ef4444" : "#94a3b8" },
-                itemStyle: { color: (params) => params.value >= 0 ? "#22c55e" : "#ef4444" },
-                areaStyle: { opacity: 0.08, color: "#94a3b8" },
-                markLine: {
-                  silent: true,
-                  symbol: "none",
-                  lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-                  label: { show: false },
-                  data: [{ yAxis: 0 }],
-                },
-              },
-            ],
-          };
-        })(),
-      },
-      // Variação 6: Basis (X) vs MTM R$ do derivativo (Y)
-      {
-        key: "basis-vs-mtm-scatter",
-        title: "Basis vs MTM do derivativo",
-        subtitle: "Quando o basis era ruim, o derivativo gerou resultado positivo? Clique em uma bolha para ver as operações.",
-        events: {
-          click: (params) => {
-            const label = params.data?.[3] || params.name;
-            if (!label) return;
-            const salesRows = normalizedSales.filter((item) => item.exchangeLabel === label);
-            const derivRow = exchangeRows.find((row) => row.label === label);
-            const derivRows = derivRow?.rows || [];
-            setExchangeDetailModal({
-              period: label,
-              tables: [
-                { key: "fisico", label: "Vendas físicas", definition: resourceDefinitions.physicalSales, rows: salesRows },
-                { key: "derivativo", label: "Derivativos", definition: resourceDefinitions.derivativeOperations, rows: derivRows },
-              ],
-            });
-          },
-        },
-        option: (() => {
-          const joined = salesExchangeRows.slice(0, 8).map((item) => {
-            const deriv = exchangeRows.find((row) => row.label === item.label);
-            return { label: item.label, basisAvg: item.basisAvg, netBrl: deriv?.netBrl || 0, volume: item.volume };
-          });
-          return {
-            animationDuration: 180,
-            grid: { left: 56, right: 16, top: 18, bottom: 48 },
-            tooltip: {
-              formatter: (params) => {
-                const item = joined.find((r) => r.label === params.name);
-                if (!item) return params.name;
-                const basisOk = item.basisAvg >= 0 ? "✓ Basis bom (físico)" : "✗ Basis ruim (físico)";
-                const mtmOk = item.netBrl >= 0 ? "✓ Derivativo ganhou" : "✗ Derivativo perdeu";
-                return `<b>${item.label}</b><br/>Basis: ${formatNumber2(item.basisAvg)}<br/>MTM: ${formatMtmIntegerLabel(item.netBrl)}<br/><span style="color:#64748b;font-size:11px">${basisOk}<br/>${mtmOk}</span>`;
-              },
-            },
-            xAxis: {
-              type: "value",
-              name: "Basis médio (físico)",
-              nameLocation: "middle",
-              nameGap: 28,
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            yAxis: {
-              type: "value",
-              name: "MTM R$",
-              nameLocation: "middle",
-              nameGap: 44,
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (value) => `R$ ${Number(value).toLocaleString("pt-BR", { notation: "compact" })}` },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            series: [
-              {
-                type: "scatter",
-                symbolSize: (value) => Math.max(14, Math.min(34, (value[2] || 0) / 15000)),
-                label: { show: true, position: "top", color: "#334155", fontWeight: 800, formatter: ({ name }) => name },
-                data: joined.map((item) => [item.basisAvg, item.netBrl, item.volume, item.label]),
-                itemStyle: {
-                  color: (params) => {
-                    const [basisAvg, netBrl] = params.value;
-                    if (basisAvg >= 0 && netBrl >= 0) return "#22c55e"; // acertou os dois
-                    if (basisAvg < 0 && netBrl >= 0) return "#3b82f6"; // derivativo compensou o basis ruim
-                    if (basisAvg >= 0 && netBrl < 0) return "#f59e0b"; // físico bom, deriv perdeu
-                    return "#ef4444";                                    // errou os dois
-                  },
-                  shadowBlur: 10,
-                  shadowColor: "rgba(0,0,0,0.18)",
-                },
-                markLine: {
-                  silent: true,
-                  symbol: "none",
-                  lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-                  label: { show: false },
-                  data: [{ xAxis: 0 }, { yAxis: 0 }],
-                },
-              },
-            ],
-          };
-        })(),
-      },
-      // Basis vs MTM por safra (scatter)
-      {
-        key: "basis-vs-mtm-safra-scatter",
-        title: "Basis vs MTM do derivativo — bolsa × safra",
-        subtitle: "Cada bolha = uma bolsa em uma safra. Clique para ver as operações.",
-        wide: true,
-        bolsaButtons: Array.from(new Set(normalizedSales.map((item) => item.exchangeLabel || item.bolsa_ref || "Sem bolsa"))).filter(Boolean).sort(),
-        activeBolsa: safraScatterBolsaFilter,
-        onBolsaClick: (b) => setSafraScatterBolsaFilter((prev) => (prev === b ? null : b)),
-        events: {
-          click: (params) => {
-            const raw = params.data?.value || params.data;
-            if (!raw) return;
-            const [,, , safraLabel, bolsaLabel] = raw;
-            if (!safraLabel) return;
-            const salesRows = normalizedSales.filter((item) => {
-              return getSafraLabelMtm(item.safra, item.safra_texto) === safraLabel &&
-                (item.exchangeLabel || item.bolsa_ref || "Sem bolsa") === bolsaLabel;
-            });
-            const derivRows = normalizedRows.filter((item) => {
-              return getSafraLabelMtm(item.safra, item.safra_texto) === safraLabel &&
-                (item.exchangeLabel || item.bolsa_ref || "Sem bolsa") === bolsaLabel;
-            });
-            setExchangeDetailModal({
-              period: `${bolsaLabel} · ${formatSafraShort(safraLabel)}`,
-              tables: [
-                { key: "fisico", label: "Vendas físicas", definition: resourceDefinitions.physicalSales, rows: salesRows },
-                { key: "derivativo", label: "Derivativos", definition: resourceDefinitions.derivativeOperations, rows: derivRows },
-              ],
-            });
-          },
-        },
-        option: (() => {
-          // Agrupar por bolsa × safra
-          const map = new Map();
-          normalizedSales.forEach((item) => {
-            const safra = getSafraLabelMtm(item.safra, item.safra_texto);
-            const bolsa = item.exchangeLabel || item.bolsa_ref || "Sem bolsa";
-            const key = `${bolsa}||${safra}`;
-            const cur = map.get(key) || { bolsa, safra, basisWeighted: 0, volume: 0, netBrl: 0 };
-            cur.basisWeighted += item.basisValue * item.volumeValue;
-            cur.volume += item.volumeValue;
-            map.set(key, cur);
-          });
-          normalizedRows.forEach((item) => {
-            const safra = getSafraLabelMtm(item.safra, item.safra_texto);
-            const bolsa = item.exchangeLabel || item.bolsa_ref || "Sem bolsa";
-            const key = `${bolsa}||${safra}`;
-            const cur = map.get(key);
-            if (cur) cur.netBrl += item.mtmBrl || 0;
-          });
-
-          let entries = Array.from(map.values()).sort((a, b) => a.safra.localeCompare(b.safra) || a.bolsa.localeCompare(b.bolsa));
-          if (safraScatterBolsaFilter) entries = entries.filter((e) => e.bolsa === safraScatterBolsaFilter);
-          const safraList = Array.from(new Set(entries.map((e) => e.safra))).sort();
-          const colorBySafra = Object.fromEntries(safraList.map((s, i) => [s, COMMERCIAL_RISK_DERIVATIVE_COLORS[i % COMMERCIAL_RISK_DERIVATIVE_COLORS.length]]));
-
-          // Bolhas individuais por safra — [MTM, basis, volume, safra, bolsa, isMedia]
-          const data = entries.map((e) => [
-            e.netBrl,
-            e.volume > 0 ? e.basisWeighted / e.volume : 0,
-            e.volume,
-            e.safra,
-            e.bolsa,
-            false,
-          ]);
-
-          // Adicionar bolha de média por bolsa
-          const bolsaList = Array.from(new Set(entries.map((e) => e.bolsa)));
-          bolsaList.forEach((bolsa) => {
-            const bolsaEntries = entries.filter((e) => e.bolsa === bolsa);
-            const totalVolume = bolsaEntries.reduce((s, e) => s + e.volume, 0);
-            const avgBasis = totalVolume > 0 ? bolsaEntries.reduce((s, e) => s + e.basisWeighted, 0) / totalVolume : 0;
-            const totalMtm = bolsaEntries.reduce((s, e) => s + e.netBrl, 0);
-            data.push([totalMtm, avgBasis, totalVolume, "Média", bolsa, true]);
-          });
-
-          return {
-            animationDuration: 180,
-            grid: { left: 56, right: 16, top: 18, bottom: 48 },
-            tooltip: {
-              formatter: (params) => {
-                const d = params.data;
-                const [netBrl, basisAvg, volume, safra, bolsa, isMedia] = d;
-                const basisOk = basisAvg >= 0 ? "✓ Basis bom" : "✗ Basis ruim";
-                const mtmOk = netBrl >= 0 ? "✓ Derivativo ganhou" : "✗ Derivativo perdeu";
-                const title = isMedia ? `<b>${bolsa} · Média de todas as safras</b>` : `<b>${bolsa} · ${formatSafraShort(safra)}</b>`;
-                return [
-                  title,
-                  `Basis médio: ${formatNumber2(basisAvg)}`,
-                  `MTM: ${formatMtmIntegerLabel(netBrl)}`,
-                  `Volume: ${formatNumber0(volume)} sc`,
-                  `<span style="color:#64748b;font-size:11px">${basisOk} | ${mtmOk}</span>`,
-                ].join("<br/>");
-              },
-            },
-            xAxis: {
-              type: "value",
-              name: "MTM R$",
-              nameLocation: "middle",
-              nameGap: 28,
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (value) => `R$ ${Number(value).toLocaleString("pt-BR", { notation: "compact" })}` },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            yAxis: {
-              type: "value",
-              name: "Basis médio",
-              nameLocation: "middle",
-              nameGap: 44,
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-              splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-            },
-            series: [
-              {
-                type: "scatter",
-                symbolSize: 20,
-                label: {
-                  show: true,
-                  position: "top",
-                  fontWeight: 700,
-                  fontSize: 11,
-                  formatter: ({ data: d }) => {
-                    const isMedia = d[5];
-                    if (isMedia) return `${d[4] || ""}\nMédia`;
-                    return `${d[4] || ""}\n${formatSafraShort(d[3] || "")}`;
-                  },
-                  color: (params) => params.data[5] ? "#1e293b" : "#334155",
-                },
-                data,
-                symbolSize: (value) => value[5] ? 26 : 20,
-                symbol: (value) => value[5] ? "diamond" : "circle",
-                itemStyle: {
-                  color: (params) => {
-                    const isMedia = params.data[5];
-                    if (isMedia) return "#1e293b";
-                    return colorBySafra[params.data[3]] || "#f97316";
-                  },
-                  opacity: (params) => params.data[5] ? 0.85 : 1,
-                  shadowBlur: 10,
-                  shadowColor: "rgba(0,0,0,0.18)",
-                },
-                markLine: {
-                  silent: true,
-                  symbol: "none",
-                  lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-                  label: { show: false },
-                  data: [{ xAxis: 0 }, { yAxis: 0 }],
-                },
-              },
-            ],
-          };
-        })(),
-      },
-      // Preço médio vs MTM R$/sc por safra
-
-      {
-        key: "price-mtm-per-sc-safra",
-        title: "Preço médio vs Ajuste MTM (R$/sc) por safra",
-        subtitle: "Compara o preço físico recebido com o ajuste do derivativo, ambos em R$/sc.",
-        option: (() => {
-          // Agrupar vendas físicas por safra
-          const salesBySafra = new Map();
-          normalizedSales.forEach((item) => {
-            const safraLabel = getSafraLabelMtm(item.safra, item.safra_texto) || "Sem safra";
-            const cur = salesBySafra.get(safraLabel) || { priceWeighted: 0, volume: 0 };
-            cur.priceWeighted += item.priceValue * item.volumeValue;
-            cur.volume += item.volumeValue;
-            salesBySafra.set(safraLabel, cur);
-          });
-
-          // Agrupar MTM dos derivativos por safra
-          const mtmBySafra = new Map();
-          normalizedRows.forEach((item) => {
-            const safraLabel = getSafraLabelMtm(item.safra, item.safra_texto) || "Sem safra";
-            const cur = mtmBySafra.get(safraLabel) || { netBrl: 0, volume: 0 };
-            cur.netBrl += item.mtmBrl || 0;
-            cur.volume += item.standardVolume || item.rawVolume || 0;
-            mtmBySafra.set(safraLabel, cur);
-          });
-
-          // Unir por safra, ordenar cronologicamente
-          const safras = Array.from(new Set([...salesBySafra.keys(), ...mtmBySafra.keys()])).sort();
-          const priceData = safras.map((s) => {
-            const row = salesBySafra.get(s);
-            return row?.volume > 0 ? row.priceWeighted / row.volume : null;
-          });
-          const mtmPerScData = safras.map((s) => {
-            const salesRow = salesBySafra.get(s);
-            const mtmRow = mtmBySafra.get(s);
-            if (!salesRow?.volume || !mtmRow?.netBrl) return null;
-            return mtmRow.netBrl / salesRow.volume; // R$/sc
-          });
-
-          return {
-            animationDuration: 180,
-            grid: { left: 64, right: 64, top: 32, bottom: 48 },
-            legend: { top: 4, textStyle: { color: "#475569", fontSize: 11 } },
-            tooltip: {
-              trigger: "axis",
-              axisPointer: { type: "shadow" },
-              formatter: (params) => {
-                const lines = params
-                  .filter((p) => p.value != null)
-                  .map((p) => `${p.marker} ${p.seriesName}: ${formatNumber2(p.value)}`);
-                return [params[0].axisValue, ...lines].join("<br/>");
-              },
-            },
-            xAxis: {
-              type: "category",
-              data: safras,
-              axisLabel: { color: "#475569", fontSize: 11, interval: 0, rotate: safras.length > 3 ? 15 : 0 },
-            },
-            yAxis: [
-              {
-                type: "value",
-                name: "R$/sc",
-                nameLocation: "middle",
-                nameGap: 44,
-                nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-                axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-                splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.14)" } },
-              },
-              {
-                type: "value",
-                name: "MTM R$/sc",
-                nameLocation: "middle",
-                nameGap: 44,
-                nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-                axisLabel: { color: "#475569", formatter: (value) => formatNumber2(value) },
-                splitLine: { show: false },
-              },
-            ],
-            series: [
-              {
-                name: "Preço médio (R$/sc)",
-                type: "bar",
-                yAxisIndex: 0,
-                data: priceData,
-                itemStyle: { color: "#f97316", borderRadius: [3, 3, 0, 0] },
-                label: {
-                  show: true,
-                  position: "top",
-                  color: "#334155",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  formatter: (params) => params.value != null ? formatNumber2(params.value) : "",
-                },
-              },
-              {
-                name: "Ajuste MTM (R$/sc)",
-                type: "line",
-                yAxisIndex: 1,
-                data: mtmPerScData,
-                smooth: true,
-                symbol: "circle",
-                symbolSize: 7,
-                lineStyle: { width: 2, color: "#3b82f6" },
-                itemStyle: {
-                  color: (params) => (params.value ?? 0) >= 0 ? "#22c55e" : "#ef4444",
-                },
-                label: {
-                  show: true,
-                  position: "top",
-                  color: "#334155",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  formatter: (params) => params.value != null ? formatNumber2(params.value) : "",
-                },
-                markLine: {
-                  silent: true,
-                  symbol: "none",
-                  lineStyle: { color: "#94a3b8", type: "dashed", width: 1 },
-                  label: { show: false },
-                  data: [{ yAxis: 0 }],
-                },
-              },
-            ],
-          };
-        })(),
-      },
-
       // ── 5 variações: eficiência do uso de derivativos por safra ─────────
 
       // Variação A: Composição do preço efetivo por safra (barras empilhadas)
@@ -18643,7 +18246,7 @@ function MtmDashboard({ dashboardFilter }) {
             if (!safraKey) return;
             const safraLabel = safraShorт[params.dataIndex] || safraKey;
             const salesRows = salesForSafra.filter((item) => getSafraLabelMtm(item.safra, item.safra_texto) === safraKey);
-            const derivRows = normalizedRows.filter((item) => getSafraLabelMtm(item.safra, item.safra_texto) === safraKey);
+            const derivRows = derivsForSafra.filter((item) => getSafraLabelMtm(item.safra, item.safra_texto) === safraKey);
             setExchangeDetailModal({
               period: `Safra ${safraLabel}`,
               tables: [
@@ -18654,46 +18257,59 @@ function MtmDashboard({ dashboardFilter }) {
           },
         },
         option: {
-          animationDuration: 180,
-          grid: { left: 72, right: 72, top: 36, bottom: 48 },
+          animationDuration: 300,
+          animationEasing: "cubicOut",
+          grid: { left: 76, right: 80, top: 44, bottom: 48 },
           legend: {
-            top: 4,
-            textStyle: { color: "#475569", fontSize: 11 },
+            top: 6,
+            itemGap: 18,
+            itemWidth: 14,
+            itemHeight: 10,
+            textStyle: { color: "#475569", fontSize: 11, fontFamily: "Manrope, sans-serif" },
             data: ["Preço físico médio (R$/sc)", "Ajuste MTM (R$/sc)", "Basis", "Basis + Ajuste MTM"],
           },
           tooltip: {
             trigger: "axis",
-            axisPointer: { type: "shadow" },
+            axisPointer: { type: "shadow", shadowStyle: { color: "rgba(3,105,161,0.06)" } },
+            backgroundColor: "rgba(15,23,42,0.92)",
+            borderColor: "rgba(255,255,255,0.08)",
+            borderWidth: 1,
+            padding: [10, 14],
+            textStyle: { color: "#f8fafc", fontSize: 12, fontFamily: "Manrope, sans-serif" },
             formatter: (params) => {
               const idx = params[0]?.dataIndex;
               const r = safraRows[idx];
               if (!r) return "";
               const precoEfetivo = r.priceAvg + r.mtmPerSc;
               return [
-                `<b>${r.safra}</b>`,
-                `Preço físico médio: ${formatNumber2(r.priceAvg)}`,
-                `Ajuste MTM/sc: ${formatNumber2(r.mtmPerSc)}`,
-                `<b>Preço efetivo: ${formatNumber2(precoEfetivo)}</b>`,
-                `Basis: ${formatNumber2(r.basisAvg)}`,
-                `Basis + Ajuste: ${formatNumber2(r.basisAvg + r.mtmPerSc)}`,
-                !r.hasDeriv ? `<span style="color:#94a3b8">Sem derivativo nessa safra</span>` : "",
+                `<b style="font-size:13px">${r.safra}</b>`,
+                `<span style="color:#94a3b8">Preço físico médio:</span> <b>${formatNumber2(r.priceAvg)}</b>`,
+                `<span style="color:#94a3b8">Ajuste MTM/sc:</span> <b style="color:${r.mtmPerSc >= 0 ? "#4ade80" : "#f87171"}">${formatNumber2(r.mtmPerSc)}</b>`,
+                `<span style="color:#cbd5e1">Preço efetivo:</span> <b style="color:#f8fafc;font-size:13px">${formatNumber2(precoEfetivo)}</b>`,
+                `<span style="color:#94a3b8">Basis:</span> ${formatNumber2(r.basisAvg)}`,
+                `<span style="color:#94a3b8">Basis + Ajuste:</span> ${formatNumber2(r.basisAvg + r.mtmPerSc)}`,
+                !r.hasDeriv ? `<span style="color:#64748b;font-style:italic">Sem derivativo nessa safra</span>` : "",
               ].filter(Boolean).join("<br/>");
             },
           },
           xAxis: {
             type: "category",
             data: safraShorт,
-            axisLabel: { color: "#475569", fontWeight: 600 },
+            axisLine: { lineStyle: { color: "rgba(148,163,184,0.3)" } },
+            axisTick: { show: false },
+            axisLabel: { color: "#334155", fontWeight: 700, fontSize: 12, fontFamily: "Manrope, sans-serif" },
           },
           yAxis: [
             {
               type: "value",
               name: "R$/sc",
               nameLocation: "middle",
-              nameGap: 52,
-              nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 },
-              axisLabel: { color: "#475569", formatter: (v) => formatNumber2(v) },
-              splitLine: { lineStyle: { color: "rgba(148,163,184,0.14)" } },
+              nameGap: 56,
+              nameTextStyle: { color: "#64748b", fontWeight: 700, fontSize: 11, fontFamily: "Manrope, sans-serif" },
+              axisLine: { show: false },
+              axisTick: { show: false },
+              axisLabel: { color: "#64748b", fontSize: 11, formatter: (v) => formatNumber2(v) },
+              splitLine: { lineStyle: { color: "rgba(148,163,184,0.12)", type: "dashed" } },
             },
             {
               type: "value",
@@ -18710,8 +18326,17 @@ function MtmDashboard({ dashboardFilter }) {
               type: "bar",
               stack: "preco",
               yAxisIndex: 0,
+              barMaxWidth: 56,
               data: safraRows.map((r) => r.priceAvg),
-              itemStyle: { color: "#3b82f6" },
+              itemStyle: {
+                color: {
+                  type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+                  colorStops: [
+                    { offset: 0, color: "#1d6fa8" },
+                    { offset: 1, color: "#0369a1" },
+                  ],
+                },
+              },
               label: { show: false },
             },
             {
@@ -18719,17 +18344,25 @@ function MtmDashboard({ dashboardFilter }) {
               type: "bar",
               stack: "preco",
               yAxisIndex: 0,
+              barMaxWidth: 56,
               data: safraRows.map((r) => r.hasDeriv ? r.mtmPerSc : 0),
               itemStyle: {
-                color: (p) => (p.value ?? 0) >= 0 ? "#22c55e" : "#ef4444",
-                borderRadius: [4, 4, 0, 0],
+                color: (p) => (p.value ?? 0) >= 0 ? "#0f766e" : "#dc2626",
+                borderRadius: [5, 5, 0, 0],
               },
               label: {
                 show: true,
                 position: "top",
-                fontSize: 11,
-                fontWeight: 700,
-                color: "#1e293b",
+                distance: 8,
+                fontSize: 12,
+                fontWeight: 800,
+                fontFamily: "Manrope, sans-serif",
+                color: "#0f172a",
+                backgroundColor: "rgba(255,255,255,0.88)",
+                borderColor: "rgba(148,163,184,0.35)",
+                borderWidth: 1,
+                borderRadius: 4,
+                padding: [2, 6],
                 formatter: (p) => {
                   const idx = p.dataIndex;
                   const r = safraRows[idx];
@@ -18744,27 +18377,35 @@ function MtmDashboard({ dashboardFilter }) {
               yAxisIndex: 1,
               data: safraRows.map((r) => r.basisAvg),
               symbol: "circle",
-              symbolSize: 7,
-              lineStyle: { color: "#f97316", width: 2, type: "dashed" },
-              itemStyle: { color: "#f97316" },
+              symbolSize: 8,
+              lineStyle: { color: "#ea580c", width: 2, type: "dashed" },
+              itemStyle: { color: "#ea580c", borderColor: "#fff", borderWidth: 2 },
               label: {
                 show: true,
-                position: "bottom",
+                position: "top",
+                distance: 10,
                 fontSize: 10,
                 fontWeight: 700,
-                color: "#f97316",
+                fontFamily: "Manrope, sans-serif",
+                color: "#ea580c",
+                backgroundColor: "rgba(255,255,255,0.82)",
+                borderRadius: 3,
+                padding: [1, 4],
                 formatter: (p) => formatNumber2(p.value),
               },
               markLine: {
                 silent: true,
                 symbol: ["none", "none"],
-                lineStyle: { color: "#7c3aed", type: "dashed", width: 2 },
+                lineStyle: { color: "#7c3aed", type: "dashed", width: 1.5, opacity: 0.8 },
                 label: {
                   show: true,
                   position: "insideEndTop",
                   fontSize: 11,
                   fontWeight: 700,
                   color: "#7c3aed",
+                  backgroundColor: "rgba(255,255,255,0.85)",
+                  borderRadius: 4,
+                  padding: [2, 6],
                   formatter: (p) => `Basis médio: ${formatNumber2(p.value)}`,
                 },
                 data: [{ type: "average", name: "Basis médio" }],
@@ -18776,214 +18417,27 @@ function MtmDashboard({ dashboardFilter }) {
               yAxisIndex: 1,
               data: safraRows.map((r) => r.hasDeriv ? r.basisAvg + r.mtmPerSc : null),
               connectNulls: false,
-              symbol: "diamond",
-              symbolSize: 8,
-              lineStyle: { color: "#6366f1", width: 2 },
-              itemStyle: { color: (p) => (p.value ?? 0) >= 0 ? "#22c55e" : "#ef4444" },
+              symbol: "circle",
+              symbolSize: 9,
+              lineStyle: { color: "#f97316", width: 2.5 },
+              itemStyle: { color: "#f97316", borderColor: "#fff", borderWidth: 2 },
               label: {
                 show: true,
-                position: "top",
+                position: "bottom",
+                distance: 10,
                 fontSize: 10,
                 fontWeight: 700,
-                color: "#6366f1",
+                fontFamily: "Manrope, sans-serif",
+                color: "#c2410c",
+                backgroundColor: "rgba(255,255,255,0.82)",
+                borderRadius: 3,
+                padding: [1, 4],
                 formatter: (p) => p.value != null ? formatNumber2(p.value) : "",
               },
             },
           ],
         },
       },
-
-      // Variação B: Basis vs Ajuste MTM por safra (linhas na mesma escala)
-      {
-        key: "deriv-eff-basis-vs-mtm-lines",
-        title: "Basis vs Ajuste MTM por safra",
-        subtitle: "Compara os dois fatores controláveis. Safras sem derivativo aparecem apenas com o basis.",
-        option: {
-          animationDuration: 180,
-          grid: { left: 56, right: 24, top: 32, bottom: 48 },
-          legend: { top: 4, textStyle: { color: "#475569", fontSize: 11 } },
-          tooltip: {
-            trigger: "axis",
-            formatter: (params) => {
-              const idx = params[0]?.dataIndex;
-              const r = safraRows[idx];
-              if (!r) return "";
-              return [
-                `<b>${r.safra}</b>`,
-                `Basis: ${formatNumber2(r.basisAvg)}`,
-                r.hasDeriv ? `Ajuste MTM: ${formatNumber2(r.mtmPerSc)}` : `<span style="color:#94a3b8">Sem derivativo</span>`,
-                `Soma: ${formatNumber2(r.basisAvg + r.mtmPerSc)}`,
-              ].join("<br/>");
-            },
-          },
-          xAxis: { type: "category", data: safraShorт, axisLabel: { color: "#475569" } },
-          yAxis: {
-            type: "value",
-            axisLabel: { color: "#475569", formatter: (v) => formatNumber2(v) },
-            splitLine: { lineStyle: { color: "rgba(148,163,184,0.14)" } },
-          },
-          series: [
-            {
-              name: "Basis médio",
-              type: "bar",
-              data: safraRows.map((r) => r.basisAvg),
-              itemStyle: { color: (p) => p.value >= 0 ? "#f97316" : "#fb923c", borderRadius: [3,3,0,0] },
-              label: { show: true, position: (p) => p.value >= 0 ? "top" : "bottom", fontSize: 10, fontWeight: 700, color: "#475569", formatter: (p) => formatNumber2(p.value) },
-            },
-            {
-              name: "Ajuste MTM (R$/sc)",
-              type: "line",
-              data: safraRows.map((r) => r.hasDeriv ? r.mtmPerSc : null),
-              connectNulls: false,
-              symbol: "circle", symbolSize: 8,
-              lineStyle: { color: "#6366f1", width: 2 },
-              itemStyle: { color: (p) => (p.value ?? 0) >= 0 ? "#22c55e" : "#ef4444" },
-              label: { show: true, position: "top", fontSize: 10, fontWeight: 700, color: "#6366f1", formatter: (p) => p.value != null ? formatNumber2(p.value) : "" },
-              markLine: { silent: true, symbol: "none", lineStyle: { color: "#94a3b8", type: "dashed" }, label: { show: false }, data: [{ yAxis: 0 }] },
-            },
-          ],
-        },
-      },
-
-      // Variação C: Cotação na venda vs Strike do derivativo por safra
-      {
-        key: "deriv-eff-cotacao-vs-strike",
-        title: "Cotação na venda física vs Strike do derivativo",
-        subtitle: "Strike acima da cotação = derivativo travou em melhor preço. Abaixo = perdeu oportunidade.",
-        option: {
-          animationDuration: 180,
-          grid: { left: 64, right: 24, top: 32, bottom: 48 },
-          legend: { top: 4, textStyle: { color: "#475569", fontSize: 11 } },
-          tooltip: {
-            trigger: "axis",
-            formatter: (params) => {
-              const idx = params[0]?.dataIndex;
-              const r = safraRows[idx];
-              if (!r) return "";
-              const diff = r.strikeAvg - r.cotacaoAvg;
-              return [
-                `<b>${r.safra}</b>`,
-                `Cotação física: ${formatNumber2(r.cotacaoAvg)}`,
-                r.hasDeriv ? `Strike médio: ${formatNumber2(r.strikeAvg)}` : `<span style="color:#94a3b8">Sem derivativo</span>`,
-                r.hasDeriv ? `Diferença: ${diff >= 0 ? "+" : ""}${formatNumber2(diff)} ${diff >= 0 ? "✓ travou melhor" : "✗ travou pior"}` : "",
-              ].filter(Boolean).join("<br/>");
-            },
-          },
-          xAxis: { type: "category", data: safraShorт, axisLabel: { color: "#475569" } },
-          yAxis: { type: "value", axisLabel: { color: "#475569", formatter: (v) => formatNumber2(v) }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.14)" } } },
-          series: [
-            {
-              name: "Cotação na venda física",
-              type: "line",
-              data: safraRows.map((r) => r.cotacaoAvg),
-              symbol: "circle", symbolSize: 7,
-              lineStyle: { color: "#3b82f6", width: 2 },
-              itemStyle: { color: "#3b82f6" },
-              areaStyle: { color: "rgba(59,130,246,0.06)" },
-            },
-            {
-              name: "Strike médio derivativo",
-              type: "line",
-              data: safraRows.map((r) => r.hasDeriv && r.strikeAvg > 0 ? r.strikeAvg : null),
-              connectNulls: false,
-              symbol: "diamond", symbolSize: 10,
-              lineStyle: { color: "#f97316", width: 2, type: "dashed" },
-              itemStyle: { color: "#f97316" },
-              label: { show: true, position: "top", fontSize: 10, fontWeight: 700, color: "#f97316", formatter: (p) => p.value != null ? formatNumber2(p.value) : "" },
-            },
-          ],
-        },
-      },
-
-      // Variação D: Eficiência direta — MTM R$/sc por safra (barras horizontais)
-      {
-        key: "deriv-eff-mtm-bar",
-        title: "Eficiência do derivativo por safra (R$/sc)",
-        subtitle: "Verde = derivativo adicionou valor. Vermelho = derivativo custou. Cinza = sem derivativo.",
-        option: (() => {
-          const sorted = [...safraRows].sort((a, b) => b.mtmPerSc - a.mtmPerSc);
-          return {
-            animationDuration: 180,
-            grid: { left: 72, right: 64, top: 12, bottom: 24 },
-            tooltip: {
-              trigger: "axis",
-              formatter: (params) => {
-                const r = sorted[params[0]?.dataIndex];
-                if (!r) return "";
-                return `<b>${r.safra}</b><br/>${r.hasDeriv ? `MTM/sc: ${formatNumber2(r.mtmPerSc)}` : "Sem derivativo nessa safra"}`;
-              },
-            },
-            xAxis: { type: "value", axisLabel: { color: "#475569", formatter: (v) => formatNumber2(v) }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.14)" } } },
-            yAxis: { type: "category", data: sorted.map((r) => formatSafraShort(r.safra)), axisLabel: { color: "#475569" } },
-            series: [{
-              type: "bar",
-              data: sorted.map((r) => ({
-                value: r.hasDeriv ? r.mtmPerSc : 0,
-                itemStyle: {
-                  color: !r.hasDeriv ? "#e2e8f0" : r.mtmPerSc >= 0 ? "#22c55e" : "#ef4444",
-                  borderRadius: r.mtmPerSc >= 0 ? [0,3,3,0] : [3,0,0,3],
-                },
-              })),
-              label: {
-                show: true,
-                position: (p) => p.value >= 0 ? "right" : "left",
-                color: "#334155", fontSize: 11, fontWeight: 700,
-                formatter: (p) => {
-                  const r = sorted[p.dataIndex];
-                  return r.hasDeriv ? formatNumber2(p.value) : "Sem deriv.";
-                },
-              },
-            }],
-          };
-        })(),
-      },
-
-      // Variação E: Scatter — Basis vs MTM R$/sc (um ponto por safra)
-      {
-        key: "deriv-eff-scatter-safra",
-        title: "Basis vs Eficiência do derivativo por safra",
-        subtitle: "Azul = derivativo compensou basis ruim ✓ | Amarelo = físico bom, derivativo custou",
-        option: (() => {
-          const pts = safraRows.map((r) => [r.basisAvg, r.mtmPerSc, r.physVol, r.safra, r.hasDeriv]);
-          return {
-            animationDuration: 180,
-            grid: { left: 56, right: 16, top: 18, bottom: 48 },
-            tooltip: {
-              formatter: (params) => {
-                const [basisAvg, mtmPerSc, vol, safra, hasDeriv] = params.data;
-                return [
-                  `<b>${safra}</b>`,
-                  `Basis: ${formatNumber2(basisAvg)}`,
-                  hasDeriv ? `MTM/sc: ${formatNumber2(mtmPerSc)}` : `<span style="color:#94a3b8">Sem derivativo</span>`,
-                  `Volume: ${formatNumber0(vol)} sc`,
-                ].join("<br/>");
-              },
-            },
-            xAxis: { type: "value", name: "Basis médio", nameLocation: "middle", nameGap: 28, nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 }, axisLabel: { color: "#475569", formatter: (v) => formatNumber2(v) }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.14)" } } },
-            yAxis: { type: "value", name: "MTM R$/sc", nameLocation: "middle", nameGap: 44, nameTextStyle: { color: "#475569", fontWeight: 700, fontSize: 12 }, axisLabel: { color: "#475569", formatter: (v) => formatNumber2(v) }, splitLine: { lineStyle: { color: "rgba(148,163,184,0.14)" } } },
-            series: [{
-              type: "scatter",
-              symbolSize: (d) => d[4] ? 22 : 14,
-              symbol: (d) => d[4] ? "circle" : "triangle",
-              data: pts,
-              label: { show: true, position: "top", fontWeight: 700, fontSize: 11, color: "#334155", formatter: ({ data: d }) => formatSafraShort(d[3]) },
-              itemStyle: {
-                color: (p) => {
-                  const [basis, mtm,, , hasDeriv] = p.data;
-                  if (!hasDeriv) return "#94a3b8";
-                  if (basis >= 0 && mtm >= 0) return "#22c55e";
-                  if (basis < 0 && mtm >= 0) return "#3b82f6";
-                  if (basis >= 0 && mtm < 0) return "#f59e0b";
-                  return "#ef4444";
-                },
-                shadowBlur: 8, shadowColor: "rgba(0,0,0,0.15)",
-              },
-              markLine: { silent: true, symbol: "none", lineStyle: { color: "#94a3b8", type: "dashed", width: 1 }, label: { show: false }, data: [{ xAxis: 0 }, { yAxis: 0 }] },
-            }],
-          };
-        })(),
-      },
-
       // ── fim das 5 variações ─────────────────────────────────────────────
       {
         key: "open-risk-table",
@@ -18991,22 +18445,32 @@ function MtmDashboard({ dashboardFilter }) {
         subtitle: "Operações em aberto com maior pressão negativa.",
         wide: true,
         table: {
-          columns: ["Operação", "Bolsa", "Status", "Tipo", "Strike", "Volume", "Liquidação", "MTM BRL"],
-          rows: openRiskRows.map((item) => ({
-            key: item.id,
-            cells: [
-              item.operationName,
-              item.exchangeLabel,
-              item.statusLabel,
-              item.derivativeType,
-              item.strike ? formatCurrency2(item.strike) : "—",
-              item.standardVolume || item.rawVolume ? `${formatNumber0(item.standardVolume || item.rawVolume)} sc` : "—",
-              item.settlementDate ? formatShortBrazilianDate(item.settlementDate) : "—",
-              formatMtmIntegerLabel(item.mtmBrl),
-            ],
-            tone: "negative",
-            onClick: () => openMtmRowsModal(`Operação ${item.operationName}`, [item]),
-          })),
+          scrollable: true,
+          columns: ["#", "Operação", "Grupo / Subgrupo", "Bolsa", "Status", "Tipo", "Strike", "Volume", "Liquidação", "MTM BRL"],
+          rows: openRiskRows.map((item, idx) => {
+            const grupoId = item.grupo?.id ?? item.grupo;
+            const subgrupoId = item.subgrupo?.id ?? item.subgrupo;
+            const grupoLabel = grupoId ? groupLabelById.get(String(grupoId)) || "—" : "—";
+            const subgrupoLabel = subgrupoId ? subgroupLabelById.get(String(subgrupoId)) || null : null;
+            const grupoCell = subgrupoLabel ? `${grupoLabel} › ${subgrupoLabel}` : grupoLabel;
+            return {
+              key: item.id,
+              cells: [
+                idx + 1,
+                item.operationName,
+                grupoCell,
+                item.exchangeLabel,
+                item.statusLabel,
+                item.derivativeType,
+                item.strike ? formatCurrency2(item.strike) : "—",
+                item.standardVolume || item.rawVolume ? `${formatNumber0(item.standardVolume || item.rawVolume)} sc` : "—",
+                item.settlementDate ? formatShortBrazilianDate(item.settlementDate) : "—",
+                formatMtmIntegerLabel(item.mtmBrl),
+              ],
+              tone: "negative",
+              onClick: () => openMtmRowsModal(`Operação ${item.operationName}`, [item]),
+            };
+          }),
         },
       },
       {
@@ -19015,35 +18479,32 @@ function MtmDashboard({ dashboardFilter }) {
         subtitle: "As maiores capturas positivas já realizadas.",
         wide: true,
         table: {
-          columns: ["Operação", "Bolsa", "Status", "Tipo", "Strike", "Volume", "Liquidação", "MTM BRL"],
-          rows: closedPositiveRows.map((item) => ({
-            key: item.id,
-            cells: [
-              item.operationName,
-              item.exchangeLabel,
-              item.statusLabel,
-              item.derivativeType,
-              item.strike ? formatCurrency2(item.strike) : "—",
-              item.standardVolume || item.rawVolume ? `${formatNumber0(item.standardVolume || item.rawVolume)} sc` : "—",
-              item.settlementDate ? formatShortBrazilianDate(item.settlementDate) : "—",
-              formatMtmIntegerLabel(item.mtmBrl),
-            ],
-            tone: "positive",
-            onClick: () => openMtmRowsModal(`Operação ${item.operationName}`, [item]),
-          })),
-        },
-      },
-      {
-        key: "basis-culture-table",
-        title: "Basis por cultura",
-        subtitle: "Quais culturas estão com melhor ou pior basis médio.",
-        table: {
-          columns: ["Cultura", "Basis", "Volume"],
-          rows: salesCultureRows.slice(0, 6).map((item) => ({
-            key: item.label,
-            cells: [item.label, formatNumber2(item.basisAvg), `${formatNumber0(item.volume)} sc`],
-            onClick: () => openMtmRowsModal(`Vendas físicas · ${item.label}`, item.rows, resourceDefinitions.physicalSales),
-          })),
+          scrollable: true,
+          columns: ["#", "Operação", "Grupo / Subgrupo", "Bolsa", "Status", "Tipo", "Strike", "Volume", "Liquidação", "MTM BRL"],
+          rows: closedPositiveRows.map((item, idx) => {
+            const grupoId = item.grupo?.id ?? item.grupo;
+            const subgrupoId = item.subgrupo?.id ?? item.subgrupo;
+            const grupoLabel = grupoId ? groupLabelById.get(String(grupoId)) || "—" : "—";
+            const subgrupoLabel = subgrupoId ? subgroupLabelById.get(String(subgrupoId)) || null : null;
+            const grupoCell = subgrupoLabel ? `${grupoLabel} › ${subgrupoLabel}` : grupoLabel;
+            return {
+              key: item.id,
+              cells: [
+                idx + 1,
+                item.operationName,
+                grupoCell,
+                item.exchangeLabel,
+                item.statusLabel,
+                item.derivativeType,
+                item.strike ? formatCurrency2(item.strike) : "—",
+                item.standardVolume || item.rawVolume ? `${formatNumber0(item.standardVolume || item.rawVolume)} sc` : "—",
+                item.settlementDate ? formatShortBrazilianDate(item.settlementDate) : "—",
+                formatMtmIntegerLabel(item.mtmBrl),
+              ],
+              tone: "positive",
+              onClick: () => openMtmRowsModal(`Operação ${item.operationName}`, [item]),
+            };
+          }),
         },
       },
     ];
@@ -19057,6 +18518,10 @@ function MtmDashboard({ dashboardFilter }) {
     monthlySettlementRows,
     normalizedRows,
     normalizedSales,
+    allMappedDerivatives,
+    allSalesForPriceChart,
+    groupLabelById,
+    subgroupLabelById,
     openMtmRowsModal,
     openRiskRows,
     safraLabelById,
@@ -19068,6 +18533,8 @@ function MtmDashboard({ dashboardFilter }) {
     derivEffCultureFilter,
     setDerivEffCultureFilter,
     setExchangeDetailModal,
+    resolveMtmCultureLabel,
+    usdBrlQuote,
   ]);
 
   const weeklyVolumeByExchangeOption = useMemo(() => {
@@ -19143,6 +18610,31 @@ function MtmDashboard({ dashboardFilter }) {
     };
   }, [exchangeRows, weeklySettlementBuckets]);
 
+  const openTabModal = useCallback((title, allRows, { splitBy = "direction", activeKey = null } = {}) => {
+    const def = resourceDefinitions.derivativeOperations;
+    let tables;
+    if (splitBy === "status") {
+      const open = allRows.filter((r) => r.statusLabel === "Em aberto");
+      const closed = allRows.filter((r) => r.statusLabel === "Encerrado");
+      tables = [
+        { key: "open", label: "Em aberto", rows: open, definition: def },
+        { key: "closed", label: "Encerradas", rows: closed, definition: def },
+      ].filter((t) => t.rows.length > 0);
+    } else {
+      const pos = allRows.filter((r) => r.direction === "positive");
+      const neg = allRows.filter((r) => r.direction === "negative");
+      const neu = allRows.filter((r) => r.direction === "neutral");
+      tables = [
+        { key: "positive", label: "Positivas", rows: pos, definition: def },
+        { key: "negative", label: "Negativas", rows: neg, definition: def },
+        { key: "neutral", label: "Neutras", rows: neu, definition: def },
+      ].filter((t) => t.rows.length > 0);
+    }
+    if (!tables.length) tables = [{ key: "all", label: "Operações", rows: allRows, definition: def }];
+    const activeIndex = activeKey ? Math.max(0, tables.findIndex((t) => t.key === activeKey)) : 0;
+    setExchangeDetailModal({ period: title, tables, activeIndex });
+  }, [setExchangeDetailModal]);
+
   const weeklyVolumeByExchangeEvents = useMemo(
     () => ({
       click: (params) => {
@@ -19151,10 +18643,10 @@ function MtmDashboard({ dashboardFilter }) {
         if (!bucket) return;
         const exchangeNode = bucket.exchanges.find((item) => item.label === params.seriesName);
         if (!exchangeNode) return;
-        openMtmRowsModal(`Volume ${bucket.label} · ${params.seriesName}`, exchangeNode.rows);
+        openTabModal(`Volume ${bucket.label} · ${params.seriesName}`, exchangeNode.rows);
       },
     }),
-    [openMtmRowsModal, weeklySettlementBuckets],
+    [openTabModal, weeklySettlementBuckets],
   );
 
   const weeklyMtmByExchangeOption = useMemo(() => {
@@ -19238,10 +18730,10 @@ function MtmDashboard({ dashboardFilter }) {
         if (!bucket) return;
         const exchangeNode = bucket.exchanges.find((item) => item.label === params.seriesName);
         if (!exchangeNode) return;
-        openMtmRowsModal(`MTM ${bucket.label} · ${params.seriesName}`, exchangeNode.rows);
+        openTabModal(`MTM ${bucket.label} · ${params.seriesName}`, exchangeNode.rows);
       },
     }),
-    [openMtmRowsModal, weeklySettlementBuckets],
+    [openTabModal, weeklySettlementBuckets],
   );
 
   const mtmTimelineOption = useMemo(() => {
@@ -19340,10 +18832,10 @@ function MtmDashboard({ dashboardFilter }) {
         if (!bucket) return;
         const exNode = bucket.exchanges.find((e) => e.label === params.seriesName);
         if (!exNode) return;
-        openMtmRowsModal(`MTM ${bucket.label} · ${params.seriesName}`, exNode.rows);
+        openTabModal(`MTM ${bucket.label} · ${params.seriesName}`, exNode.rows);
       },
     }),
-    [mtmTimelineBuckets, openMtmRowsModal],
+    [mtmTimelineBuckets, openTabModal],
   );
 
   const statusDonutOption = {
@@ -19965,8 +19457,8 @@ function MtmDashboard({ dashboardFilter }) {
 
   const openExchangeModal = useCallback((exchangeLabel) => {
     const rows = cardFilteredRows.filter((item) => item.exchangeLabel === exchangeLabel);
-    openMtmRowsModal(`${exchangeLabel} · Operações de derivativos`, rows);
-  }, [cardFilteredRows, openMtmRowsModal]);
+    openTabModal(`${exchangeLabel} · Operações de derivativos`, rows);
+  }, [cardFilteredRows, openTabModal]);
 
   const heroCards = useMemo(
     () => {
@@ -20035,13 +19527,13 @@ function MtmDashboard({ dashboardFilter }) {
         const exchangeLabel = params.name;
         if (!exchangeLabel) return;
         if (exchangeLabel === "TOTAL CARTEIRA") {
-          openMtmRowsModal("TOTAL CARTEIRA · Operações de derivativos", normalizedRows);
+          openTabModal("TOTAL CARTEIRA · Operações de derivativos", normalizedRows);
           return;
         }
         openExchangeModal(exchangeLabel);
       },
     }),
-    [normalizedRows, openExchangeModal, openMtmRowsModal],
+    [normalizedRows, openExchangeModal, openTabModal],
   );
 
   const exchangeStatusEvents = useMemo(
@@ -20050,16 +19542,12 @@ function MtmDashboard({ dashboardFilter }) {
         if (params.componentType !== "series") return;
         const exchangeLabel = params.name;
         if (!exchangeLabel) return;
-        const rows = normalizedRows.filter((item) => {
-          if (item.exchangeLabel !== exchangeLabel) return false;
-          if (params.seriesName === "Em aberto") return item.statusLabel === "Em aberto";
-          if (params.seriesName === "Encerradas") return item.statusLabel === "Encerrado";
-          return true;
-        });
-        openMtmRowsModal(`${exchangeLabel} · ${params.seriesName}`, rows);
+        const rows = normalizedRows.filter((item) => item.exchangeLabel === exchangeLabel);
+        const activeKey = params.seriesName === "Em aberto" ? "open" : params.seriesName === "Encerradas" ? "closed" : null;
+        openTabModal(`${exchangeLabel} · Status`, rows, { splitBy: "status", activeKey });
       },
     }),
-    [normalizedRows, openMtmRowsModal],
+    [normalizedRows, openTabModal],
   );
 
   const exchangeNetEvents = useMemo(
@@ -20069,13 +19557,13 @@ function MtmDashboard({ dashboardFilter }) {
         const exchangeLabel = params.name;
         if (!exchangeLabel) return;
         if (exchangeLabel === "TOTAL CARTEIRA") {
-          openMtmRowsModal("TOTAL CARTEIRA · Saldo líquido", normalizedRows);
+          openTabModal("TOTAL CARTEIRA · Saldo líquido", normalizedRows);
           return;
         }
         openExchangeModal(exchangeLabel);
       },
     }),
-    [normalizedRows, openExchangeModal, openMtmRowsModal],
+    [normalizedRows, openExchangeModal, openTabModal],
   );
 
   const exchangeGroupedEvents = useMemo(
@@ -20084,13 +19572,12 @@ function MtmDashboard({ dashboardFilter }) {
         if (params.componentType !== "series") return;
         const exchangeLabel = params.name;
         if (!exchangeLabel) return;
-        let rows = exchangeLabel === "TOTAL CARTEIRA" ? normalizedRows : normalizedRows.filter((item) => item.exchangeLabel === exchangeLabel);
-        if (params.seriesName === "Positivo") rows = rows.filter((item) => item.direction === "positive");
-        if (params.seriesName === "Negativo") rows = rows.filter((item) => item.direction === "negative");
-        openMtmRowsModal(`${exchangeLabel} · ${params.seriesName}`, rows);
+        const allForExchange = exchangeLabel === "TOTAL CARTEIRA" ? normalizedRows : normalizedRows.filter((item) => item.exchangeLabel === exchangeLabel);
+        const activeKey = params.seriesName === "Positivo" ? "positive" : params.seriesName === "Negativo" ? "negative" : null;
+        openTabModal(`${exchangeLabel} · Sinal`, allForExchange, { splitBy: "direction", activeKey });
       },
     }),
-    [normalizedRows, openMtmRowsModal],
+    [normalizedRows, openTabModal],
   );
 
   const exchangeWaterfallEvents = useMemo(
@@ -20113,10 +19600,10 @@ function MtmDashboard({ dashboardFilter }) {
         if (!typeLabel) return;
         const row = derivativeTypeRows.find((item) => item.label === typeLabel);
         if (!row) return;
-        openMtmRowsModal(`Estrutura ${typeLabel} · Operações`, row.rows);
+        openTabModal(`Estrutura ${typeLabel} · Operações`, row.rows);
       },
     }),
-    [derivativeTypeRows, openMtmRowsModal],
+    [derivativeTypeRows, openTabModal],
   );
 
   const topPositiveEvents = useMemo(
@@ -20150,38 +19637,43 @@ function MtmDashboard({ dashboardFilter }) {
         const exchangeLabel = heatmapSource.exchanges[params.value[0]];
         const typeLabel = heatmapSource.types[params.value[1]];
         if (!exchangeLabel || !typeLabel) return;
-        const rows = normalizedRows.filter((item) => item.exchangeLabel === exchangeLabel && getDerivativePositionTypeLabel(item) === typeLabel);
-        openMtmRowsModal(`${exchangeLabel} · ${typeLabel}`, rows);
+        const rowsForExchange = normalizedRows.filter((item) => item.exchangeLabel === exchangeLabel);
+        const types = [...new Set(rowsForExchange.map((r) => getDerivativePositionTypeLabel(r)))].sort();
+        const def = resourceDefinitions.derivativeOperations;
+        const tables = types.map((tp) => ({
+          key: tp,
+          label: tp,
+          rows: rowsForExchange.filter((r) => getDerivativePositionTypeLabel(r) === tp),
+          definition: def,
+        }));
+        if (!tables.length) return;
+        const activeIndex = Math.max(0, tables.findIndex((t) => t.key === typeLabel));
+        setExchangeDetailModal({ period: exchangeLabel, tables, activeIndex });
       },
     }),
-    [getDerivativePositionTypeLabel, heatmapSource.exchanges, heatmapSource.types, normalizedRows, openMtmRowsModal],
+    [getDerivativePositionTypeLabel, heatmapSource.exchanges, heatmapSource.types, normalizedRows, setExchangeDetailModal],
   );
 
   const statusDonutEvents = useMemo(
     () => ({
       click: (params) => {
         if (params.componentType !== "series") return;
-        const rows =
-          params.name === "Positivas"
-            ? normalizedRows.filter((item) => item.direction === "positive")
-            : params.name === "Negativas"
-              ? normalizedRows.filter((item) => item.direction === "negative")
-              : normalizedRows.filter((item) => item.direction === "neutral");
-        openMtmRowsModal(`Sinal do MTM · ${params.name}`, rows);
+        const activeKey = params.name === "Positivas" ? "positive" : params.name === "Negativas" ? "negative" : "neutral";
+        openTabModal("Sinal do MTM", normalizedRows, { splitBy: "direction", activeKey });
       },
     }),
-    [normalizedRows, openMtmRowsModal],
+    [normalizedRows, openTabModal],
   );
 
   const openClosedDonutEvents = useMemo(
     () => ({
       click: (params) => {
         if (params.componentType !== "series") return;
-        const rows = normalizedRows.filter((item) => (params.name === "Em aberto" ? item.statusLabel === "Em aberto" : item.statusLabel === "Encerrado"));
-        openMtmRowsModal(`Status · ${params.name}`, rows);
+        const activeKey = params.name === "Em aberto" ? "open" : "closed";
+        openTabModal("Status · Mix operacional", normalizedRows, { splitBy: "status", activeKey });
       },
     }),
-    [normalizedRows, openMtmRowsModal],
+    [normalizedRows, openTabModal],
   );
 
   const openSettlementBandEvents = useMemo(
@@ -20190,10 +19682,10 @@ function MtmDashboard({ dashboardFilter }) {
         if (params.componentType !== "series") return;
         const row = openSettlementBandRows.find((item) => item.label === params.name);
         if (!row) return;
-        openMtmRowsModal(`Em aberto · Vencimento ${row.label}`, row.rows);
+        openTabModal(`Em aberto · Vencimento ${row.label}`, row.rows);
       },
     }),
-    [openMtmRowsModal, openSettlementBandRows],
+    [openTabModal, openSettlementBandRows],
   );
 
   const closedSettlementMonthEvents = useMemo(
@@ -20202,22 +19694,21 @@ function MtmDashboard({ dashboardFilter }) {
         if (params.componentType !== "series") return;
         const row = closedSettlementMonthRows.find((item) => item.label === params.name);
         if (!row) return;
-        openMtmRowsModal(`Encerrado · Liquidação ${row.label}`, row.rows);
+        openTabModal(`Encerrado · Liquidação ${row.label}`, row.rows);
       },
     }),
-    [closedSettlementMonthRows, openMtmRowsModal],
+    [closedSettlementMonthRows, openTabModal],
   );
 
   const closedDirectionEvents = useMemo(
     () => ({
       click: (params) => {
         if (params.componentType !== "series") return;
-        const direction =
-          params.name === "Positivas" ? "positive" : params.name === "Negativas" ? "negative" : "neutral";
-        openMtmRowsModal(`Encerrado · ${params.name}`, closedRowsInView.filter((item) => item.direction === direction));
+        const activeKey = params.name === "Positivas" ? "positive" : params.name === "Negativas" ? "negative" : "neutral";
+        openTabModal("Encerrado · Sinal", closedRowsInView, { splitBy: "direction", activeKey });
       },
     }),
-    [closedRowsInView, openMtmRowsModal],
+    [closedRowsInView, openTabModal],
   );
 
   const activeScopeMeta = {
@@ -20584,7 +20075,7 @@ function MtmDashboard({ dashboardFilter }) {
                   <ReactECharts option={card.option} onEvents={card.events} style={{ height: 290, width: "100%" }} opts={{ renderer: "svg" }} />
                 ) : null}
                 {card.table ? (
-                  <div className="mtm-mini-table-wrap">
+                  <div className="mtm-mini-table-wrap" style={card.table.scrollable ? { maxHeight: 300, overflowY: "auto" } : undefined}>
                     <table className="mtm-mini-table">
                       <thead>
                         <tr>
@@ -20615,64 +20106,13 @@ function MtmDashboard({ dashboardFilter }) {
       <section className="mtm-phase-section">
         <div className="mtm-phase-head">
           <h2>Em aberto</h2>
-          
         </div>
-        <article className="card mtm-chart-card" style={{ gridColumn: "1 / -1" }}>
-          <div className="mtm-chart-head">
-            <h3>MTM R$ por data de vencimento · 180d</h3>
-            <p>Janela padrão de 180 dias (90d passados + 90d futuros), colunas por bolsa, agrupadas semanalmente. Use o seletor abaixo para ampliar o período.</p>
-          </div>
-          <ReactECharts option={mtmTimelineOption} onEvents={mtmTimelineEvents} style={{ height: 340, width: "100%" }} opts={{ renderer: "svg" }} />
-          {mtmTimelineAllBuckets.length > 2 ? (() => {
-            const totalCount = mtmTimelineAllBuckets.length;
-            const startPct = (mtmTimelineEffStart / Math.max(totalCount - 1, 1)) * 100;
-            const endPct = (mtmTimelineEffEnd / Math.max(totalCount - 1, 1)) * 100;
-            return (
-              <div className="hedge-slider-wrap">
-                <div className="hedge-slider-dates">
-                  <span>{mtmTimelineAllBuckets[mtmTimelineEffStart]?.label || ""}</span>
-                  <span>{mtmTimelineAllBuckets[mtmTimelineEffEnd]?.label || ""}</span>
-                </div>
-                <div className="hedge-slider-track">
-                  <div className="hedge-slider-track-bg" />
-                  <div className="hedge-slider-fill" style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }} />
-                  <input
-                    type="range"
-                    className="hedge-slider-input"
-                    min={0}
-                    max={totalCount - 1}
-                    value={mtmTimelineEffStart}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (v < mtmTimelineEffEnd) setMtmTimelineSliderStart(v);
-                    }}
-                  />
-                  <input
-                    type="range"
-                    className="hedge-slider-input"
-                    min={0}
-                    max={totalCount - 1}
-                    value={mtmTimelineEffEnd}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      if (v > mtmTimelineEffStart) setMtmTimelineSliderEnd(v);
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })() : null}
-          <div className="hedge-legend">
-            {mtmTimelineExchangeLabels.map((exLabel) => (
-              <span key={exLabel} className="hedge-legend-item">
-                <span
-                  className="hedge-legend-swatch"
-                  style={{ background: mtmTimelineExchangePalette[exLabel] || "#94a3b8" }}
-                />
-                {exLabel}
-              </span>
-            ))}
-          </div>
+        <article className="card mtm-chart-card mtm-chart-card--maturity" style={{ gridColumn: "1 / -1" }}>
+          <MtmDerivativeMaturityPanel
+            rows={openRowsInView}
+            onOpenItem={openMtmOperation}
+            onOpenDateRows={(dateText) => openMtmDateModal(dateText)}
+          />
         </article>
       </section>
       ) : null}
@@ -20739,6 +20179,7 @@ function MtmDashboard({ dashboardFilter }) {
         <CashflowMultiTableModal
           period={exchangeDetailModal.period}
           tables={exchangeDetailModal.tables}
+          initialActiveIndex={exchangeDetailModal.activeIndex ?? 0}
           periodSummary={null}
           currencyConfig={null}
           onClose={() => setExchangeDetailModal(null)}

@@ -5617,6 +5617,79 @@ textarea {
   color: #dc2626;
 }
 
+/* Tooltip HTML posicionado sobre a barra do gráfico MTM */
+.mtm-chart-tooltip {
+  position: fixed;
+  background: #1e293b;
+  border-radius: 10px;
+  padding: 10px 14px;
+  width: 240px;
+  pointer-events: none;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.35);
+}
+
+/* Triângulo apontando para cima (tooltip abaixo do eixo zero — valor positivo) */
+.mtm-chart-tooltip-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+}
+
+.mtm-chart-tooltip-arrow--up {
+  top: -8px;
+  border-bottom: 8px solid #1e293b;
+}
+
+.mtm-chart-tooltip-arrow--down {
+  bottom: -8px;
+  border-top: 8px solid #1e293b;
+}
+
+/* (mantido para compatibilidade) */
+.mtm-list-tooltip {
+  background: #1e293b;
+  border-radius: 10px;
+  padding: 10px 14px;
+  pointer-events: none;
+  z-index: 9999;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.35);
+}
+
+.mtm-list-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+
+.mtm-list-tooltip-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mtm-list-tooltip-date {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-bottom: 3px;
+}
+
+.mtm-list-tooltip-name {
+  font-size: 12px;
+  color: #cbd5e1;
+  margin-bottom: 5px;
+  line-height: 1.4;
+}
+
+.mtm-list-tooltip-value {
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .hedge-culture-chart-empty {
   color: #94a3b8;
   font-size: 0.84rem;
@@ -5941,6 +6014,15 @@ textarea {
   fill: #111827;
   font-size: 20px;
   font-weight: 900;
+}
+
+.risk-kpi-sales-gauge-pct {
+  font-size: 22px;
+  font-weight: 900;
+  color: #111827;
+  white-space: nowrap;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .risk-kpi-hedge-chart-row .hedge-chart-wrap {
@@ -6559,8 +6641,9 @@ textarea {
 .hedge-chart-inline-cards .risk-kpi-sales-gauge-shell {
   flex-shrink: 0;
   height: 58px;
-  width: 88px;
+  width: auto;
   overflow: hidden;
+  gap: 6px;
 }
 
 .hedge-chart-inline-cards .risk-kpi-sales-gauge-svg {
@@ -6576,6 +6659,10 @@ textarea {
 
 .hedge-chart-inline-cards .risk-kpi-sales-gauge-value {
   font-size: 13px;
+}
+
+.hedge-chart-inline-cards .risk-kpi-sales-gauge-pct {
+  font-size: 28px;
 }
 
 /* Summary card */
@@ -7704,8 +7791,11 @@ textarea {
 .cashflow-multi-table-tabs {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   padding-bottom: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148,163,184,0.4) transparent;
 }
 
 .cashflow-multi-table-tab {
@@ -12937,6 +13027,14 @@ tfoot td {
   grid-column: 1 / -1;
 }
 
+.mtm-chart-card--maturity {
+  padding: 0;
+  overflow: hidden;
+  height: 560px;
+  display: flex;
+  flex-direction: column;
+}
+
 .mtm-dual-donuts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -13215,6 +13313,10 @@ tfoot td {
   font-size: 0.73rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  position: sticky;
+  top: 0;
+  background: #0f172a;
+  z-index: 1;
 }
 
 .mtm-mini-table td {
