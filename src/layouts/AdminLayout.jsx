@@ -141,43 +141,42 @@ const buildGenericDebugPayload = (region, pathname) => ({
   textPreview: collectUniqueTexts(region.querySelectorAll("span, p, small, div"), 30),
 });
 
+const POPUP_COLORS = ["#ea580c","#2563eb","#16a34a","#9333ea","#d97706","#0891b2","#dc2626","#4338ca","#0f766e","#b45309"];
+
 function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
   const selectedCount = selectedValues.length;
 
   return (
-    <section className="dashboard-chip-group dashboard-chip-group-popup">
-      <div className="dashboard-chip-group-header">
-        <div className="dashboard-chip-group-title-wrap">
-          <strong>{title}</strong>
-          <span className="dashboard-chip-group-count">{selectedCount ? `${selectedCount} selecionado(s)` : `${items.length} opcoes`}</span>
-        </div>
-        {selectedCount ? (
-          <button type="button" className="dashboard-chip-clear dashboard-chip-clear-popup" onClick={onClear}>
-            Limpar
-          </button>
-        ) : null}
+    <div className="pf-group">
+      <div className="pf-group-header">
+        <span className="pf-group-label">{title}</span>
+        {selectedCount > 0 && (
+          <button type="button" className="pf-clear" onClick={onClear}>Limpar</button>
+        )}
       </div>
       {items.length ? (
-        <div className="dashboard-filter-option-list" role="list" aria-label={title}>
-          {items.map((item) => (
-            <button
-              key={`${title}-${item.id}`}
-              type="button"
-              className={`dashboard-filter-option${selectedValues.includes(String(item.id)) ? " active" : ""}`}
-              onClick={() => onToggle(String(item.id))}
-              role="listitem"
-            >
-              <span className="dashboard-filter-option-check" aria-hidden="true">
-                {selectedValues.includes(String(item.id)) ? "✓" : ""}
-              </span>
-              <span className="dashboard-filter-option-label">{item[labelKey]}</span>
-            </button>
-          ))}
+        <div className="pf-seg-group">
+          {items.map((item, i) => {
+            const itemId = String(item.id);
+            const isActive = selectedValues.includes(itemId);
+            const color = POPUP_COLORS[i % POPUP_COLORS.length];
+            return (
+              <button
+                key={`${title}-${itemId}`}
+                type="button"
+                className={`pf-seg-btn${isActive ? " is-active" : ""}`}
+                style={{ "--pf-color": color }}
+                onClick={() => onToggle(itemId)}
+              >
+                {item[labelKey]}
+              </button>
+            );
+          })}
         </div>
       ) : (
-        <div className="dashboard-filter-empty-state">Nenhuma opcao disponivel para a combinacao atual.</div>
+        <p className="pf-empty">Nenhuma opção disponível.</p>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -505,7 +504,7 @@ function AdminLayoutShell({ children }) {
                 </button>
               </div>
             </div>
-            <div className="sidebar-filter-panel modal dashboard-filter-popup-grid">
+            <div className="sidebar-filter-panel modal pf-grid">
               <PopupChipGroup title="Grupos" items={options.groups} selectedValues={draftFilter.grupo} labelKey="grupo" onToggle={(value) => toggleDraftFilterValue("grupo", value)} onClear={() => updateDraftFilter("grupo", [])} />
               <PopupChipGroup title="Subgrupos" items={visibleDraftSubgroups} selectedValues={draftFilter.subgrupo} labelKey="subgrupo" onToggle={(value) => toggleDraftFilterValue("subgrupo", value)} onClear={() => updateDraftFilter("subgrupo", [])} />
               {!isCashflowDashboard ? (

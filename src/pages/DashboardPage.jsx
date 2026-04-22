@@ -931,7 +931,7 @@ function UpcomingMaturitiesCard({ rows, onOpenItem, usdBrlRate = 0 }) {
   const [expanded, setExpanded] = useState(false);
   const [hoveredDate, setHoveredDate] = useState(null);
   const [hoveredItemKey, setHoveredItemKey] = useState(null);
-  const [currencyMode, setCurrencyMode] = useState("original"); // "original" | "brl"
+  const [currencyMode, setCurrencyMode] = useState("brl"); // "original" | "brl"
   const echartsRef = useRef(null);
 
   const dates = useMemo(
@@ -979,29 +979,27 @@ function UpcomingMaturitiesCard({ rows, onOpenItem, usdBrlRate = 0 }) {
         borderColor: "transparent",
         padding: [10, 14],
         textStyle: { color: "#f1f5f9", fontSize: 13 },
+        axisPointer: { type: "shadow", shadowStyle: { color: "rgba(148,163,184,0.08)" } },
         formatter: (params) => {
-          const row = rows.find((r) => r.dateText === params.name && r.app === params.seriesName);
-          const displayVal = currencyMode === "brl"
-            ? fmtChartValue(params.value)
-            : (row?.valueLabel || fmtChartValue(params.value));
-          const name = row?.summaryLabel || row?.title || "";
+          const p = Array.isArray(params) ? params[0] : params;
+          const ops = rows.filter((r) => r.dateText === p.name);
+          const lines = ops.map((r) => {
+            const raw = parseMaturityValueLabel(r.valueLabel);
+            const converted = resolveChartValue(raw, r.valueLabel);
+            const displayVal = currencyMode === "brl" ? fmtChartValue(converted) : r.valueLabel;
+            const color = r.valueColor === "positive" ? "#4ade80" : r.valueColor === "negative" ? "#f87171" : "#cbd5e1";
+            return `<span style="color:#94a3b8">${r.app} · ${r.summaryLabel || r.title || ""}</span> <b style="color:${color}">${displayVal}</b>`;
+          });
+          const totalColor = p.value >= 0 ? "#4ade80" : "#f87171";
           return [
-            `${params.marker} <b>${params.seriesName}</b>`,
-            `<span style="color:#94a3b8;font-size:11px">${params.name}</span>`,
-            name ? `<span style="color:#cbd5e1">${name}</span>` : "",
-            `<b style="font-size:14px">${displayVal}</b>`,
-          ].filter(Boolean).join("<br/>");
+            `<b style="color:#f1f5f9">${p.name}</b>`,
+            ...lines,
+            `<span style="border-top:1px solid #334155;display:block;margin:4px 0"></span>`,
+            `<b style="font-size:14px;color:${totalColor}">${fmtChartValue(p.value)}</b>`,
+          ].join("<br/>");
         },
       },
-      legend: {
-        show: true,
-        top: 6,
-        left: "center",
-        itemWidth: 14,
-        itemHeight: 10,
-        itemGap: 20,
-        textStyle: { color: "#334155", fontSize: 12, fontWeight: 700 },
-      },
+      legend: { show: false },
       xAxis: {
         type: "category",
         data: dates,
@@ -1035,27 +1033,34 @@ function UpcomingMaturitiesCard({ rows, onOpenItem, usdBrlRate = 0 }) {
         axisLine: { show: false },
         axisTick: { show: false },
       },
-      series: apps.map((app, i) => {
-        const color = MATURITY_APP_COLORS[app] || appColorFallbacks[i % appColorFallbacks.length];
-        return {
-          name: app,
+      series: [
+        {
+          name: "Total",
           type: "bar",
-          barMaxWidth: 40,
-          barGap: "10%",
-          barCategoryGap: "38%",
-          itemStyle: { color, borderRadius: [4, 4, 0, 0] },
-          emphasis: { itemStyle: { opacity: 0.8, shadowBlur: 8, shadowColor: `${color}55` } },
-          label: { show: false },
+          barMaxWidth: 60,
+          barCategoryGap: "40%",
+          itemStyle: {
+            color: (params) => params.value >= 0 ? "#22c55e" : "#ef4444",
+            borderRadius: [4, 4, 0, 0],
+          },
+          emphasis: { itemStyle: { opacity: 0.8 } },
+          label: {
+            show: true,
+            position: "outside",
+            color: "#334155",
+            fontWeight: 800,
+            fontSize: 11,
+            formatter: ({ value }) => value ? fmtChartValue(value) : "",
+          },
           data: dates.map((date) => {
-            const item = rows.find((r) => r.dateText === date && r.app === app);
-            if (!item) return 0;
-            const raw = parseMaturityValueLabel(item.valueLabel);
-            return resolveChartValue(raw, item.valueLabel);
+            return rows
+              .filter((r) => r.dateText === date)
+              .reduce((sum, r) => sum + resolveChartValue(parseMaturityValueLabel(r.valueLabel), r.valueLabel), 0);
           }),
-        };
-      }),
+        },
+      ],
     };
-  }, [expanded, rows, dates, apps, currencyMode, usdBrlRate, fmtChartValue, resolveChartValue]);
+  }, [expanded, rows, dates, currencyMode, usdBrlRate, fmtChartValue, resolveChartValue]);
 
   const chartEvents = useMemo(() => ({
     mouseover: (params) => {
@@ -1073,18 +1078,36 @@ function UpcomingMaturitiesCard({ rows, onOpenItem, usdBrlRate = 0 }) {
     setHoveredItemKey(itemKey);
     const instance = echartsRef.current?.getEchartsInstance?.();
     if (!instance) return;
-    const seriesIndex = apps.indexOf(app);
     const dataIndex = dates.indexOf(dateText);
-    if (seriesIndex >= 0 && dataIndex >= 0) {
-      instance.dispatchAction({ type: "showTip", seriesIndex, dataIndex });
+    if (dataIndex >= 0) {
+      instance.setOption({ tooltip: { alwaysShowContent: true } });
+      instance.dispatchAction({ type: "showTip", seriesIndex: 0, dataIndex });
     }
-  }, [apps, dates]);
+  }, [dates]);
 
   const handleListMouseLeave = useCallback(() => {
     setHoveredDate(null);
     setHoveredItemKey(null);
-    echartsRef.current?.getEchartsInstance?.()?.dispatchAction({ type: "hideTip" });
+    const instance = echartsRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    instance.setOption({ tooltip: { alwaysShowContent: false } });
+    instance.dispatchAction({ type: "hideTip" });
   }, []);
+
+  // Fundo cinza na coluna da data hovered
+  useEffect(() => {
+    const instance = echartsRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    instance.setOption({
+      series: [{
+        markArea: hoveredDate ? {
+          silent: true,
+          itemStyle: { color: "rgba(148,163,184,0.18)" },
+          data: [[{ xAxis: hoveredDate }, { xAxis: hoveredDate }]],
+        } : { data: [] },
+      }],
+    }, { replaceMerge: [] });
+  }, [hoveredDate]);
 
   // Card list (compact, shown inside the card)
   const maturityList = (
@@ -2017,59 +2040,110 @@ function ScenarioBars({ data, insightTitle = "", insightMessage = null }) {
   );
 }
 
-function FilterChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const selectedItems = items.filter((item) => selectedValues.includes(String(item.id)));
-  const summaryLabel = selectedItems.length
-    ? selectedItems.length === 1
-      ? selectedItems[0][labelKey]
-      : `${selectedItems[0][labelKey]} +${selectedItems.length - 1}`
-    : "Todos";
+const QF_COLORS = ["#ea580c","#2563eb","#16a34a","#9333ea","#d97706","#0891b2","#dc2626","#4338ca","#0f766e","#b45309"];
+const SEG_COLORS = ["#16a34a","#2563eb","#d97706","#9333ea","#dc2626","#0891b2","#c2410c","#4338ca","#0f766e","#b45309"];
+
+/**
+ * Barra de filtros Cultura + Safra no estilo segmented control.
+ * Reutilizável em qualquer dashboard.
+ */
+function DashboardSegFilterBar() {
+  const { filter, options, toggleFilterValue, updateFilter } = useDashboardFilter();
+
+  const cultureOptions = useMemo(
+    () => (options?.cropBoardCrops?.length > 0 ? options.cropBoardCrops : options?.crops || [])
+      .map((c) => ({ value: String(c.id), label: c.ativo || c.cultura || String(c.id) })),
+    [options?.cropBoardCrops, options?.crops],
+  );
+  const safraOptions = useMemo(
+    () => (options?.cropBoardSeasons?.length > 0 ? options.cropBoardSeasons : options?.seasons || [])
+      .map((s) => ({ value: String(s.id), label: s.safra || String(s.id) })),
+    [options?.cropBoardSeasons, options?.seasons],
+  );
+
+  const activeCulturas = Array.isArray(filter?.cultura) ? filter.cultura.map(String) : [];
+  const activeSafras   = Array.isArray(filter?.safra)   ? filter.safra.map(String)   : [];
+
+  if (cultureOptions.length === 0 && safraOptions.length === 0) return null;
 
   return (
-    <section className="dashboard-chip-group">
-      <button
-        type="button"
-        className="dashboard-chip-group-toggle"
-        onClick={() => setIsOpen((current) => !current)}
-        aria-expanded={isOpen}
-      >
-        <div className="dashboard-chip-group-header">
-          <strong>{title}</strong>
-          <span className={`dashboard-chip-group-arrow${isOpen ? " open" : ""}`}>▾</span>
-        </div>
-        <span className={`dashboard-chip dashboard-chip-summary${selectedItems.length ? " active" : ""}`}>{summaryLabel}</span>
-      </button>
-      {isOpen ? (
-        <>
-          <div className="dashboard-chip-list">
-            {items.map((item) => {
-              const itemId = String(item.id);
-              const isActive = selectedValues.includes(itemId);
+    <section className="pc-filter-bar pc-filter-bar--tabs dseg-filter-bar">
+      {cultureOptions.length > 0 && (
+        <div className="pc-filter-group">
+          <span className="pc-filter-group-label">Cultura</span>
+          <div className="pc-seg-group">
+            {cultureOptions.map((opt, i) => {
+              const isActive = activeCulturas.includes(opt.value);
+              const color = SEG_COLORS[i % SEG_COLORS.length];
               return (
-                <button
-                  key={`${title}-${itemId}`}
-                  type="button"
-                  className={`dashboard-chip${isActive ? " active" : ""}`}
-                  onClick={() => onToggle(itemId)}
-                >
-                  {item[labelKey]}
+                <button key={opt.value} type="button"
+                  className={`pc-seg-btn${isActive ? " is-active" : ""}`}
+                  style={{ "--seg-color": color }}
+                  onClick={() => toggleFilterValue("cultura", opt.value)}>
+                  {opt.label}
                 </button>
               );
             })}
+            {activeCulturas.length > 0 && (
+              <button type="button" className="pc-filter-clear" onClick={() => updateFilter("cultura", [])}>Limpar</button>
+            )}
           </div>
-          {selectedValues.length ? (
-            <button
-              type="button"
-              className="dashboard-chip-clear"
-              onClick={onClear}
-            >
-              Limpar
-            </button>
-          ) : null}
-        </>
-      ) : null}
+        </div>
+      )}
+      {safraOptions.length > 0 && (
+        <div className="pc-filter-group">
+          <span className="pc-filter-group-label">Safra</span>
+          <div className="pc-seg-group">
+            {safraOptions.map((opt, i) => {
+              const isActive = activeSafras.includes(opt.value);
+              const color = SEG_COLORS[i % SEG_COLORS.length];
+              return (
+                <button key={opt.value} type="button"
+                  className={`pc-seg-btn${isActive ? " is-active" : ""}`}
+                  style={{ "--seg-color": color }}
+                  onClick={() => toggleFilterValue("safra", opt.value)}>
+                  {opt.label}
+                </button>
+              );
+            })}
+            {activeSafras.length > 0 && (
+              <button type="button" className="pc-filter-clear" onClick={() => updateFilter("safra", [])}>Limpar</button>
+            )}
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+function FilterChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
+  const selectedItems = items.filter((item) => selectedValues.includes(String(item.id)));
+
+  return (
+    <div className="qf-group">
+      <span className="qf-group-label">{title}</span>
+      <div className="qf-seg-group">
+        {items.map((item, i) => {
+          const itemId = String(item.id);
+          const isActive = selectedValues.includes(itemId);
+          const color = QF_COLORS[i % QF_COLORS.length];
+          return (
+            <button
+              key={`${title}-${itemId}`}
+              type="button"
+              className={`qf-seg-btn${isActive ? " is-active" : ""}`}
+              style={{ "--qf-color": color }}
+              onClick={() => onToggle(itemId)}
+            >
+              {item[labelKey]}
+            </button>
+          );
+        })}
+      </div>
+      {selectedItems.length > 0 && (
+        <button type="button" className="qf-clear" onClick={onClear}>Limpar</button>
+      )}
+    </div>
   );
 }
 
@@ -2078,7 +2152,7 @@ function DashboardQuickFilters() {
   const visibleSubgroups = useMemo(() => filterSubgroupsByGroups(options.subgroups, filter.grupo), [options.subgroups, filter.grupo]);
 
   return (
-    <section className="dashboard-quick-filters">
+    <section className="dashboard-quick-filters qf-bar">
       <FilterChipGroup
         title="Grupos"
         items={options.groups}
@@ -2096,7 +2170,7 @@ function DashboardQuickFilters() {
         onClear={() => updateFilter("subgrupo", [])}
       />
       <FilterChipGroup
-        title="Ativos"
+        title="Cultura"
         items={options.cropBoardCrops || []}
         selectedValues={filter.cultura}
         labelKey="cultura"
@@ -2104,7 +2178,7 @@ function DashboardQuickFilters() {
         onClear={() => updateFilter("cultura", [])}
       />
       <FilterChipGroup
-        title="Safras"
+        title="Safra"
         items={options.cropBoardSeasons || []}
         selectedValues={filter.safra}
         labelKey="safra"
@@ -4254,6 +4328,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 
   return (
     <section className="component-sales-shell">
+      <DashboardSegFilterBar />
       <div className="cs-top-section">
         {culturas.length > 0 && (
           <div className="cs-cultura-filter">
@@ -8857,6 +8932,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
 
   return (
     <section className="risk-kpi-shell risk-kpi-shell--summary">
+      <DashboardSegFilterBar />
       {!summaryLoading ? (
         <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
       ) : (
@@ -9475,6 +9551,7 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
 
   return (
     <section className="simulation-shell">
+      <DashboardSegFilterBar />
       <div className="simulation-topbar card summary-insight-card">
         <SummaryInsightButton
           title="Parâmetros da simulação"
@@ -10193,6 +10270,27 @@ function HedgePolicyChart({
         };
       })
       .filter(Boolean);
+    const comparisonDataLabels = sd(extendedChartState.comparisonDataset)
+      .map((value, index) => {
+        const numericValue = Number(value);
+        const shouldShow =
+          Number(baseValue || 0) > 0 &&
+          Number.isFinite(numericValue) &&
+          numericValue > 0 &&
+          (index === points.length - 1 || index === localTodayIndex || index % dataLabelEvery === 0);
+        if (!shouldShow) return null;
+        const x = Math.min(Math.max(xForIndex(index), plot.left + 10), width - plot.right - 10);
+        const lineY = yForValue(numericValue);
+        const y = lineY < plot.top + 14 ? lineY + 13 : lineY - 7;
+        return {
+          key: `cmp-${points[index]?.label || index}-${index}`,
+          xPercent: `${(x / width) * 100}%`,
+          yPercent: `${(y / height) * 100}%`,
+          anchor: index === 0 ? "start" : index === points.length - 1 ? "end" : "middle",
+          label: formatHedgeSummaryPercentValue(numericValue, baseValue),
+        };
+      })
+      .filter(Boolean);
     const cropDateMarkers = (chartState.dateMarkers || [])
       .map((marker, index) => {
         const x = xForDate(marker.date);
@@ -10229,6 +10327,7 @@ function HedgePolicyChart({
       xAxisLabels,
       todayLabel,
       totalDataLabels,
+      comparisonDataLabels,
       cropDateMarkers,
       hoverX,
       todayX,
@@ -10469,6 +10568,15 @@ function HedgePolicyChart({
                   {label.label}
                 </span>
               ))}
+              {comparisonSeriesName ? nativeChart.comparisonDataLabels.map((label) => (
+                <span
+                  key={label.key}
+                  className={`hedge-chart-total-label hedge-chart-total-label--${label.anchor} hedge-chart-comparison-label`}
+                  style={{ left: label.xPercent, top: label.yPercent }}
+                >
+                  {label.label}
+                </span>
+              )) : null}
             </div>
           </>
         ) : (
@@ -12152,25 +12260,36 @@ function HedgePolicyDashboard({ dashboardFilter }) {
 
   return (
     <section className="hedge-dashboard-shell">
-      <div className="hedge-dashboard-toolbar">
-        <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="hedge-chart-select">
-          <option value="daily">Diario</option>
-          <option value="weekly">Semanal</option>
-          <option value="monthly">Mensal</option>
-        </select>
-        <button
-          type="button"
-          className={`hedge-toolbar-btn${hasSimulationValues ? " hedge-toolbar-btn--active" : ""}`}
-          onClick={() => {
-            if (hasSimulationValues) {
-              resetSimulation();
-              return;
-            }
-            setShowSimulationBox((current) => !current);
-          }}
-        >
-          {hasSimulationValues ? "Limpar simulação" : "Simular nova operação"}
-        </button>
+      <DashboardSegFilterBar />
+      <section className="pc-filter-bar pc-filter-bar--tabs dseg-filter-bar">
+        <div className="pc-filter-group">
+          <span className="pc-filter-group-label">Período</span>
+          <div className="pc-seg-group">
+            {[{ val: "daily", label: "Diário" }, { val: "weekly", label: "Semanal" }, { val: "monthly", label: "Mensal" }].map(({ val, label }) => (
+              <button key={val} type="button"
+                className={`pc-seg-btn${frequency === val ? " is-active" : ""}`}
+                style={{ "--seg-color": "#6366f1" }}
+                onClick={() => setFrequency(val)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="pc-filter-group">
+          <div className="pc-seg-group">
+            <button
+              type="button"
+              className={`pc-seg-btn${hasSimulationValues ? " is-active" : ""}`}
+              style={{ "--seg-color": "#ea580c" }}
+              onClick={() => {
+                if (hasSimulationValues) { resetSimulation(); return; }
+                setShowSimulationBox((current) => !current);
+              }}
+            >
+              {hasSimulationValues ? "Limpar simulação" : "Simular nova operação"}
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           className="hedge-toolbar-btn hedge-toolbar-btn--primary"
@@ -12178,7 +12297,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         >
           Editar Política
         </button>
-      </div>
+      </section>
       {showSimulationBox ? (
         <div className="hedge-simulation-card">
           <div className="hedge-simulation-grid">
@@ -12868,6 +12987,7 @@ function CurrencyExposureDashboard({ dashboardFilter, filterOptions }) {
 
   return (
     <section className="currency-hedge-shell">
+      <DashboardSegFilterBar />
       <div className="currency-hedge-filterbar">
         <label className="currency-hedge-filterfield">
           <span>Ativo</span>
@@ -13583,7 +13703,7 @@ function PriceCompositionHorizontalChart({ title, rows, unitLabel, onSelectRow, 
 }
 
 export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "custom" }) {
-  const { matchesDashboardFilter } = useDashboardFilter();
+  const { matchesDashboardFilter, options, filter, toggleFilterValue, updateFilter } = useDashboardFilter();
   const [physicalSales, setPhysicalSales] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
   const [cropBoards, setCropBoards] = useState([]);
@@ -13594,6 +13714,7 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   const [soldVolumeInput, setSoldVolumeInput] = useState("");
   const [hasManualVolume, setHasManualVolume] = useState(false);
   const [resourceTableModal, setResourceTableModal] = useState(null);
+  const [multiTableModal, setMultiTableModal] = useState(null); // { period, tables }
   const [includeClosedDerivatives, setIncludeClosedDerivatives] = useState(true);
   const [includeOpenDerivatives, setIncludeOpenDerivatives] = useState(true);
   const { openOperationForm, editorNode } = useDashboardOperationEditor({
@@ -13971,58 +14092,43 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   [derivativeSourceIdsForChart, filteredDerivatives]);
 
   const openVerticalDetail = (groupKey, row) => {
-    if (groupKey === "G1") {
-      if (row.label === "Fisico") {
-        setResourceTableModal({
-          title: `Fisico (a termo) (${selectedCurrencyLabel})`,
-          definition: resourceDefinitions.physicalSales,
-          rows: filteredSalesForChart,
-        });
-        return;
-      }
-      if (row.label === "Bolsa") {
-        setResourceTableModal({
-          title: `Derivativos Bolsa (${selectedCurrencyLabel})`,
-          definition: resourceDefinitions.derivativeOperations,
-          rows: getDerivativeSourceRows("Bolsa", includeOpenDerivatives, includeClosedDerivatives),
-        });
-        return;
-      }
-      if (row.label === "Cambio") {
-        setResourceTableModal({
-          title: `Derivativos Cambio (${selectedCurrencyLabel})`,
-          definition: resourceDefinitions.derivativeOperations,
-          rows: getDerivativeSourceRows("Cambio", includeOpenDerivatives, includeClosedDerivatives),
-        });
-        return;
-      }
-      return;
-    }
+    const fisico = filteredSalesForChart;
+    const bolsa = getDerivativeSourceRows("Bolsa", includeOpenDerivatives, includeClosedDerivatives);
+    const cambio = getDerivativeSourceRows("Cambio", includeOpenDerivatives, includeClosedDerivatives);
 
-    if (row.label === "Fisico") {
-      setResourceTableModal({
-        title: `Fisico vendido (${selectedCurrencyLabel})`,
+    // Determina aba inicial com base na coluna clicada
+    const labelToIndex = { Fisico: 0, Bolsa: 1, Cambio: 2 };
+    const initialIndex = labelToIndex[row.label] ?? 0;
+
+    const tables = [
+      fisico.length ? {
+        key: "fisico",
+        label: "Físico",
+        rows: fisico,
         definition: resourceDefinitions.physicalSales,
-        rows: filteredSalesForChart,
-      });
-      return;
-    }
-    if (row.label === "Bolsa") {
-      setResourceTableModal({
-        title: `Derivativos Bolsa (${selectedCurrencyLabel})`,
+      } : null,
+      bolsa.length ? {
+        key: "bolsa",
+        label: "Bolsa",
+        rows: bolsa,
         definition: resourceDefinitions.derivativeOperations,
-        rows: getDerivativeSourceRows("Bolsa", includeOpenDerivatives, includeClosedDerivatives),
-      });
-      return;
-    }
-    if (row.label === "Cambio") {
-      setResourceTableModal({
-        title: `Derivativos Cambio (${selectedCurrencyLabel})`,
+      } : null,
+      cambio.length ? {
+        key: "cambio",
+        label: "Câmbio",
+        rows: cambio,
         definition: resourceDefinitions.derivativeOperations,
-        rows: getDerivativeSourceRows("Cambio", includeOpenDerivatives, includeClosedDerivatives),
-      });
-      return;
-    }
+      } : null,
+    ].filter(Boolean);
+
+    if (!tables.length) return;
+
+    const groupLabel = groupKey === "G1" ? "Preço por saca" : "Receita total";
+    setMultiTableModal({
+      period: `${groupLabel} — ${row.label} (${selectedCurrencyLabel})`,
+      tables,
+      initialIndex: Math.min(initialIndex, tables.length - 1),
+    });
   };
 
   const soldAveragePrice = selectedDivisor > 0 ? physicalChartRevenueValue / selectedDivisor : 0;
@@ -14099,8 +14205,77 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   });
   const VerticalChartComponent = chartEngine === "echarts" ? PriceCompositionVerticalEChart : PriceCompositionVerticalChart;
 
+  const cultureOptions = useMemo(() =>
+    (options?.cropBoardCrops?.length > 0 ? options.cropBoardCrops : options?.crops || [])
+      .map((c) => ({ value: String(c.id), label: c.ativo || c.cultura || String(c.id) })),
+    [options?.cropBoardCrops, options?.crops]
+  );
+  const safraOptions = useMemo(() =>
+    (options?.cropBoardSeasons?.length > 0 ? options.cropBoardSeasons : options?.seasons || [])
+      .map((s) => ({ value: String(s.id), label: s.safra || String(s.id) })),
+    [options?.cropBoardSeasons, options?.seasons]
+  );
+  const activeCulturas = Array.isArray(filter?.cultura) ? filter.cultura.map(String) : [];
+  const activeSafras = Array.isArray(filter?.safra) ? filter.safra.map(String) : [];
+
+  const CULTURA_COLORS = ["#16a34a", "#2563eb", "#d97706", "#9333ea", "#dc2626", "#0891b2", "#c2410c", "#4338ca"];
+  const SAFRA_COLORS   = ["#0f766e", "#1d4ed8", "#b45309", "#7c3aed", "#b91c1c", "#0e7490", "#c2410c", "#3730a3"];
+
+
   return (
     <section className="price-comp-shell">
+
+      {/* ══════════════════════════════════════════════
+          Filtros — Segmented control
+      ══════════════════════════════════════════════ */}
+      {(cultureOptions.length > 0 || safraOptions.length > 0) ? (
+        <section className="pc-filter-bar pc-filter-bar--tabs">
+          {cultureOptions.length > 0 && (
+            <div className="pc-filter-group">
+              <span className="pc-filter-group-label">Cultura</span>
+              <div className="pc-seg-group">
+                {cultureOptions.map((opt, i) => {
+                  const val = String(opt.value ?? opt.id ?? opt);
+                  const label = String(opt.label ?? opt.cultura ?? opt);
+                  const active = activeCulturas.includes(val);
+                  const color = CULTURA_COLORS[i % CULTURA_COLORS.length];
+                  return (
+                    <button key={val} type="button"
+                      className={`pc-seg-btn${active ? " is-active" : ""}`}
+                      style={{ "--seg-color": color }}
+                      onClick={() => toggleFilterValue("cultura", val)}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {safraOptions.length > 0 && (
+            <div className="pc-filter-group">
+              <span className="pc-filter-group-label">Safra</span>
+              <div className="pc-seg-group">
+                {safraOptions.map((opt, i) => {
+                  const val = String(opt.value ?? opt.id ?? opt);
+                  const label = String(opt.label ?? opt.safra ?? opt);
+                  const active = activeSafras.includes(val);
+                  const color = SAFRA_COLORS[i % SAFRA_COLORS.length];
+                  return (
+                    <button key={val} type="button"
+                      className={`pc-seg-btn${active ? " is-active" : ""}`}
+                      style={{ "--seg-color": color }}
+                      onClick={() => toggleFilterValue("safra", val)}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+
       <section className="stats-grid">
         <article className="card stat-card summary-insight-card">
           <SummaryInsightButton
@@ -14345,17 +14520,18 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         </article>
       </section>
 
-      {resourceTableModal ? (
-        <DashboardResourceTableModal
-          title={resourceTableModal.title}
-          definition={resourceTableModal.definition}
-          rows={resourceTableModal.rows}
-          onClose={() => setResourceTableModal(null)}
-          onEdit={(row) => openPriceCompositionOperation({
-            ...row,
-            recordId: row.id,
-            resourceKey: resourceTableModal.definition.resource,
-          })}
+      {multiTableModal ? (
+        <CashflowMultiTableModal
+          period={multiTableModal.period}
+          tables={multiTableModal.tables}
+          initialActiveIndex={multiTableModal.initialIndex}
+          periodSummary={null}
+          currencyConfig={null}
+          onClose={() => setMultiTableModal(null)}
+          onEdit={(row, resource) => {
+            setMultiTableModal(null);
+            openPriceCompositionOperation({ ...row, recordId: row.id, resourceKey: resource });
+          }}
         />
       ) : null}
       {editorNode}
@@ -16696,53 +16872,56 @@ function ClientRankingDashboard({ dashboardFilter }) {
     <section className="client-ranking-shell">
       {error ? <div className="client-ranking-alert">{error}</div> : null}
       {loading ? <div className="client-ranking-loading">Carregando ranking de clientes...</div> : null}
-      <div className="client-ranking-toolbar">
-        <div className="client-ranking-toggle-group" role="group" aria-label="Agrupar por">
-          <span className="client-ranking-toggle-label">Agrupar por:</span>
-          <button
-            type="button"
-            className={`client-ranking-toggle-btn${groupBy === "grupo" ? " is-active" : ""}`}
-            onClick={() => setGroupBy("grupo")}
-          >
-            Grupo
-          </button>
-          <button
-            type="button"
-            className={`client-ranking-toggle-btn${groupBy === "subgrupo" ? " is-active" : ""}`}
-            onClick={() => setGroupBy("subgrupo")}
-          >
-            Subgrupo
-          </button>
-        </div>
-        {availableExchanges.length > 0 ? (
-          <div className="client-ranking-toggle-group" role="group" aria-label="Filtrar por bolsa">
-            <span className="client-ranking-toggle-label">Bolsa:</span>
-            {availableExchanges.map((exchange) => (
+      <section className="pc-filter-bar pc-filter-bar--tabs dseg-filter-bar">
+        <div className="pc-filter-group">
+          <span className="pc-filter-group-label">Agrupar por</span>
+          <div className="pc-seg-group" role="group" aria-label="Agrupar por">
+            {[{ value: "grupo", label: "Grupo" }, { value: "subgrupo", label: "Subgrupo" }].map((opt, i) => (
               <button
-                key={exchange}
+                key={opt.value}
                 type="button"
-                className={`client-ranking-toggle-btn${selectedExchanges.includes(exchange) ? " is-active" : ""}`}
-                onClick={() =>
-                  setSelectedExchanges((prev) =>
-                    prev.includes(exchange) ? prev.filter((e) => e !== exchange) : [...prev, exchange],
-                  )
-                }
+                className={`pc-seg-btn${groupBy === opt.value ? " is-active" : ""}`}
+                style={{ "--seg-color": "#0f766e" }}
+                onClick={() => setGroupBy(opt.value)}
               >
-                {exchange}
+                {opt.label}
               </button>
             ))}
-            {selectedExchanges.length > 0 ? (
-              <button
-                type="button"
-                className="client-ranking-toggle-btn client-ranking-toggle-clear"
-                onClick={() => setSelectedExchanges([])}
-              >
-                Limpar
-              </button>
-            ) : null}
+          </div>
+        </div>
+        {availableExchanges.length > 0 ? (
+          <div className="pc-filter-group">
+            <span className="pc-filter-group-label">Bolsa</span>
+            <div className="pc-seg-group" role="group" aria-label="Filtrar por bolsa">
+              {availableExchanges.map((exchange, i) => (
+                <button
+                  key={exchange}
+                  type="button"
+                  className={`pc-seg-btn${selectedExchanges.includes(exchange) ? " is-active" : ""}`}
+                  style={{ "--seg-color": "#2563eb" }}
+                  onClick={() =>
+                    setSelectedExchanges((prev) =>
+                      prev.includes(exchange) ? prev.filter((e) => e !== exchange) : [...prev, exchange],
+                    )
+                  }
+                >
+                  {exchange}
+                </button>
+              ))}
+              {selectedExchanges.length > 0 ? (
+                <button
+                  type="button"
+                  className="pc-seg-btn"
+                  style={{ color: "#94a3b8" }}
+                  onClick={() => setSelectedExchanges([])}
+                >
+                  Limpar
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
-      </div>
+      </section>
       <section className="client-ranking-stats" aria-label="Resumo do ranking">
         <article className="client-ranking-stat">
           <span>Clientes no recorte</span>
@@ -16837,23 +17016,25 @@ function MtmDerivativeMaturityPanel({ rows, onOpenItem, onOpenDateRows }) {
       animationDuration: 220,
       grid: { left: 8, right: 8, top: 36, bottom: 48, containLabel: true },
       tooltip: {
-        trigger: "item",
+        trigger: "axis",
+        axisPointer: { type: "shadow", shadowStyle: { color: "rgba(148,163,184,0.08)" } },
         backgroundColor: "#1e293b",
         borderColor: "transparent",
         padding: [10, 14],
         textStyle: { color: "#f1f5f9", fontSize: 13 },
         formatter: (params) => {
-          const ops = maturityRows.filter((r) => r.dateText === params.name);
+          const p = Array.isArray(params) ? params[0] : params;
+          const ops = maturityRows.filter((r) => r.dateText === p.name);
           const lines = ops.map((r) => {
             const color = r.valueColor === "positive" ? "#4ade80" : r.valueColor === "negative" ? "#f87171" : "#cbd5e1";
             return `<span style="color:#94a3b8">${r.app} · ${r.summaryLabel || r.title || ""}</span> <b style="color:${color}">${r.valueLabel}</b>`;
           });
-          const totalColor = params.value >= 0 ? "#4ade80" : "#f87171";
+          const totalColor = p.value >= 0 ? "#4ade80" : "#f87171";
           return [
-            `<b style="color:#f1f5f9">${params.name}</b>`,
+            `<b style="color:#f1f5f9">${p.name}</b>`,
             ...lines,
             `<span style="border-top:1px solid #334155;display:block;margin:4px 0"></span>`,
-            `<b style="font-size:14px;color:${totalColor}">${fmtChartValue(params.value)}</b>`,
+            `<b style="font-size:14px;color:${totalColor}">${fmtChartValue(p.value)}</b>`,
           ].join("<br/>");
         },
       },
@@ -16960,6 +17141,21 @@ function MtmDerivativeMaturityPanel({ rows, onOpenItem, onOpenDateRows }) {
     instance.setOption({ tooltip: { alwaysShowContent: false } });
     instance.dispatchAction({ type: "hideTip" });
   }, []);
+
+  // Fundo cinza na coluna da data hovered (funciona tanto no hover do gráfico quanto da lista)
+  useEffect(() => {
+    const instance = echartsRef.current?.getEchartsInstance?.();
+    if (!instance) return;
+    instance.setOption({
+      series: [{
+        markArea: hoveredDate ? {
+          silent: true,
+          itemStyle: { color: "rgba(148,163,184,0.18)" },
+          data: [[{ xAxis: hoveredDate }, { xAxis: hoveredDate }]],
+        } : { data: [] },
+      }],
+    }, { replaceMerge: [] });
+  }, [hoveredDate]);
 
   if (!maturityRows.length) return null;
 
@@ -19816,70 +20012,56 @@ function MtmDashboard({ dashboardFilter }) {
 
   return (
     <section className="mtm-shell">
-      <div className="mtm-filter-panel">
-        <div className="mtm-filter-panel-head">
-          <div className="mtm-filter-panel-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            <span>Filtros</span>
-            {activeFilterCount > 0 && (
-              <span className="mtm-filter-badge">{activeFilterCount} ativo{activeFilterCount !== 1 ? "s" : ""}</span>
-            )}
-          </div>
-          <div className="mtm-filter-panel-actions">
-            {activeFilterCount > 0 && (
-              <button type="button" className="mtm-filter-clear-all" onClick={clearAllFilters}>
-                Limpar tudo
-              </button>
-            )}
-            <button
-              type="button"
-              className={`mtm-filter-collapse-btn${filterPanelOpen ? " is-open" : ""}`}
-              onClick={() => setFilterPanelOpen((v) => !v)}
-              aria-expanded={filterPanelOpen}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-            </button>
-          </div>
-        </div>
-        {filterPanelOpen && (
-          <div className="mtm-filter-panel-body">
-            {seasonOptions.length > 0 && (
-              <div className="mtm-filter-row">
-                <span className="mtm-filter-row-label">Safra</span>
-                <div className="mtm-filter-pills">
-                  {seasonOptions.map((item) => {
-                    const id = String(item.id);
-                    const label = item.safra || item.nome || id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className={`mtm-filter-pill${mtmSafra.includes(id) ? " is-active" : ""}`}
-                        onClick={() => toggleMtmSafra(id)}
-                      >{label}</button>
-                    );
-                  })}
-                </div>
+      {(bolsaOptions.length > 0 || seasonOptions.length > 0) && (
+        <section className="pc-filter-bar pc-filter-bar--tabs dseg-filter-bar">
+          {bolsaOptions.length > 0 && (
+            <div className="pc-filter-group">
+              <span className="pc-filter-group-label">Bolsa</span>
+              <div className="pc-seg-group">
+                {bolsaOptions.map((label, i) => {
+                  const isActive = mtmBolsa.includes(label);
+                  const color = SEG_COLORS[i % SEG_COLORS.length];
+                  return (
+                    <button key={label} type="button"
+                      className={`pc-seg-btn${isActive ? " is-active" : ""}`}
+                      style={{ "--seg-color": color }}
+                      onClick={() => toggleMtmBolsa(label)}>
+                      {label}
+                    </button>
+                  );
+                })}
+                {mtmBolsa.length > 0 && (
+                  <button type="button" className="pc-filter-clear" onClick={() => setMtmBolsa([])}>Limpar</button>
+                )}
               </div>
-            )}
-            {bolsaOptions.length > 0 && (
-              <div className="mtm-filter-row">
-                <span className="mtm-filter-row-label">Bolsa</span>
-                <div className="mtm-filter-pills">
-                  {bolsaOptions.map((label) => (
-                    <button
-                      key={label}
-                      type="button"
-                      className={`mtm-filter-pill mtm-filter-pill--exchange${mtmBolsa.includes(label) ? " is-active" : ""}`}
-                      onClick={() => toggleMtmBolsa(label)}
-                    >{label}</button>
-                  ))}
-                </div>
+            </div>
+          )}
+          {seasonOptions.length > 0 && (
+            <div className="pc-filter-group">
+              <span className="pc-filter-group-label">Safra</span>
+              <div className="pc-seg-group">
+                {seasonOptions.map((item, i) => {
+                  const id = String(item.id);
+                  const label = item.safra || item.nome || id;
+                  const isActive = mtmSafra.includes(id);
+                  const color = SEG_COLORS[i % SEG_COLORS.length];
+                  return (
+                    <button key={id} type="button"
+                      className={`pc-seg-btn${isActive ? " is-active" : ""}`}
+                      style={{ "--seg-color": color }}
+                      onClick={() => toggleMtmSafra(id)}>
+                      {label}
+                    </button>
+                  );
+                })}
+                {mtmSafra.length > 0 && (
+                  <button type="button" className="pc-filter-clear" onClick={() => setMtmSafra([])}>Limpar</button>
+                )}
               </div>
-            )}
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+        </section>
+      )}
       <section className="mtm-phase-section">
         <div className="mtm-hero-grid">
           {heroCards.map((card) => renderHeroCard(card))}
@@ -20570,6 +20752,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
   if (kind === "hedgePolicy") {
     return (
       <div className="resource-page dashboard-page hedge-policy-fullscreen-page">
+        <PageHeader title="Política de Hedge" description="Acompanhamento do hedge realizado sobre custo e produção líquida versus a política definida." />
         <HedgePolicyDashboard dashboardFilter={filter} />
       </div>
     );
