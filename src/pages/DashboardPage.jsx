@@ -8932,7 +8932,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
 
   return (
     <section className="risk-kpi-shell risk-kpi-shell--summary">
-      <DashboardSegFilterBar />
       {!summaryLoading ? (
         <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
       ) : (
@@ -8945,6 +8944,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           ))}
         </section>
       )}
+
+      <DashboardSegFilterBar />
 
       <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
         {!summaryLoading ? (
