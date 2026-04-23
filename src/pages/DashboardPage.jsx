@@ -8945,57 +8945,59 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         </section>
       )}
 
-      <DashboardSegFilterBar />
+      <div className="risk-kpi-filter-cards-group">
+        <DashboardSegFilterBar />
 
-      <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
-        {!summaryLoading ? (
-          <>
-            <HedgeByCultureChart
-              rows={hedgeByCultureRows}
-              insightTitle="Hedge por cultura"
-              insightMessage={
-                <SummaryInsightCopy
-                  paragraphs={[
-                    "Este bloco mostra as culturas existentes para o grupo e subgrupo filtrados, usando a mesma metodologia do Hedge Realizado.",
-                    "O percentual considera vendas físicas e derivativos ativos sobre a produção líquida, descontando Pgtos Físico da base.",
-                  ]}
-                />
-              }
-            />
-            <article className="card stat-card summary-insight-card">
-              <SummaryInsightButton
-                title="Produção líquida"
-                message={
+        <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
+          {!summaryLoading ? (
+            <>
+              <HedgeByCultureChart
+                rows={hedgeByCultureRows}
+                insightTitle="Hedge por cultura"
+                insightMessage={
                   <SummaryInsightCopy
                     paragraphs={[
-                      `O número principal de ${formatNumber0(displayedNetProductionVolume)} sc representa a produção líquida disponível para comercialização e hedge no recorte atual.`,
-                      `Abaixo, ${formatNumber0(displayedPhysicalPaymentVolume)} sc mostra os pagamentos físicos já comprometidos, e ${formatNumber0(displayedProductionTotal)} sc representa a produção total antes desse desconto${displayedTotalArea > 0 ? `, equivalente a ${formatNumber0(displayedProductionTotal / displayedTotalArea)} sc/ha em ${formatNumber0(displayedTotalArea)} ha` : ""}.`,
+                      "Este bloco mostra as culturas existentes para o grupo e subgrupo filtrados, usando a mesma metodologia do Hedge Realizado.",
+                      "O percentual considera vendas físicas e derivativos ativos sobre a produção líquida, descontando Pgtos Físico da base.",
                     ]}
                   />
                 }
               />
-              <h1 className="stat-card-primary-title risk-kpi-card-title">Produção líquida{producaoLiquidaHint ? <span className="hedge-culture-filter-hint">{producaoLiquidaHint}</span> : null}</h1>
-              <strong>{formatNumber0(displayedNetProductionVolume)} sc</strong>
-              <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
-              <strong className="stat-card-secondary-value">{formatNumber0(displayedPhysicalPaymentVolume)} sc</strong>
-              <span className="stat-card-secondary-label">Produção total</span>
-              <strong className="stat-card-secondary-value">
-                {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
-              </strong>
-            </article>
-            <UpcomingMaturitiesCard rows={upcomingMaturityDisplayRows} onOpenItem={openMaturityForm} usdBrlRate={getUsdBrlQuoteValue(marketQuotes)} />
-          </>
-        ) : (
-          Array.from({ length: 3 }).map((_, index) => (
-            <article key={`risk-summary-card-skeleton-${index}`} className="card stat-card risk-kpi-skeleton-card risk-kpi-skeleton-card-medium">
-              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
-              <div className="risk-kpi-skeleton-line" />
-              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
-              <div className="risk-kpi-skeleton-line" />
-            </article>
-          ))
-        )}
-      </section>
+              <article className="card stat-card summary-insight-card">
+                <SummaryInsightButton
+                  title="Produção líquida"
+                  message={
+                    <SummaryInsightCopy
+                      paragraphs={[
+                        `O número principal de ${formatNumber0(displayedNetProductionVolume)} sc representa a produção líquida disponível para comercialização e hedge no recorte atual.`,
+                        `Abaixo, ${formatNumber0(displayedPhysicalPaymentVolume)} sc mostra os pagamentos físicos já comprometidos, e ${formatNumber0(displayedProductionTotal)} sc representa a produção total antes desse desconto${displayedTotalArea > 0 ? `, equivalente a ${formatNumber0(displayedProductionTotal / displayedTotalArea)} sc/ha em ${formatNumber0(displayedTotalArea)} ha` : ""}.`,
+                      ]}
+                    />
+                  }
+                />
+                <h1 className="stat-card-primary-title risk-kpi-card-title">Produção líquida{producaoLiquidaHint ? <span className="hedge-culture-filter-hint">{producaoLiquidaHint}</span> : null}</h1>
+                <strong>{formatNumber0(displayedNetProductionVolume)} sc</strong>
+                <span className="stat-card-secondary-label">(-) Pgtos Físico</span>
+                <strong className="stat-card-secondary-value">{formatNumber0(displayedPhysicalPaymentVolume)} sc</strong>
+                <span className="stat-card-secondary-label">Produção total</span>
+                <strong className="stat-card-secondary-value">
+                  {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
+                </strong>
+              </article>
+              <UpcomingMaturitiesCard rows={upcomingMaturityDisplayRows} onOpenItem={openMaturityForm} usdBrlRate={getUsdBrlQuoteValue(marketQuotes)} />
+            </>
+          ) : (
+            Array.from({ length: 3 }).map((_, index) => (
+              <article key={`risk-summary-card-skeleton-${index}`} className="card stat-card risk-kpi-skeleton-card risk-kpi-skeleton-card-medium">
+                <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
+                <div className="risk-kpi-skeleton-line" />
+                <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
+                <div className="risk-kpi-skeleton-line" />
+              </article>
+            ))
+          )}
+        </section>
+      </div>
 
       {analyticsReady ? (
         <>

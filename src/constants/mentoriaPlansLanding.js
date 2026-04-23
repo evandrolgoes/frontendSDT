@@ -80,9 +80,9 @@ export const MENTORIA_PLANS = [
     levelColor: "rgba(220, 227, 225, 0.92)",
     romanNumeral: "I",
     levelWord: "Level",
-    levelPrefix: "Nível",
+    levelPrefix: "Nível: Intermediário",
     level: "Trader Junior",
-    subtitle: "Inicie a sua Transição de Carreira",
+    subtitle: "Inicie a sua Jornada nesse Mercado",
     promise: "Inicie a sua Jornada nesse Mercado",
     forWho: [
             "Quem quer ser o Profissional mais valorizado do Agro dos próximos 10 anos",
@@ -115,7 +115,7 @@ export const MENTORIA_PLANS = [
     priceInstallment: "12x de R$ 197",
     priceTotal: "ou R$ 1.970 à vista",
     ctaLabel: "QUERO SER TRADER AGRO",
-    ctaHref: "#",
+    ctaHref: "https://chk.eduzz.com/6W4GZAQ60Z",
   },
   {
     id: "avancado",
@@ -124,7 +124,7 @@ export const MENTORIA_PLANS = [
     levelColor: "#f97316",
     romanNumeral: "II",
     levelWord: "Level",
-    levelPrefix: "Nível",
+    levelPrefix: "Nível: Avançado",
     level: "Estrategista de Hedge",
     subtitle: "Seja o Profissional + Procurado do Agro",
     promise: "Você vai começar a jogar o jogo de verdade.",
@@ -145,7 +145,6 @@ export const MENTORIA_PLANS = [
       "Política de Hedge avançada — construção completa",
       "Comitê de Hedge — como estruturar e conduzir",
             "Análise de crédito, DRE e Balanço: Como os bancos estão te vendo?",
-      "Pricing — PMT's e Pricing de derivativos",
       "Logística EUA e Logística Soja Mundo",
             "Rotina comercial e Vendas 2.0",
 
@@ -161,6 +160,6 @@ export const MENTORIA_PLANS = [
     priceInstallment: "12x de R$ 297",
     priceTotal: "ou R$ 2.970 à vista",
     ctaLabel: "QUERO SER ESTRATEGISTA",
-    ctaHref: "https://chk.eduzz.com/E9OOYXDA9B",
+    ctaHref: "https://chk.eduzz.com/39YN7V73WO",
   },
 ];

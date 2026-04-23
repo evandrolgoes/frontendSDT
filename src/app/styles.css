@@ -11752,6 +11752,28 @@ tfoot td {
   margin-bottom: 12px;
 }
 
+/* Grupo filter bar + cards grudados (página resumo) */
+.risk-kpi-filter-cards-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.risk-kpi-filter-cards-group .dseg-filter-bar {
+  margin-bottom: 0;
+}
+.risk-kpi-filter-cards-group .pc-filter-bar {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: none;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.9) inset,
+    0 -2px 8px rgba(15,23,42,0.04),
+    0 1px 3px rgba(15,23,42,0.06);
+}
+.risk-kpi-filter-cards-group > .risk-kpi-grid-three {
+  padding-top: 12px;
+}
+
 .pc-filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -14872,7 +14894,7 @@ tfoot td {
   position: relative;
   z-index: 1;
   width: min(608px, 100%);
-  max-height: calc((100vh - 48px) * 0.72);
+  max-height: 98vh;
   overflow: auto;
   border-radius: 32px;
   padding: 22px;
@@ -14901,18 +14923,18 @@ tfoot td {
 
 .mentoria-landing-form {
   display: grid;
-  gap: 12px;
+  gap: 7px;
 }
 
 .mentoria-landing-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 7px;
 }
 
 .mentoria-landing-form label span {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
   color: rgba(220, 227, 225, 0.72);
   font-size: calc(0.72rem * 0.8);
   font-weight: 700;
@@ -14925,11 +14947,12 @@ tfoot td {
 .mentoria-landing-form textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
+  border-radius: 12px;
   background: rgba(0, 0, 0, 0.28);
   color: #fff;
-  padding: 12px 14px;
+  padding: 7px 12px;
   font: inherit;
+  font-size: 0.88rem;
   resize: vertical;
 }
 
@@ -15052,7 +15075,7 @@ tfoot td {
 }
 
 .mentoria-plans-section {
-  padding: 108px 0;
+  padding: 54px 0;
 }
 
 /* ---------- Nav ---------- */
@@ -15258,7 +15281,7 @@ tfoot td {
 }
 
 .mentoria-plans-section-head {
-  margin-bottom: 56px;
+  margin-bottom: 28px;
 }
 
 .mentoria-plans-section-title {
@@ -15446,14 +15469,24 @@ tfoot td {
 
 /* ---------- Barra de frase standalone ---------- */
 .mentoria-plans-strip-quote-bar {
-  background: #0a0f0d;
-  padding: 48px 40px;
+  position: relative;
+  background: url('/Gemini_Generated_Image_qnvelnqnvelnqnve.png') center center / cover no-repeat;
+  padding: 96px 40px;
   text-align: center;
   border-top: 1px solid rgba(255,255,255,0.06);
   border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
+.mentoria-plans-strip-quote-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+}
+
 .mentoria-plans-strip-quote-bar p {
+  position: relative;
+  z-index: 1;
   margin: 0 auto;
   max-width: 600px;
   font-size: clamp(1.3rem, 2.8vw, 2rem);
@@ -15599,6 +15632,47 @@ tfoot td {
 .mentoria-plans-body {
   font-size: calc((1.05rem * 0.8) * 1.1);
   margin-top: 20px;
+}
+
+/* ── Metrics full-width strip (below hero) ── */
+.mentoria-plans-metrics-strip {
+  display: flex;
+  flex-wrap: wrap;
+  width: 100%;
+  background: #161a18;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mentoria-plans-metrics-strip-card {
+  flex: 1 1 0;
+  min-width: 140px;
+  padding: 28px 24px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.mentoria-plans-metrics-strip-card:last-child {
+  border-right: none;
+}
+
+.mentoria-plans-metrics-strip-card strong {
+  display: block;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #7cf592;
+  line-height: 1.1;
+}
+
+.mentoria-plans-metrics-strip-card span {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: rgba(220, 227, 225, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  line-height: 1.3;
 }
 
 .mentoria-plans-metric-grid {
@@ -15875,12 +15949,12 @@ tfoot td {
 
 /* "Nível" prefix acima do nome */
 .mentoria-plans-combined-level-prefix {
-  font-size: 0.62rem;
-  font-weight: 700;
+  font-size: 0.68rem;
+  font-weight: 800;
   letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--plan-accent, #f59e0b);
-  opacity: 0.7;
+  opacity: 1;
   margin-bottom: 4px;
 }
 
@@ -15889,7 +15963,7 @@ tfoot td {
   font-size: 1.9rem;
   font-weight: 900;
   letter-spacing: -0.04em;
-  color: var(--plan-level-color, rgba(220, 227, 225, 0.92));
+  color: #fff;
   line-height: 1;
 }
 
@@ -16081,28 +16155,59 @@ tfoot td {
 }
 
 /* Preço + CTA */
+.mentoria-plans-promo-badge {
+  margin: 20px 32px 14px;
+  display: block;
+  padding: 8px 20px;
+  border-radius: 8px;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  color: #fbbf24;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+  width: calc(100% - 64px);
+  animation: promo-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes promo-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(251, 191, 36, 0.3); }
+  50%       { opacity: 0.4; box-shadow: none; }
+}
+
 .mentoria-plans-combined-footer {
   margin-top: auto;
-  padding: 24px 32px 32px;
+  padding: 0 32px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.mentoria-plans-combined-price-row {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  width: 100%;
   gap: 16px;
+  margin-top: 14px;
 }
 
 .mentoria-plans-combined-price-from {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: rgba(220, 227, 225, 0.42);
-  letter-spacing: 0.04em;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
   margin-bottom: 4px;
 }
 
 .mentoria-plans-combined-price-from s {
   text-decoration: line-through;
-  text-decoration-color: rgba(220, 227, 225, 0.5);
+  text-decoration-color: rgba(255, 255, 255, 0.4);
   font-weight: 700;
-  color: rgba(220, 227, 225, 0.52);
+  color: #fff;
 }
 
 .mentoria-plans-combined-price strong {
@@ -16117,8 +16222,9 @@ tfoot td {
 .mentoria-plans-combined-price span {
   display: block;
   margin-top: 6px;
-  font-size: 0.8rem;
-  color: rgba(220, 227, 225, 0.5);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
   letter-spacing: 0.02em;
 }
 

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useCallback, useState } from "react";
 
+import { api } from "../services/api";
 import {
   MENTORIA_PLANS_DELIVERY,
   MENTORIA_PLANS_IMAGES,
@@ -7,6 +8,20 @@ import {
   MENTORIA_PLANS_PERSONAS,
   MENTORIA_PLANS,
 } from "../constants/mentoriaPlansLanding";
+
+const LANDING_PAGE_TITLE_PLANS = "Mentoria Traders do Agro — Plans";
+
+const INITIAL_FORM = {
+  nome: "",
+  whatsapp: "",
+  email: "",
+  perfil: "",
+  funcao: "",
+  empresa: "",
+  objetivo_mentoria: "",
+  mensagem: "",
+};
+
 
 
 const LANDING_PAGE_TITLE = "Mentoria Traders do Agro";
@@ -52,6 +67,51 @@ export function MentoriaPlansLandingPage() {
   }, []);
 
   const currentYear = useMemo(() => new Date().getFullYear(), []);
+
+  // ── Modal de lead ──
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pendingHref, setPendingHref] = useState("");
+  const [formState, setFormState] = useState(INITIAL_FORM);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const openModal = useCallback((nivel, href) => {
+    setFormState({ ...INITIAL_FORM, mensagem: `Tenho interesse no ${nivel}` });
+    setPendingHref(href);
+    setIsSubmitting(false);
+    setModalOpen(true);
+  }, []);
+
+  const closeModal = useCallback(() => setModalOpen(false), []);
+
+  const handleChange = useCallback((e) => {
+    const { name, value } = e.target;
+    setFormState((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleSubmit = useCallback(async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await api.post("/leads/", {
+        nome: formState.nome,
+        whatsapp: formState.whatsapp,
+        email: formState.email,
+        perfil: formState.perfil,
+        trabalho_ocupacao_atual: formState.funcao,
+        empresa_atual: formState.empresa,
+        landing_page: LANDING_PAGE_TITLE_PLANS,
+        objetivo: formState.objetivo_mentoria,
+        mensagem: formState.mensagem,
+      });
+    } catch (err) {
+      console.error("Erro ao salvar lead", err);
+    } finally {
+      setIsSubmitting(false);
+      // Redireciona direto para o checkout
+      window.open(pendingHref, "_blank", "noopener,noreferrer");
+      setModalOpen(false);
+    }
+  }, [formState, pendingHref]);
 
   // ── Carrossel drag + auto-scroll JS ──
   const wrapperRef = useRef(null);
@@ -135,6 +195,79 @@ export function MentoriaPlansLandingPage() {
 
   return (
     <div className="mentoria-plans-page">
+
+      {/* ── MODAL DE LEAD ── */}
+      {modalOpen ? (
+        <div className="mentoria-landing-modal-shell" role="dialog" aria-modal="true" aria-label="Interesse na Mentoria">
+          <button className="mentoria-landing-modal-backdrop" aria-label="Fechar" onClick={closeModal} />
+          <div className="mentoria-landing-modal-card">
+            <button className="mentoria-landing-modal-close" onClick={closeModal} aria-label="Fechar">×</button>
+
+            <>
+                <span className="mentoria-landing-eyebrow">PROGRAMA DE FORMAÇÃO TRADERS DO AGRO</span>
+                <h2 className="mentoria-landing-modal-title">Preencha seus dados para continuar</h2>
+                
+
+                <form className="mentoria-landing-form" onSubmit={handleSubmit}>
+                  <label>
+                    <span>Nome completo</span>
+                    <input name="nome" type="text" value={formState.nome} onChange={handleChange} required />
+                  </label>
+                  <div className="mentoria-landing-form-grid">
+                    <label>
+                      <span>WhatsApp</span>
+                      <input name="whatsapp" type="tel" value={formState.whatsapp} onChange={handleChange} placeholder="(00) 00000-0000" required />
+                    </label>
+                    <label>
+                      <span>E-mail</span>
+                      <input name="email" type="email" value={formState.email} onChange={handleChange} required />
+                    </label>
+                  </div>
+                  <label>
+                    <span>Perfil</span>
+                    <select name="perfil" value={formState.perfil} onChange={handleChange} required>
+                      <option value="" disabled>Selecione seu perfil</option>
+                      <option value="Produtor Rural">Produtor Rural</option>
+                      <option value="Consultor / Agrônomo">Consultor / Agrônomo</option>
+                      <option value="Profissional de Trading">Profissional de Trading / Originação</option>
+                      <option value="Investidor">Investidor do Setor</option>
+                      <option value="Outro">Outro</option>
+                    </select>
+                  </label>
+                  <div className="mentoria-landing-form-grid">
+                    <label>
+                      <span>Trabalho e função atual</span>
+                      <input name="funcao" type="text" value={formState.funcao} onChange={handleChange} required />
+                    </label>
+                    <label>
+                      <span>Empresa atual</span>
+                      <input name="empresa" type="text" value={formState.empresa} onChange={handleChange} required />
+                    </label>
+                  </div>
+                  <label>
+                    <span>Qual o objetivo com a mentoria?</span>
+                    <select name="objetivo_mentoria" value={formState.objetivo_mentoria} onChange={handleChange} required>
+                      <option value="" disabled>Selecione seu objetivo principal</option>
+                      <option value="Dominar proteção de margem (Hedge)">Dominar proteção de margem (Hedge)</option>
+                      <option value="Transição de carreira para o mercado financeiro Agro">Transição de carreira para o mercado financeiro Agro</option>
+                      <option value="Oferecer consultoria estratégica para clientes">Oferecer consultoria estratégica para clientes</option>
+                      <option value="Entender formação de preços (Chicago/Câmbio)">Entender formação de preços (Chicago/Câmbio)</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Mensagem</span>
+                    <textarea name="mensagem" value={formState.mensagem} onChange={handleChange} rows="3" />
+                  </label>
+                  <button type="submit" className="mentoria-landing-primary-btn mentoria-landing-submit-btn" disabled={isSubmitting}>
+                    {isSubmitting ? <span className="mentoria-landing-submit-loader" aria-label="Enviando" /> : null}
+                    {isSubmitting ? "Enviando..." : "Enviar e Continuar"}
+                  </button>
+                </form>
+            </>
+          </div>
+        </div>
+      ) : null}
+
       <nav className="mentoria-plans-nav">
         <div className="mentoria-plans-brand">
           TRADERS <span>do AGRO</span>
@@ -164,7 +297,7 @@ export function MentoriaPlansLandingPage() {
             Derivativos, gestão de risco, política de hedge, leitura de mercado e tomada de decisão com método —
             é isso que separa quem sobrevive de{" "}
             <span className="mentoria-plans-hero-text-emphasis">quem lidera o jogo.</span>
-            <br />
+            <br /><br />
             <span className="mentoria-plans-hero-text-emphasis">Para Profissionais</span>{" "}
             que desejam ocupar uma das cadeiras mais valiosas do Agro dos próximos anos.
             <br />
@@ -377,32 +510,28 @@ export function MentoriaPlansLandingPage() {
 
               {/* Preço + CTA */}
               <div className="mentoria-plans-combined-footer">
-                <div className="mentoria-plans-combined-price">
-                  <div className="mentoria-plans-combined-price-from">
-                    de <s>{plan.originalPrice}</s> para
+                <div className="mentoria-plans-promo-badge">VALOR PROMOCIONAL DE LANÇAMENTO</div>
+                <div className="mentoria-plans-combined-price-row">
+                  <div className="mentoria-plans-combined-price">
+                    <div className="mentoria-plans-combined-price-from">
+                      de <s>{plan.originalPrice}</s> para
+                    </div>
+                    <strong>{plan.priceInstallment}</strong>
+                    <span>{plan.priceTotal}</span>
                   </div>
-                  <strong>{plan.priceInstallment}</strong>
-                  <span>{plan.priceTotal}</span>
+                  <button
+                    type="button"
+                    className="mentoria-plans-combined-cta"
+                    onClick={() => openModal(`Nível ${plan.level}`, plan.ctaHref)}
+                  >
+                    {plan.ctaLabel}
+                  </button>
                 </div>
-                <a href={plan.ctaHref} className="mentoria-plans-combined-cta">
-                  {plan.ctaLabel}
-                </a>
               </div>
             </article>
           ))}
         </div>
       </PlansSection>
-
-      {/* ── FAIXA ATMOSFÉRICA ── */}
-      <div className="mentoria-plans-strip mentoria-plans-reveal">
-        <img src={MENTORIA_PLANS_IMAGES.stripTrading} alt="Mercado financeiro" />
-        <div className="mentoria-plans-strip-overlay">
-          <p className="mentoria-plans-strip-quote">
-            "O mercado não precisa de opiniões.<br />
-            <strong>Precisa de estrategistas."</strong>
-          </p>
-        </div>
-      </div>
 
       {/* ── MENTOR ── */}
       <PlansSection id="mentor" className="mentoria-plans-surface-dark">
@@ -411,7 +540,7 @@ export function MentoriaPlansLandingPage() {
             <img src={MENTORIA_PLANS_IMAGES.mentorPortrait} alt="Evandro Góes" />
           </div>
           <div className="mentoria-plans-copy-panel">
-            <PlansEyebrow className="mentoria-plans-reveal">Quem vai te levar até lá</PlansEyebrow>
+            <PlansEyebrow className="mentoria-plans-eyebrow-large mentoria-plans-reveal">Quem será o seu Mentor</PlansEyebrow>
             <h2 className="mentoria-plans-section-title mentoria-plans-reveal mentoria-plans-reveal-delay-1">Evandro Góes</h2>
             <p className="mentoria-plans-body mentoria-plans-reveal mentoria-plans-reveal-delay-2">
               Uma das maiores autoridades em hedge agrícola no Brasil — e o criador do método que a mentoria ensina.
@@ -429,15 +558,15 @@ export function MentoriaPlansLandingPage() {
               <span className="mentoria-plans-conceito-emphasis">Estrategistas de Hedge</span> — profissionais preparados
               para ocupar a cadeira mais valiosa do Agro: a de quem decide com inteligência e protege quem produz.
             </p>
-            <div className="mentoria-plans-metric-grid mentoria-plans-reveal mentoria-plans-reveal-delay-3">
-              {MENTORIA_PLANS_METRICS.map((metric) => (
-                <div key={metric.label} className="mentoria-plans-metric-card">
-                  <strong>{metric.value}</strong>
-                  <span>{metric.label}</span>
-                </div>
-              ))}
-            </div>
           </div>
+        </div>
+        <div className="mentoria-plans-metric-grid mentoria-plans-reveal mentoria-plans-reveal-delay-3">
+          {MENTORIA_PLANS_METRICS.map((metric) => (
+            <div key={metric.label} className="mentoria-plans-metric-card">
+              <strong>{metric.value}</strong>
+              <span>{metric.label}</span>
+            </div>
+          ))}
         </div>
       </PlansSection>
 

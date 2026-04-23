@@ -335,7 +335,7 @@ const formatCellValue = (column, value, row) => {
   if (type === "datetime") {
     return formatDateTime(value);
   }
-  if (column.key === "phone" || String(column.label || "").trim().toLowerCase() === "telefone") {
+  if (type === "phone" || column.key === "phone" || String(column.label || "").trim().toLowerCase() === "telefone") {
     return formatPhone(value);
   }
   if (type === "number") {

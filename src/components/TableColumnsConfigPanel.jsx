@@ -46,6 +46,17 @@ const TABLE_COLUMN_CONFIG_GROUPS = [
       "derivativeOperationNames",
     ],
   },
+  {
+    id: "admin",
+    label: "Admin",
+    items: [
+      "entryClients",
+      "receiptEntries",
+      "accountsPayable",
+      "contracts",
+      "leads",
+    ],
+  },
 ];
 
 const DEFAULT_DEFINITION_KEY = TABLE_COLUMN_CONFIG_GROUPS[0].items[0];
