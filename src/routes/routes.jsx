@@ -150,7 +150,7 @@ const baseNavigationSections = [
       { path: "/agenda-config", label: "Config Agenda Google", module: "agenda_config" },
       { path: "/extrato-recebimentos", label: "Extrato Recebimentos", module: "admin_asaas_extrato" },
       { path: "/gaming", label: "Gaming", module: "admin_gaming" },
-      { path: "/leads", label: "Leads", module: "admin_leads", superuserOnly: true },
+      { path: "/leads", label: "Leads", module: "admin_leads" },
       { path: "/config", label: "Config", module: "tool_missing_fields", superuserOnly: true },
     ],
   },
@@ -319,7 +319,7 @@ export const appRoutes = [
   { path: "/agenda-config", element: <AgendaConfigPage />, module: "agenda_config" },
   { path: "/extrato-recebimentos", element: <AsaasExtratePage />, module: "admin_asaas_extrato" },
   { path: "/gaming", element: <GamingPage />, module: "admin_gaming", title: "Gaming" },
-  { ...resourceRoute("/leads", "leads", "leads"), module: "admin_leads", superuserOnly: true },
+  { ...resourceRoute("/leads", "leads", "leads"), module: "admin_leads" },
   { path: "/importador-json", element: <JsonImportPage />, module: "sys_json_import", superuserOnly: true },
   { path: "/copy-base", element: <CopyBasePage />, module: "sys_copy_base", superuserOnly: true },
 ];
