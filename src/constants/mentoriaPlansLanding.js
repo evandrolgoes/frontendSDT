@@ -5,6 +5,17 @@ export const MENTORIA_PLANS_IMAGES = {
     "https://d6c3507005dbeecfa21c1ba89e6db00d.cdn.bubble.io/f1768478337656x795680711954410200/mentor.JPG",
   abstractBg:
     "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=1974&auto=format&fit=crop",
+  // Conceito — campo de soja ao entardecer
+  conceitoField:
+    "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=900&auto=format&fit=crop&q=80",
+  // Faixa atmosférica entre personas e mentor — trading floor
+  stripTrading:
+    "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=1600&auto=format&fit=crop&q=80",
+  // Delivery cards
+  deliveryPlatform: "/plataforma-aulas.png",
+  deliveryLive: "/encontros-ao-vivo.png",
+  deliveryCommunity: "/comunidade-whatsapp.png",
+  deliveryTools: "/ferramentas-hedge.png",
 };
 
 export const MENTORIA_PLANS_PERSONAS = [
@@ -40,22 +51,24 @@ export const MENTORIA_PLANS_METRICS = [
 
 export const MENTORIA_PLANS_DELIVERY = [
   {
-    icon: "▶",
+    imageKey: "deliveryPlatform",
     title: "Plataforma com Aulas Gravadas",
-    description:
-      "Acesso a aulas gravadas do básico ao avançado, organizadas por módulo. Você aprende no seu ritmo, com acesso completo durante os 6 meses.",
+    description: "Do básico ao avançado, organizadas por módulo. 6 meses de acesso completo.",
   },
   {
-    icon: "◎",
+    imageKey: "deliveryLive",
     title: "Encontros Mensais ao Vivo",
-    description:
-      "1 encontro por mês com todos os alunos (Trader Agro e Estrategista de Hedge), com duração de aproximadamente 3 horas. Mercado, estratégia e tira-dúvidas ao vivo.",
+    description: "1 encontro Ao Vivo 1x por mês com mercado, estratégia e tira-dúvidas ao vivo.",
   },
   {
-    icon: "◈",
+    imageKey: "deliveryCommunity",
     title: "Comunidade no WhatsApp",
-    description:
-      "Grupo exclusivo para dúvidas de mercado. O foco é a troca entre os membros, com participação direta do mentor na medida do possível.",
+    description: "Grupo exclusivo para troca entre membros, com participação direta do mentor.",
+  },
+  {
+    imageKey: "deliveryTools",
+    title: "Ferramentas Exclusivas de Hedge",
+    description: "Dashboards profissionais para montar e acompanhar suas operações de hedge.",
   },
 ];
 
@@ -63,19 +76,19 @@ export const MENTORIA_PLANS = [
   {
     id: "intermediario",
     badge: null,
-    accentColor: "#f59e0b",
+    accentColor: "#7cf592",
     levelColor: "rgba(220, 227, 225, 0.92)",
     romanNumeral: "I",
     levelWord: "Level",
     levelPrefix: "Nível",
-    level: "Trader Agro",
-    subtitle: "Base e Execução",
-    promise: "Você vai parar de errar na comercialização.",
+    level: "Trader Junior",
+    subtitle: "Inicie a sua Transição de Carreira",
+    promise: "Inicie a sua Jornada nesse Mercado",
     forWho: [
-      "Quem já fez alguma operação de Derivativos e quer entrar no Agro",
-      "Quem quer ser o Profissional mais valorizado do Agro dos próximos 10 anos",
+            "Quem quer ser o Profissional mais valorizado do Agro dos próximos 10 anos",
+      "Quem já conhece sobre Derivativos e agora quer entrar no Agro",
       "Quem busca uma base sólida antes de avançar para o nível Estrategista",
-      "Profissionais do Agro que querem fazer uma transição de carreira calculada.",
+      "Profissionais que querem fazer uma transição de carreira calculada e em até 12 meses",
     ],
     topics: [
       "Por que você será o Profissional + Valorizado do Agro pelos próximos 10 anos",
@@ -94,10 +107,11 @@ export const MENTORIA_PLANS = [
     includesIntro: null,
     includes: [
       "Plataforma com aulas gravadas",
-      "1 encontro mensal ao vivo (~3h)",
+      "1 encontro mensal Ao Vivo",
       "Comunidade no WhatsApp",
       "6 meses de acesso completo",
     ],
+    originalPrice: "R$ 5.000",
     priceInstallment: "12x de R$ 197",
     priceTotal: "ou R$ 1.970 à vista",
     ctaLabel: "QUERO SER TRADER AGRO",
@@ -112,14 +126,15 @@ export const MENTORIA_PLANS = [
     levelWord: "Level",
     levelPrefix: "Nível",
     level: "Estrategista de Hedge",
-    subtitle: "Estratégia e Gestão",
+    subtitle: "Seja o Profissional + Procurado do Agro",
     promise: "Você vai começar a jogar o jogo de verdade.",
     forWho: [
-      "Produtores rurais que precisam proteger a margem com método com uso equilibrado de Derivativos",
-      "Profissionais do Agro que querem fazer uma transição de carreira em até 6 meses",
-      "Profissionais de tradings que precisam dominar derivativos e originação avançada",
-      "Quem já é Trader Agro e quer avançar para o nível mais completo",
+      "Produtores rurais que precisam melhorar a margem financeira decidindo com estratégia e não com achismo",
+            "Profissionais do Agro que desejam empreender como Consultores com Liberdade Financeira e de Tempo",
+
+      "Profissionais do Agro que querem aceletar a sua transição de carreira em até 6 meses",
       "Quem quer aprender a montar políticas de hedge, comitê de risco e fazer operações estruturadas",
+      "Consultores do Agro que desejam faturar pelo menos R$15 Mil mensais.",
     ],
     topics: [
       "Posição de fundos e leitura profissional de mercado",
@@ -138,15 +153,14 @@ export const MENTORIA_PLANS = [
     ],
     includesIntro: "Você terá acesso a:",
     includes: [
-      "Ferramentas e Planilhas exclusivas",
+      "Ferramentas e Planilhas exclusivas para Estrategistas",
       "Módulos exclusivos de nível avançado",
-      "1 encontro mensal ao vivo (~3h)",
-      "Comunidade no WhatsApp",
-      "6 meses de acesso completo",
-    ],
+            "Comunidade Exclusiva de Estrategistas no WhatsApp",
+          ],
+    originalPrice: "R$ 10.000",
     priceInstallment: "12x de R$ 297",
     priceTotal: "ou R$ 2.970 à vista",
     ctaLabel: "QUERO SER ESTRATEGISTA",
-    ctaHref: "#",
+    ctaHref: "https://chk.eduzz.com/E9OOYXDA9B",
   },
 ];

@@ -15267,6 +15267,45 @@ tfoot td {
 }
 
 /* ---------- Conceito ---------- */
+.mentoria-plans-conceito-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 72px;
+  align-items: center;
+}
+
+.mentoria-plans-conceito-image {
+  position: relative;
+  border-radius: 24px;
+  overflow: hidden;
+  aspect-ratio: 4 / 5;
+}
+
+.mentoria-plans-conceito-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.mentoria-plans-conceito-image-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(5, 7, 5, 0.88) 0%, transparent 55%);
+  display: flex;
+  align-items: flex-end;
+  padding: 28px;
+}
+
+.mentoria-plans-conceito-image-overlay span {
+  color: rgba(220, 227, 225, 0.82);
+  font-size: 0.95rem;
+  font-style: italic;
+  line-height: 1.6;
+  border-left: 3px solid #7cf592;
+  padding-left: 14px;
+}
+
 .mentoria-plans-copy-panel {
   max-width: 800px;
 }
@@ -15293,27 +15332,63 @@ tfoot td {
   font-size: calc((1.05rem * 0.8) * 1.1);
 }
 
-/* ---------- Delivery cards ---------- */
-.mentoria-plans-delivery-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+/* ---------- Delivery carousel ---------- */
+.mentoria-plans-delivery-carousel-wrapper {
+  overflow-x: auto;
   margin-bottom: 56px;
+  /* esconde scrollbar em todos os browsers */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  /* fade nas bordas */
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+  user-select: none;
+}
+
+.mentoria-plans-delivery-carousel-wrapper::-webkit-scrollbar {
+  display: none;
+}
+
+.mentoria-plans-delivery-carousel-track {
+  display: flex;
+  gap: 20px;
+  width: max-content;
 }
 
 .mentoria-plans-delivery-card {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 24px;
-  padding: 32px 28px;
+  overflow: hidden;
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 360px;
 }
 
-.mentoria-plans-delivery-icon {
-  font-size: 1.6rem;
-  margin-bottom: 16px;
-  color: #7cf592;
+.mentoria-plans-delivery-card-image {
+  width: 100%;
+  height: 180px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mentoria-plans-delivery-card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 500ms ease;
+}
+
+.mentoria-plans-delivery-card:hover .mentoria-plans-delivery-card-image img {
+  transform: scale(1.05);
+}
+
+.mentoria-plans-delivery-card-body {
+  padding: 24px 28px 28px;
 }
 
 .mentoria-plans-delivery-card h3 {
@@ -15328,6 +15403,69 @@ tfoot td {
   color: rgba(220, 227, 225, 0.72);
   font-size: calc((1.0rem * 0.8) * 1.1);
   line-height: 1.7;
+}
+
+/* ---------- Faixa atmosférica ---------- */
+.mentoria-plans-strip {
+  position: relative;
+  height: 320px;
+  overflow: hidden;
+}
+
+.mentoria-plans-strip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  display: block;
+}
+
+.mentoria-plans-strip-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(5, 7, 5, 0.82) 0%, rgba(5, 7, 5, 0.48) 60%, rgba(5, 7, 5, 0.18) 100%);
+  display: flex;
+  align-items: center;
+  padding: 0 calc((100% - min(1180px, calc(100% - 40px))) / 2 + 20px);
+}
+
+.mentoria-plans-strip-quote {
+  margin: 0;
+  max-width: 520px;
+  font-size: clamp(1.4rem, 3vw, 2.2rem);
+  font-weight: 300;
+  color: rgba(220, 227, 225, 0.88);
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.mentoria-plans-strip-quote strong {
+  font-weight: 800;
+  color: #fff;
+}
+
+/* ---------- Barra de frase standalone ---------- */
+.mentoria-plans-strip-quote-bar {
+  background: #0a0f0d;
+  padding: 48px 40px;
+  text-align: center;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.mentoria-plans-strip-quote-bar p {
+  margin: 0 auto;
+  max-width: 600px;
+  font-size: clamp(1.3rem, 2.8vw, 2rem);
+  font-weight: 300;
+  color: rgba(220, 227, 225, 0.88);
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+}
+
+.mentoria-plans-strip-quote-bar strong {
+  font-weight: 800;
+  color: #fff;
 }
 
 /* ---------- Curriculum (O que você vai aprender) ---------- */
@@ -15622,13 +15760,14 @@ tfoot td {
 
 /* ---------- "Escolha o seu nível de acesso" label ---------- */
 .mentoria-plans-choose-label {
-  margin: 0 0 20px;
+  margin: 0 0 28px;
   text-align: center;
-  font-size: 0.78rem;
+  font-size: 1.55rem;
   font-weight: 800;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  color: rgba(220, 227, 225, 0.44);
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: #fff;
+  line-height: 1.2;
 }
 
 /* ---------- Combined plan cards (conteúdo + preço unificados) ---------- */
@@ -15655,12 +15794,30 @@ tfoot td {
 }
 
 .mentoria-plans-combined-card--featured {
-  border-color: rgba(249, 115, 22, 0.38);
+  border-color: rgba(249, 115, 22, 0.5);
+  animation: mentoria-plans-glow 2.4s ease-in-out infinite;
 }
 
 .mentoria-plans-combined-card--featured:hover {
-  border-color: rgba(249, 115, 22, 0.64);
-  box-shadow: 0 24px 64px rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.9);
+  box-shadow: 0 24px 80px rgba(249, 115, 22, 0.32);
+  animation: none;
+}
+
+@keyframes mentoria-plans-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 0 rgba(249, 115, 22, 0),
+      0 8px 32px rgba(249, 115, 22, 0.1);
+    border-color: rgba(249, 115, 22, 0.38);
+  }
+  50% {
+    box-shadow:
+      0 0 40px 8px rgba(249, 115, 22, 0.28),
+      0 0 80px 16px rgba(249, 115, 22, 0.12),
+      0 8px 64px rgba(249, 115, 22, 0.22);
+    border-color: rgba(249, 115, 22, 0.9);
+  }
 }
 
 .mentoria-plans-combined-badge {
@@ -15729,9 +15886,9 @@ tfoot td {
 
 /* Nome do nível — maior e mais evidente */
 .mentoria-plans-combined-level {
-  font-size: 1.45rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  font-size: 1.9rem;
+  font-weight: 900;
+  letter-spacing: -0.04em;
   color: var(--plan-level-color, rgba(220, 227, 225, 0.92));
   line-height: 1;
 }
@@ -15771,9 +15928,32 @@ tfoot td {
   margin-top: 1px;
 }
 
-/* Box "Todo o conteúdo do Trader Agro" dentro de Conteúdos */
+/* Box "Todo o conteúdo do Trader Junior" dentro de Conteúdos */
 .mentoria-plans-combined-all-included--topics {
-  margin-bottom: 14px;
+  margin-bottom: 0;
+  background: rgba(124, 245, 146, 0.1);
+  border-color: rgba(124, 245, 146, 0.4);
+  color: #7cf592;
+  box-shadow: 0 0 16px rgba(124, 245, 146, 0.12);
+}
+
+.mentoria-plans-combined-all-included--topics svg {
+  color: #7cf592;
+}
+
+/* "+" entre o box e os tópicos extras */
+.mentoria-plans-combined-plus {
+  text-align: center;
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--plan-accent, #f97316);
+  line-height: 1;
+  margin: 10px 0;
+  opacity: 0.9;
+}
+
+.mentoria-plans-combined-plus--left {
+  text-align: left;
 }
 
 /* Promessa — substituiu tagline */
@@ -15795,31 +15975,35 @@ tfoot td {
 .mentoria-plans-combined-label {
   display: block;
   margin-bottom: 12px;
-  font-size: 0.65rem;
+  font-size: 0.82rem;
   font-weight: 800;
-  letter-spacing: 0.26em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--plan-accent, #4a9eff);
-  opacity: 0.82;
+  opacity: 0.9;
 }
 
-/* Linha "Todo o conteúdo do Intermediário" no Avançado */
+/* Linha "Todo o conteúdo do Trader Junior" no Avançado */
 .mentoria-plans-combined-all-included {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin-bottom: 10px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: rgba(249, 115, 22, 0.08);
-  border: 1px solid rgba(249, 115, 22, 0.28);
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.45);
   color: #f97316;
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  box-shadow: 0 0 16px rgba(249, 115, 22, 0.15);
 }
 
 .mentoria-plans-combined-all-included svg {
   flex-shrink: 0;
+  width: 16px;
+  height: 16px;
   color: #f97316;
 }
 
@@ -15858,6 +16042,10 @@ tfoot td {
   background: rgba(255, 255, 255, 0.07);
 }
 
+.mentoria-plans-combined-divider--inner {
+  margin: 16px 0;
+}
+
 /* O que está incluído */
 .mentoria-plans-combined-includes {
   list-style: none;
@@ -15882,6 +16070,16 @@ tfoot td {
   color: var(--plan-accent, #4a9eff);
 }
 
+/* Itens de acesso com cor de destaque */
+.mentoria-plans-combined-includes--accent li {
+  color: var(--plan-accent, #7cf592);
+  font-weight: 600;
+}
+
+.mentoria-plans-combined-includes--accent li svg {
+  color: var(--plan-accent, #7cf592);
+}
+
 /* Preço + CTA */
 .mentoria-plans-combined-footer {
   margin-top: auto;
@@ -15890,6 +16088,21 @@ tfoot td {
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
+}
+
+.mentoria-plans-combined-price-from {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgba(220, 227, 225, 0.42);
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.mentoria-plans-combined-price-from s {
+  text-decoration: line-through;
+  text-decoration-color: rgba(220, 227, 225, 0.5);
+  font-weight: 700;
+  color: rgba(220, 227, 225, 0.52);
 }
 
 .mentoria-plans-combined-price strong {
@@ -15984,6 +16197,15 @@ tfoot td {
 
 /* ---------- Responsivo ---------- */
 @media (max-width: 1024px) {
+  .mentoria-plans-conceito-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mentoria-plans-conceito-image {
+    aspect-ratio: 16 / 7;
+    order: -1;
+  }
+
   .mentoria-plans-mentor-grid {
     grid-template-columns: 1fr;
   }
@@ -15993,8 +16215,8 @@ tfoot td {
     aspect-ratio: 1 / 1;
   }
 
-  .mentoria-plans-delivery-grid {
-    grid-template-columns: 1fr;
+  .mentoria-plans-delivery-card {
+    width: 280px;
   }
 }
 
