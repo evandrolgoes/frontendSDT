@@ -16188,11 +16188,16 @@ tfoot td {
 
 .mentoria-plans-combined-price-row {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: center;
   width: 100%;
   gap: 16px;
   margin-top: 14px;
+}
+
+.mentoria-plans-combined-price {
+  text-align: center;
+  width: 100%;
 }
 
 .mentoria-plans-combined-price-from {
@@ -16201,6 +16206,7 @@ tfoot td {
   color: #fff;
   letter-spacing: 0.02em;
   margin-bottom: 4px;
+  white-space: nowrap;
 }
 
 .mentoria-plans-combined-price-from s {
@@ -16217,6 +16223,7 @@ tfoot td {
   letter-spacing: -0.04em;
   color: var(--plan-accent, #f59e0b);
   line-height: 1;
+  white-space: nowrap;
 }
 
 .mentoria-plans-combined-price span {
@@ -16226,11 +16233,12 @@ tfoot td {
   font-weight: 600;
   color: #fff;
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .mentoria-plans-combined-cta {
-  flex-shrink: 0;
-  display: inline-block;
+  width: 100%;
+  display: block;
   padding: 13px 22px;
   border-radius: 999px;
   background: var(--plan-accent, #4a9eff);
