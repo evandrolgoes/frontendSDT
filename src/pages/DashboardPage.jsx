@@ -8927,13 +8927,19 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       {!summaryLoading ? (
         <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
       ) : (
-        <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <article key={`risk-top-skeleton-${index}`} className="card stat-card risk-kpi-skeleton-card">
-              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
-              <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
-            </article>
-          ))}
+        <section className="resource-filter-panel risk-kpi-quotes-strip summary-insight-card risk-kpi-quotes-strip-skeleton">
+          <div className="resource-filter-marquee risk-kpi-quotes-strip-marquee">
+            <div className="resource-filter-track">
+              <div className="resource-filter-sequence">
+                {Array.from({ length: 8 }).map((_, index) => (
+                  <div key={`risk-quotes-strip-skeleton-${index}`} className="resource-filter-card risk-kpi-quotes-strip-card risk-kpi-skeleton-card">
+                    <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
+                    <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </section>
       )}
 

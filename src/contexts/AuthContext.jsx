@@ -27,9 +27,12 @@ export function AuthProvider({ children }) {
       setUser(data);
     } catch (error) {
       console.error("Nao foi possivel restaurar a sessao do usuario.", error);
-      clearSessionCaches();
-      tokenStorage.clear();
-      setUser(null);
+      const status = error.response?.status;
+      if (status === 401 || status === 403) {
+        clearSessionCaches();
+        tokenStorage.clear();
+        setUser(null);
+      }
     } finally {
       setLoading(false);
     }

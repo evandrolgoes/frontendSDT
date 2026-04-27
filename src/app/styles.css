@@ -4343,6 +4343,16 @@ textarea {
   font-size: 0.68rem;
 }
 
+.risk-kpi-quotes-strip-skeleton .resource-filter-card {
+  cursor: default;
+  align-content: center;
+  gap: 4px;
+}
+
+.risk-kpi-quotes-strip-skeleton .risk-kpi-skeleton-card > * + * {
+  margin-top: 4px;
+}
+
 .risk-kpi-news-stat-card {
   display: grid;
   gap: 6px;

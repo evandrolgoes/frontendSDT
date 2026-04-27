@@ -121,8 +121,11 @@ api.interceptors.response.use(
       return api(originalRequest);
     } catch (refreshError) {
       flushQueue(refreshError);
-      tokenStorage.clear();
-      window.location.href = "/login";
+      const refreshStatus = refreshError.response?.status;
+      if (refreshStatus === 401 || refreshStatus === 403) {
+        tokenStorage.clear();
+        window.location.href = "/login";
+      }
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;
