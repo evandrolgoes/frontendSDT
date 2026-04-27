@@ -6,6 +6,7 @@ import { DerivativeOperationForm } from "../components/DerivativeOperationForm";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceTable, usePreparedResourceTable } from "../components/ResourceTable";
 import { ResourceForm } from "../components/ResourceForm";
+import { SimpleQuotesTable, buildTradingviewChartUrl, openTradingviewPopupWindow } from "../components/SimpleQuotesTable";
 import { useAuth } from "../contexts/AuthContext";
 import { useResourceCrud } from "../hooks/useResourceCrud";
 import { api } from "../services/api";
@@ -193,19 +194,6 @@ const formatBrazilianPhone = (value) => {
   return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
-const isVolumeField = (column) => {
-  const normalizedKey = String(column?.key || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-  const normalizedLabel = String(column?.label || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-  return normalizedKey.includes("volume") || normalizedLabel.includes("volume");
-};
-
 const calculateDerivativeMtm = (row, strikeMtm, openUsdBrlQuote = 0) => {
   const isMoedaOperation = String(row.moeda_ou_cmdtye || "").trim().toLowerCase() === "moeda";
   const status = String(row.status_operacao || "").trim().toLowerCase();
@@ -322,22 +310,6 @@ const useLookupRows = (columns, rows) => {
   );
 };
 
-const formatSimpleTableValue = (column, value) => {
-  if (value === null || value === undefined || value === "") {
-    return "—";
-  }
-  if (column.type === "number") {
-    return formatBrazilianNumber(value, isVolumeField(column) ? 0 : 2);
-  }
-  if (column.type === "date") {
-    return formatBrazilianDate(value, "—");
-  }
-  if (column.type === "datetime") {
-    return formatBrazilianDateTime(value, "—");
-  }
-  return String(value);
-};
-
 const formatAuditChangeValue = (value) => {
   if (value === null || value === undefined || value === "") {
     return "—";
@@ -349,176 +321,6 @@ const formatAuditChangeValue = (value) => {
     return JSON.stringify(value);
   }
   return String(value);
-};
-
-const buildTradingviewChartUrl = (row) => {
-  const symbolParam = String(row?.ticker || row?.symbol || "").trim();
-  if (!symbolParam) {
-    return "";
-  }
-  return `https://br.tradingview.com/chart/QwgamVHA/?symbol=${encodeURIComponent(symbolParam)}`;
-};
-
-function SimpleQuotesTable({
-  title,
-  rows,
-  columns,
-  searchValue,
-  searchPlaceholder,
-  onSearchChange,
-  onClear,
-  onTickerClick,
-}) {
-  const filteredRows = useMemo(() => {
-    const search = String(searchValue || "")
-      .trim()
-      .toLowerCase();
-
-    if (!search) {
-      return rows;
-    }
-
-    return rows.filter((row) =>
-      columns.some((column) => String(row?.[column.key] ?? "").toLowerCase().includes(search)),
-    );
-  }, [columns, rows, searchValue]);
-
-  return (
-    <section className="simple-quotes-shell">
-      <div className="simple-quotes-toolbar">
-        <div className="simple-quotes-title">{title}</div>
-        <div className="simple-quotes-toolbar-actions">
-          <input
-            className="simple-quotes-search"
-            placeholder={searchPlaceholder}
-            value={searchValue}
-            onChange={(event) => onSearchChange(event.target.value)}
-          />
-          <button className="bubble-btn bubble-btn-light" type="button" onClick={onClear}>
-            Limpar
-          </button>
-        </div>
-      </div>
-
-      <div className="simple-quotes-viewport custom-scrollbar">
-        <table className="simple-quotes-table">
-          <thead>
-            <tr>
-              {columns.map((column) => (
-                <th key={column.key}>{column.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.length ? (
-              filteredRows.map((row) => (
-                <tr key={row.id}>
-                  {columns.map((column) => {
-                    const numericValue = parseLocalizedNumber(row?.[column.key]);
-                    const toneClass =
-                      column.key === "change_value" || column.key === "change_percent"
-                        ? numericValue > 0
-                          ? " is-positive"
-                          : numericValue < 0
-                            ? " is-negative"
-                            : ""
-                        : "";
-
-                    return (
-                      <td key={column.key} className={toneClass}>
-                        {column.key === "ticker" && typeof onTickerClick === "function" ? (
-                          <button
-                            type="button"
-                            className="simple-quotes-ticker-button"
-                            onClick={() => onTickerClick(row)}
-                            title={`Abrir grafico de ${row?.symbol || row?.ticker || ""}`}
-                          >
-                            {formatSimpleTableValue(column, row?.[column.key])}
-                          </button>
-                        ) : (
-                          formatSimpleTableValue(column, row?.[column.key])
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td className="simple-quotes-empty" colSpan={columns.length}>
-                  Nenhum registro encontrado.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="simple-quotes-mobile-list">
-        {filteredRows.length ? (
-          filteredRows.map((row) => {
-            const changeValue = parseLocalizedNumber(row?.change_value);
-            const variationClass = changeValue > 0 ? " is-positive" : changeValue < 0 ? " is-negative" : "";
-            const tickerLabel = formatSimpleTableValue({ key: "ticker" }, row?.ticker);
-            const descriptionLabel = formatSimpleTableValue({ key: "description" }, row?.description);
-            const priceLabel = formatBrazilianNumber(row?.price, 2);
-            const variationLabel =
-              row?.change_value !== null && row?.change_value !== undefined
-                ? `${formatSignedBrazilianNumber(row?.change_value, 2)} (${formatSignedBrazilianNumber(row?.change_percent, 2)}%)`
-                : "Sem variacao";
-
-            return (
-              <article className="simple-quotes-mobile-card" key={`mobile-${row.id}`}>
-                <div className="simple-quotes-mobile-symbol">
-                  {typeof onTickerClick === "function" ? (
-                    <button
-                      type="button"
-                      className="simple-quotes-mobile-ticker"
-                      onClick={() => onTickerClick(row)}
-                      title={`Abrir grafico de ${row?.symbol || row?.ticker || ""}`}
-                    >
-                      {tickerLabel}
-                    </button>
-                  ) : (
-                    <strong className="simple-quotes-mobile-ticker-text">{tickerLabel}</strong>
-                  )}
-                  <span className="simple-quotes-mobile-description">{descriptionLabel}</span>
-                </div>
-
-                <div className="simple-quotes-mobile-price-block">
-                  <strong className="simple-quotes-mobile-price">{priceLabel}</strong>
-                  <span className={`simple-quotes-mobile-variation${variationClass}`}>{variationLabel}</span>
-                </div>
-              </article>
-            );
-          })
-        ) : (
-          <div className="simple-quotes-mobile-empty">Nenhum registro encontrado.</div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-const openTradingviewPopupWindow = (url) => {
-  if (!url || typeof window === "undefined") {
-    return;
-  }
-  const width = Math.min(1440, Math.max(1100, Math.floor(window.screen.width * 0.86)));
-  const height = Math.min(920, Math.max(760, Math.floor(window.screen.height * 0.88)));
-  const left = Math.max(0, Math.floor((window.screen.width - width) / 2));
-  const top = Math.max(0, Math.floor((window.screen.height - height) / 2));
-  const features = [
-    `width=${width}`,
-    `height=${height}`,
-    `left=${left}`,
-    `top=${top}`,
-    "resizable=yes",
-    "scrollbars=yes",
-    "noopener=yes",
-    "noreferrer=yes",
-  ].join(",");
-  window.open(url, "_blank", features);
 };
 
 export function ResourcePage({ definition }) {

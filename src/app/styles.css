@@ -1847,7 +1847,7 @@ textarea {
 }
 
 .risk-kpi-skeleton-card-medium {
-  min-height: 230px;
+  min-height: var(--risk-kpi-summary-card-height, 164px);
 }
 
 .risk-kpi-skeleton-card-tall {
@@ -4212,6 +4212,13 @@ textarea {
 .risk-kpi-grid-three > .risk-kpi-news-stat-card,
 .risk-kpi-grid-three > .risk-kpi-gauge-card,
 .risk-kpi-grid-three > .risk-kpi-distribution-card {
+  min-height: var(--risk-kpi-summary-card-height);
+  height: 100%;
+  max-height: var(--risk-kpi-summary-card-height);
+  width: 100%;
+}
+
+.risk-kpi-grid-three > .risk-kpi-skeleton-card {
   min-height: var(--risk-kpi-summary-card-height);
   height: 100%;
   max-height: var(--risk-kpi-summary-card-height);
@@ -8006,6 +8013,33 @@ textarea {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.blog-quotes-popup-backdrop {
+  padding: 0;
+}
+
+.blog-quotes-popup {
+  width: 98vw;
+  max-width: 98vw;
+  height: 98vh;
+  max-height: 98vh;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.blog-quotes-popup .simple-quotes-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.blog-quotes-popup .simple-quotes-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .dashboard-resource-table-header {

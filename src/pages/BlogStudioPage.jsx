@@ -4,8 +4,21 @@ import "quill/dist/quill.snow.css";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { PageHeader } from "../components/PageHeader";
+import { SimpleQuotesTable, buildTradingviewChartUrl, openTradingviewPopupWindow } from "../components/SimpleQuotesTable";
 import { useAuth } from "../contexts/AuthContext";
 import { resourceService } from "../services/resourceService";
+
+const QUOTES_TABLE_COLUMNS = [
+  { key: "section_name", label: "Secao" },
+  { key: "ticker", label: "Ticker" },
+  { key: "description", label: "Descricao" },
+  { key: "price", label: "Preco", type: "number" },
+  { key: "change_percent", label: "Variacao %", type: "number" },
+  { key: "change_value", label: "Variacao", type: "number" },
+  { key: "currency", label: "Moeda" },
+  { key: "instrument_type", label: "Tipo" },
+  { key: "symbol", label: "Simbolo" },
+];
 
 const IMAGE_UPLOAD_MAX_DIMENSION = 1600;
 const IMAGE_UPLOAD_OUTPUT_TYPE = "image/webp";
@@ -1500,6 +1513,8 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
   const [searchText, setSearchText] = useState("");
   const [quoteRows, setQuoteRows] = useState([]);
   const [isFeedCollapsed, setIsFeedCollapsed] = useState(false);
+  const [isQuotesPopupOpen, setIsQuotesPopupOpen] = useState(false);
+  const [quotesPopupSearch, setQuotesPopupSearch] = useState("");
 
   const requestParams = useMemo(() => (isPublicSurface ? { public: 1 } : {}), [isPublicSurface]);
   const activeCategory = searchParams.get("categoria") || "";
@@ -1791,7 +1806,38 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
 
       {error ? <div className="form-error">{error}</div> : null}
 
-      <BlogQuotesStrip rows={quoteRows} onOpen={isPublicSurface ? undefined : () => navigate("/mercado/cotacoes")} />
+      <BlogQuotesStrip rows={quoteRows} onOpen={() => setIsQuotesPopupOpen(true)} />
+
+      {isQuotesPopupOpen ? (
+        <div
+          className="component-popup-backdrop blog-quotes-popup-backdrop"
+          onClick={() => setIsQuotesPopupOpen(false)}
+        >
+          <div
+            className="component-popup blog-quotes-popup"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="component-popup-close"
+              onClick={() => setIsQuotesPopupOpen(false)}
+              aria-label="Fechar cotacoes"
+            >
+              ×
+            </button>
+            <SimpleQuotesTable
+              title="Cotacoes"
+              columns={QUOTES_TABLE_COLUMNS}
+              rows={quoteRows}
+              searchValue={quotesPopupSearch}
+              searchPlaceholder="Buscar simbolo, secao ou descricao..."
+              onSearchChange={setQuotesPopupSearch}
+              onClear={() => setQuotesPopupSearch("")}
+              onTickerClick={(row) => openTradingviewPopupWindow(buildTradingviewChartUrl(row))}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <section className={`blog-studio-shell${isFeedCollapsed ? " is-feed-collapsed" : ""}`}>
         <aside className={`blog-studio-feed${isFeedCollapsed ? " is-collapsed" : ""}`}>

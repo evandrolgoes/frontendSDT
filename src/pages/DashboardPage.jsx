@@ -7625,7 +7625,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
 
   useEffect(() => {
     let isMounted = true;
-    let timeoutId = 0;
 
     const baseKey = JSON.stringify({ grupo: summaryParams.grupo, subgrupo: summaryParams.subgrupo });
     const isBaseChange = prevAnalyticsBaseKeyRef.current !== baseKey;
@@ -7722,17 +7721,10 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         });
     };
 
-    if (typeof window !== "undefined") {
-      timeoutId = window.setTimeout(() => {
-        loadAnalytics();
-      }, cachedDashboard?.analyticsReady ? 1200 : 50);
-    }
+    loadAnalytics();
 
     return () => {
       isMounted = false;
-      if (typeof window !== "undefined") {
-        window.clearTimeout(timeoutId);
-      }
     };
   }, [dashboardCacheKey, summaryParams]);
 
