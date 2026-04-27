@@ -1483,8 +1483,8 @@ function BlogPlaceholder({ canManagePosts, onCreatePost }) {
 }
 
 export function BlogStudioPage({ basePath = "/mercado/blog" }) {
-  const isPublicSurface = basePath === "/blog";
   const { user } = useAuth();
+  const isPublicSurface = basePath === "/blog" || !user;
   const navigate = useNavigate();
   const { postId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();

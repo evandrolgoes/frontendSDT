@@ -65,6 +65,64 @@ textarea {
   transition: grid-template-columns 0.28s ease;
 }
 
+.public-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #f4f6fb;
+}
+
+.public-shell-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #0f2344;
+  color: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 2px 6px rgba(15, 35, 68, 0.18);
+}
+
+.public-shell-brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 0.2px;
+}
+
+.public-shell-brand:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+.public-shell-login {
+  white-space: nowrap;
+}
+
+.public-shell-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  position: relative;
+  padding: 20px 24px;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+@media (max-width: 768px) {
+  .public-shell-topbar {
+    padding: 10px 14px;
+  }
+  .public-shell-main {
+    padding: 14px;
+  }
+}
+
 .app-shell.sidebar-collapsed {
   grid-template-columns: 0 1fr;
 }

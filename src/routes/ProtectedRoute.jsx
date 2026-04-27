@@ -2,6 +2,7 @@ import { Navigate, useLocation, useOutlet } from "react-router-dom";
 
 import { useAuth } from "../contexts/AuthContext";
 import { AdminLayout } from "../layouts/AdminLayout";
+import { PublicShell } from "../layouts/PublicShell";
 import { hasModuleAccess, hasUserTypeAccess } from "../constants/accessModules";
 import { getAccessibleRoutePath, getRouteDefinition } from "./routes";
 
@@ -14,13 +15,18 @@ export function ProtectedRoute() {
     return <div className="login-page muted">Carregando...</div>;
   }
 
+  const routeDefinition = getRouteDefinition(location.pathname);
+  const isPublicRoute = Boolean(routeDefinition?.public);
+
   if (!isAuthenticated) {
+    if (isPublicRoute) {
+      return <PublicShell>{outlet}</PublicShell>;
+    }
     return <Navigate to="/login" replace />;
   }
 
-  const routeDefinition = getRouteDefinition(location.pathname);
   const blockedByRole = routeDefinition?.superuserOnly && !user?.is_superuser;
-  const blockedByModule = routeDefinition && !hasModuleAccess(user, routeDefinition.module);
+  const blockedByModule = !isPublicRoute && routeDefinition && !hasModuleAccess(user, routeDefinition.module);
   const blockedByUserType = routeDefinition && !hasUserTypeAccess(user, routeDefinition.allowedUserTypes);
   if (blockedByRole || blockedByModule || blockedByUserType) {
     const fallbackPath = getAccessibleRoutePath(user);

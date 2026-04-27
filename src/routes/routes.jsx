@@ -192,8 +192,8 @@ const humanizeModuleCode = (moduleCode) =>
     .replace(": ", " - ");
 
 export const publicAppRoutes = [
-  { path: "/blog", element: <BlogStudioPage basePath="/blog" />, title: "Blog" },
-  { path: "/blog/:postId", element: <BlogStudioPage basePath="/blog" />, title: "Blog" },
+  { path: "/blog", element: <BlogStudioPage basePath="/blog" />, title: "Blog", public: true },
+  { path: "/blog/:postId", element: <BlogStudioPage basePath="/blog" />, title: "Blog", public: true },
 ];
 
 export function getNavigationSections(user) {
@@ -251,18 +251,19 @@ export const appRoutes = [
     path: "/mercado",
     element: <Navigate to="/mercado/blog" replace />,
     title: "Mercado",
+    public: true,
   },
-  { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes" },
-  { path: "/mercado/blog", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id" },
-  { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id" },
-  { path: "/mercado/blog-news", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
-  { path: "/mercado/blog-news/:postId", element: <LegacyBlogNewsRedirect />, module: "market_blog_news" },
-  { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports" },
-  { path: "/mercado/basis", element: <BasisPage />, module: "market_basis" },
-  { path: "/mercado/posicao-fundos", element: <FundPositionsPage />, module: "market_fund_positions" },
-  { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates" },
-  { path: "/mercado/testes", element: <MercadoTestesPage />, module: "market_others" },
-  { path: "/mercado/outros", element: <MercadoPage kind="others" />, module: "market_others" },
+  { ...resourceRoute("/mercado/cotacoes", "tradingviewWatchlistQuotes", "tradingview-watchlist-quotes"), module: "market_quotes", public: true },
+  { path: "/mercado/blog", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id", public: true },
+  { path: "/mercado/blog/:postId", element: <BlogStudioPage />, module: "market_blog_news", title: "Blog", resource: "market-news-posts", editPattern: "/mercado/blog/:id", public: true },
+  { path: "/mercado/blog-news", element: <LegacyBlogNewsRedirect />, module: "market_blog_news", public: true },
+  { path: "/mercado/blog-news/:postId", element: <LegacyBlogNewsRedirect />, module: "market_blog_news", public: true },
+  { path: "/mercado/exportacoes", element: <MercadoPage kind="exports" />, module: "market_exports", public: true },
+  { path: "/mercado/basis", element: <BasisPage />, module: "market_basis", public: true },
+  { path: "/mercado/posicao-fundos", element: <FundPositionsPage />, module: "market_fund_positions", public: true },
+  { path: "/mercado/taxa-de-juros", element: <MercadoPage kind="interestRates" />, module: "market_interest_rates", public: true },
+  { path: "/mercado/testes", element: <MercadoTestesPage />, module: "market_others", public: true },
+  { path: "/mercado/outros", element: <MercadoPage kind="others" />, module: "market_others", public: true },
   { ...resourceRoute("/grupos", "groups", "groups"), module: "cad_groups" },
   { ...resourceRoute("/subgrupos", "subgroups", "subgroups"), module: "cad_subgroups" },
   { ...resourceRoute("/clientes", "entryClients", "receipt-clients"), module: "sys_receipt_clients" },

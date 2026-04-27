@@ -48,15 +48,8 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/abrir-conta/:token" element={<InvitationSignupPage />} />
-          {publicAppRoutes.map((route) => (
-            <Route
-              key={route.path}
-              path={route.path}
-              element={isValidElement(route.element) ? cloneElement(route.element, { key: route.path }) : route.element}
-            />
-          ))}
           <Route element={<ProtectedRoute />}>
-            {appRoutes.map((route) => (
+            {[...publicAppRoutes, ...appRoutes].map((route) => (
               <Route
                 key={route.path}
                 path={route.path}

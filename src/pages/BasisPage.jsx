@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { ResourceTable } from "../components/ResourceTable";
 import { TradingviewLineChart } from "../components/charts/tradingview/TradingviewLineChart";
+import { useAuth } from "../contexts/AuthContext";
 import { resourceDefinitions } from "../modules/resourceDefinitions.jsx";
 import { resourceService } from "../services/resourceService";
 import { normalizeLookupValue } from "../utils/formatters";
@@ -233,6 +234,7 @@ function BasisResourceTableModal({ selectedTable, onClose }) {
 }
 
 export function BasisPage() {
+  const { isAuthenticated } = useAuth();
   const [candles, setCandles] = useState([]);
   const [usdBrlCandles, setUsdBrlCandles] = useState([]);
   const [salesPoints, setSalesPoints] = useState([]);
@@ -270,8 +272,8 @@ export function BasisPage() {
         },
         { force: true },
       ),
-      resourceService.listAll("physical-sales", {}, { force: true }),
-      resourceService.listAll("derivative-operations", {}, { force: true }),
+      isAuthenticated ? resourceService.listAll("physical-sales", {}, { force: true }) : Promise.resolve([]),
+      isAuthenticated ? resourceService.listAll("derivative-operations", {}, { force: true }) : Promise.resolve([]),
     ])
       .then(([payload, usdBrlPayload, physicalSales, derivativeOperations]) => {
         if (!isMounted) return;
@@ -328,7 +330,7 @@ export function BasisPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isAuthenticated]);
 
   const latestCandle = candles[candles.length - 1] || null;
   const latestUsdBrlCandle = usdBrlCandles[usdBrlCandles.length - 1] || null;
