@@ -808,7 +808,7 @@ function BlogQuotesStrip({ rows, onOpen }) {
                     type="button"
                     className="resource-filter-card risk-kpi-quotes-strip-card"
                     key={`${item.key}-${sequenceIndex}`}
-                    onClick={onOpen}
+                    onClick={() => onOpen?.(item.label)}
                   >
                     <span className="resource-filter-card-label">{item.label}</span>
                     <strong>{formatQuoteNumber(item.firstRow?.price, 2)}</strong>
@@ -1806,7 +1806,13 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
 
       {error ? <div className="form-error">{error}</div> : null}
 
-      <BlogQuotesStrip rows={quoteRows} onOpen={() => setIsQuotesPopupOpen(true)} />
+      <BlogQuotesStrip
+        rows={quoteRows}
+        onOpen={(label) => {
+          setQuotesPopupSearch(label || "");
+          setIsQuotesPopupOpen(true);
+        }}
+      />
 
       {isQuotesPopupOpen ? (
         <div
