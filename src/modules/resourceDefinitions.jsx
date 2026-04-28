@@ -542,7 +542,7 @@ const baseResourceDefinitions = {
     allowDuplicate: false,
     disableReadonlyDetails: true,
     showClearButton: false,
-    autoRefreshIntervalMs: 60000,
+    autoRefreshIntervalMs: 180000,
     columns: [
       { key: "section_name", label: "Secao" },
       { key: "ticker", label: "Ticker" },

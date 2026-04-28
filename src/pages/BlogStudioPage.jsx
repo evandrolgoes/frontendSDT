@@ -23,7 +23,7 @@ const QUOTES_TABLE_COLUMNS = [
 const IMAGE_UPLOAD_MAX_DIMENSION = 1600;
 const IMAGE_UPLOAD_OUTPUT_TYPE = "image/webp";
 const IMAGE_UPLOAD_OUTPUT_QUALITY = 0.82;
-const TRADINGVIEW_REFRESH_MS = 60_000;
+const TRADINGVIEW_REFRESH_MS = 180_000;
 const QUILL_FONTS = ["sans-serif", "serif", "monospace"];
 const QUILL_SIZES = ["small", "normal", "large", "huge"];
 

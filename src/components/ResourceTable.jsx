@@ -7,7 +7,7 @@ import { applyTableColumnPreference, useTableColumnPreference } from "../service
 import { parseBrazilianDate } from "../utils/date";
 import { formatBrazilianNumber, normalizeLookupValue, parseLocalizedNumber } from "../utils/formatters";
 
-const TRADINGVIEW_REFRESH_MS = 60000;
+const TRADINGVIEW_REFRESH_MS = 180000;
 
 const relationResourceLabels = {
   groups: "grupo",
