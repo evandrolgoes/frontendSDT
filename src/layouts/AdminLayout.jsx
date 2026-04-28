@@ -141,7 +141,7 @@ const buildGenericDebugPayload = (region, pathname) => ({
   textPreview: collectUniqueTexts(region.querySelectorAll("span, p, small, div"), 30),
 });
 
-const POPUP_COLORS = ["#ea580c","#2563eb","#16a34a","#9333ea","#d97706","#0891b2","#dc2626","#4338ca","#0f766e","#b45309"];
+const POPUP_COLORS = ["#ea580c"];
 
 function PopupChipGroup({ title, items, selectedValues, labelKey, onToggle, onClear }) {
   const selectedCount = selectedValues.length;

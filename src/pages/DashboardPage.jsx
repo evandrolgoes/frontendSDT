@@ -447,13 +447,6 @@ function CommercialRiskExecutiveCard({
 }
 
 function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
-  const marqueeRepeatCount = 7;
-  const marqueeCenterSequenceIndex = Math.floor(marqueeRepeatCount / 2);
-  const marqueeRef = useRef(null);
-  const marqueeTrackRef = useRef(null);
-  const marqueeSequenceRef = useRef(null);
-  const marqueeDragStateRef = useRef({ active: false, moved: false, startX: 0, startScrollLeft: 0 });
-  const [isMarqueeInteracting, setIsMarqueeInteracting] = useState(false);
   const carouselRows = useMemo(() => {
     const sectionStats = (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
       const label = String(row?.section_name || "Sem secao").trim() || "Sem secao";
@@ -483,178 +476,30 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
       firstRow: item.firstRow,
     }));
   }, [rows]);
-  const marqueeRows = useMemo(
-    () => (carouselRows.length > 1 ? Array.from({ length: marqueeRepeatCount }, () => carouselRows) : [carouselRows]),
-    [carouselRows, marqueeRepeatCount],
-  );
+  // Two copies are enough for a seamless CSS-driven loop (translateX 0 -> -50%).
+  const marqueeSequences = carouselRows.length > 1 ? [carouselRows, carouselRows] : [carouselRows];
+  const animationDurationSeconds = Math.max(20, carouselRows.length * 4);
 
-  const getMarqueeLoopWidth = () => {
-    const track = marqueeTrackRef.current;
-    const sequence = marqueeSequenceRef.current;
-    if (!track || !sequence || typeof window === "undefined") {
-      return 0;
-    }
-
-    const styles = window.getComputedStyle(track);
-    const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
-    return sequence.offsetWidth + gap;
+  const renderCard = (item, sequenceIndex) => {
+    const changeValue = parseLocaleNumber(item.firstRow?.change_value);
+    const toneClass = changeValue > 0 ? " is-positive" : changeValue < 0 ? " is-negative" : "";
+    return (
+      <button
+        type="button"
+        className="resource-filter-card risk-kpi-quotes-strip-card"
+        key={`${item.key || item.label}-${sequenceIndex}`}
+        onClick={onOpen}
+      >
+        <span className="resource-filter-card-label">{item.label}</span>
+        <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatQuoteNumber(item.firstRow.price, 2) : "—"}</strong>
+        <span className={`resource-filter-card-variation${toneClass}`}>
+          {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
+            ? `${formatSignedQuoteNumber(item.firstRow.change_value, 2)} (${formatSignedQuoteNumber(item.firstRow.change_percent, 2)}%)`
+            : "Sem variacao"}
+        </span>
+      </button>
+    );
   };
-
-  const normalizeMarqueeScroll = () => {
-    const container = marqueeRef.current;
-    const loopWidth = getMarqueeLoopWidth();
-    if (!container || !loopWidth) {
-      return;
-    }
-
-    const minScroll = loopWidth;
-    const maxScroll = Math.max(loopWidth * (marqueeRows.length - 2), minScroll);
-
-    while (container.scrollLeft >= maxScroll) {
-      container.scrollLeft -= loopWidth;
-    }
-
-    while (container.scrollLeft < minScroll) {
-      container.scrollLeft += loopWidth;
-    }
-  };
-
-  const beginMarqueeInteraction = (clientX, scrollLeft) => {
-    marqueeDragStateRef.current = {
-      active: true,
-      moved: false,
-      startX: clientX,
-      startScrollLeft: scrollLeft,
-    };
-  };
-
-  const handleMarqueeMouseDown = (event) => {
-    const container = marqueeRef.current;
-    if (!container || carouselRows.length <= 1 || event.button !== 0) {
-      return;
-    }
-    beginMarqueeInteraction(event.clientX, container.scrollLeft);
-  };
-
-  const handleMarqueeMouseMove = (event) => {
-    const container = marqueeRef.current;
-    const drag = marqueeDragStateRef.current;
-    if (!container || !drag.active) {
-      return;
-    }
-    const deltaX = event.clientX - drag.startX;
-    if (!drag.moved && Math.abs(deltaX) < 6) {
-      return;
-    }
-    if (!drag.moved) {
-      marqueeDragStateRef.current = { ...drag, moved: true };
-      setIsMarqueeInteracting(true);
-    }
-    container.scrollLeft = drag.startScrollLeft - deltaX;
-    normalizeMarqueeScroll();
-  };
-
-  const stopMarqueeInteraction = () => {
-    marqueeDragStateRef.current = {
-      active: false,
-      moved: false,
-      startX: 0,
-      startScrollLeft: marqueeRef.current?.scrollLeft || 0,
-    };
-    setIsMarqueeInteracting(false);
-  };
-
-  const handleMarqueeMouseLeave = () => {
-    stopMarqueeInteraction();
-  };
-
-  const handleMarqueeTouchStart = (event) => {
-    const container = marqueeRef.current;
-    const touch = event.touches?.[0];
-    if (!container || !touch || carouselRows.length <= 1) {
-      return;
-    }
-    beginMarqueeInteraction(touch.clientX, container.scrollLeft);
-  };
-
-  const handleMarqueeTouchMove = (event) => {
-    const container = marqueeRef.current;
-    const touch = event.touches?.[0];
-    const drag = marqueeDragStateRef.current;
-    if (!container || !touch || !drag.active) {
-      return;
-    }
-    const deltaX = touch.clientX - drag.startX;
-    if (!drag.moved && Math.abs(deltaX) < 6) {
-      return;
-    }
-    if (!drag.moved) {
-      marqueeDragStateRef.current = { ...drag, moved: true };
-      setIsMarqueeInteracting(true);
-    }
-    if (event.cancelable) {
-      event.preventDefault();
-    }
-    container.scrollLeft = drag.startScrollLeft - deltaX;
-    normalizeMarqueeScroll();
-  };
-
-  const handleMarqueeTouchEnd = () => {
-    stopMarqueeInteraction();
-  };
-
-  useEffect(() => {
-    if (carouselRows.length <= 1) {
-      const container = marqueeRef.current;
-      if (container) {
-        container.scrollLeft = 0;
-      }
-      return undefined;
-    }
-
-    const container = marqueeRef.current;
-    if (!container || typeof window === "undefined") {
-      return undefined;
-    }
-
-    const handleResize = () => {
-      normalizeMarqueeScroll();
-    };
-
-    const loopWidth = getMarqueeLoopWidth();
-    const startingScroll = loopWidth * marqueeCenterSequenceIndex;
-    if (loopWidth && container.scrollLeft < loopWidth) {
-      container.scrollLeft = startingScroll;
-    }
-    normalizeMarqueeScroll();
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [carouselRows.length, marqueeCenterSequenceIndex, marqueeRows.length]);
-
-  useEffect(() => {
-    if (carouselRows.length <= 1 || isMarqueeInteracting) {
-      return undefined;
-    }
-    const container = marqueeRef.current;
-    if (!container || typeof window === "undefined") {
-      return undefined;
-    }
-
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "hidden" || marqueeDragStateRef.current.active) {
-        return;
-      }
-      container.scrollLeft += 1.8;
-      normalizeMarqueeScroll();
-    }, 32);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [carouselRows.length, isMarqueeInteracting, marqueeRows.length]);
 
   return (
     <section className="resource-filter-panel risk-kpi-quotes-strip summary-insight-card">
@@ -670,47 +515,18 @@ function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
         }
       />
       {carouselRows.length ? (
-        <div
-          ref={marqueeRef}
-          className={`resource-filter-marquee risk-kpi-quotes-strip-marquee${isMarqueeInteracting ? " is-interacting" : ""}`}
-          onMouseDown={handleMarqueeMouseDown}
-          onMouseMove={handleMarqueeMouseMove}
-          onMouseUp={stopMarqueeInteraction}
-          onMouseLeave={handleMarqueeMouseLeave}
-          onTouchStart={handleMarqueeTouchStart}
-          onTouchMove={handleMarqueeTouchMove}
-          onTouchEnd={handleMarqueeTouchEnd}
-          onTouchCancel={handleMarqueeTouchEnd}
-          onScroll={normalizeMarqueeScroll}
-        >
-          <div ref={marqueeTrackRef} className="resource-filter-track">
-            {marqueeRows.map((sequence, sequenceIndex) => (
+        <div className="resource-filter-marquee risk-kpi-quotes-strip-marquee">
+          <div
+            className={`resource-filter-track${carouselRows.length > 1 ? " is-animated" : ""}`}
+            style={carouselRows.length > 1 ? { animationDuration: `${animationDurationSeconds}s` } : undefined}
+          >
+            {marqueeSequences.map((sequence, sequenceIndex) => (
               <div
                 key={`risk-kpi-quotes-sequence-${sequenceIndex}`}
-                ref={sequenceIndex === 0 ? marqueeSequenceRef : undefined}
                 className="resource-filter-sequence"
                 aria-hidden={sequenceIndex > 0 ? "true" : undefined}
               >
-                {sequence.map((item) => {
-                  const changeValue = parseLocaleNumber(item.firstRow?.change_value);
-                  const toneClass = changeValue > 0 ? " is-positive" : changeValue < 0 ? " is-negative" : "";
-                  return (
-                    <button
-                      type="button"
-                      className="resource-filter-card risk-kpi-quotes-strip-card"
-                      key={`${item.key || item.label}-${sequenceIndex}`}
-                      onClick={onOpen}
-                    >
-                      <span className="resource-filter-card-label">{item.label}</span>
-                      <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatQuoteNumber(item.firstRow.price, 2) : "—"}</strong>
-                      <span className={`resource-filter-card-variation${toneClass}`}>
-                        {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
-                          ? `${formatSignedQuoteNumber(item.firstRow.change_value, 2)} (${formatSignedQuoteNumber(item.firstRow.change_percent, 2)}%)`
-                          : "Sem variacao"}
-                      </span>
-                    </button>
-                  );
-                })}
+                {sequence.map((item) => renderCard(item, sequenceIndex))}
               </div>
             ))}
           </div>
@@ -2040,8 +1856,9 @@ function ScenarioBars({ data, insightTitle = "", insightMessage = null }) {
   );
 }
 
-const QF_COLORS = ["#ea580c","#2563eb","#16a34a","#9333ea","#d97706","#0891b2","#dc2626","#4338ca","#0f766e","#b45309"];
-const SEG_COLORS = ["#16a34a","#2563eb","#d97706","#9333ea","#dc2626","#0891b2","#c2410c","#4338ca","#0f766e","#b45309"];
+const FILTER_DEFAULT_COLOR = "#ea580c";
+const QF_COLORS = [FILTER_DEFAULT_COLOR];
+const SEG_COLORS = [FILTER_DEFAULT_COLOR];
 
 /**
  * Barra de filtros Cultura + Safra no estilo segmented control.
@@ -2563,9 +2380,29 @@ function HedgeSummaryGaugeCards({
     const angle = gaugeAngleForValue(value);
     const outer = polarToCartesian(gaugeCenterX, gaugeCenterY, gaugeOuterTickRadius, angle);
     const inner = polarToCartesian(gaugeCenterX, gaugeCenterY, value % 20 === 0 ? 66 : 72, angle);
-    const label = polarToCartesian(gaugeCenterX, gaugeCenterY, gaugeLabelRadius, angle);
-    return { value, outer, inner, label };
+    return { value, outer, inner };
   });
+  const gaugeBandLabels = hasPolicyBand
+    ? [
+        { value: minBand, raw: policyMinPercent },
+        { value: maxBand, raw: policyMaxPercent },
+      ]
+        .filter((band) => {
+          const rounded = Math.round(Number(band.raw) || 0);
+          return rounded !== 0 && rounded !== 100;
+        })
+        .map((band) => ({
+          ...band,
+          position: polarToCartesian(gaugeCenterX, gaugeCenterY, gaugeLabelRadius, gaugeAngleForValue(band.value)),
+        }))
+    : [];
+  const gaugeTone = hasPolicyBand
+    ? totalValue < warnLowBand || totalValue > warnHighBand
+      ? "bad"
+      : totalValue < minBand || totalValue > maxBand
+        ? "warn"
+        : "ok"
+    : null;
   const donutCircumference = 2 * Math.PI * 70;
   const physicalArc = (physicalValue / 100) * donutCircumference;
   const derivativeArc = (derivativeValue / 100) * donutCircumference;
@@ -2610,26 +2447,28 @@ function HedgeSummaryGaugeCards({
               />
             ))}
             {gaugeTicks.map((tick) => (
-              <g key={`tick-${tick.value}`}>
-                <line
-                  x1={tick.outer.x}
-                  y1={tick.outer.y}
-                  x2={tick.inner.x}
-                  y2={tick.inner.y}
-                  stroke="#0f172a"
-                  strokeWidth={tick.value % 20 === 0 ? 2.8 : 1.2}
-                  strokeLinecap="round"
-                />
-                <text
-                  x={tick.label.x}
-                  y={tick.label.y}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  className="risk-kpi-sales-gauge-tick"
-                >
-                  {tick.value}
-                </text>
-              </g>
+              <line
+                key={`tick-${tick.value}`}
+                x1={tick.outer.x}
+                y1={tick.outer.y}
+                x2={tick.inner.x}
+                y2={tick.inner.y}
+                stroke="#0f172a"
+                strokeWidth={tick.value % 20 === 0 ? 2.8 : 1.2}
+                strokeLinecap="round"
+              />
+            ))}
+            {gaugeBandLabels.map((band) => (
+              <text
+                key={`band-${band.value}`}
+                x={band.position.x}
+                y={band.position.y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                className="risk-kpi-sales-gauge-band-label"
+              >
+                {`${Math.round(Number(band.raw) || 0)}%`}
+              </text>
             ))}
             <path
               d={`M ${gaugeNeedleLeft.x} ${gaugeNeedleLeft.y} L ${gaugeNeedleRight.x} ${gaugeNeedleRight.y} L ${gaugePointerEnd.x} ${gaugePointerEnd.y} Z`}
@@ -2637,7 +2476,7 @@ function HedgeSummaryGaugeCards({
             />
             <circle cx={gaugeCenterX} cy={gaugeCenterY} r="11" fill="#fff" stroke="#0f172a" strokeWidth="4" />
           </svg>
-          <div className="risk-kpi-sales-gauge-pct">
+          <div className={`risk-kpi-sales-gauge-pct${gaugeTone ? ` risk-kpi-sales-gauge-pct--${gaugeTone}` : ""}`}>
             {`${rawTotalValue.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
           </div>
         </div>
@@ -4054,26 +3893,9 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     sales, setSales, derivatives, setDerivatives,
   });
 
-  const [selectedCultura, setSelectedCultura] = useState(null);
-
-  const culturas = useMemo(() => {
-    const set = new Set(rows.map((r) => String(r.cultura || "")).filter(Boolean));
-    return [...set].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
-  }, [rows]);
-
-  useEffect(() => {
-    if (selectedCultura && !culturas.includes(selectedCultura)) setSelectedCultura(null);
-  }, [culturas, selectedCultura]);
-
-  const culturaFilteredRows = useMemo(() => {
-    if (!selectedCultura) return rows;
-    return rows.filter((r) => r.cultura === selectedCultura);
-  }, [rows, selectedCultura]);
-
-  // Timeline from ALL cultura-filtered rows (drives slider range)
   const allChartState = useMemo(
-    () => buildComponentSalesChartState(culturaFilteredRows, interval, {}),
-    [culturaFilteredRows, interval],
+    () => buildComponentSalesChartState(rows, interval, {}),
+    [rows, interval],
   );
   const timelinePeriods = useMemo(() => {
     if (interval === "geral") return [];
@@ -4105,13 +3927,13 @@ function ComponentSalesDashboard({ dashboardFilter }) {
 
   // Visible rows — data in the selected slider range
   const visibleRows = useMemo(() => {
-    if (interval === "geral") return culturaFilteredRows;
-    if (!timelinePeriods.length) return culturaFilteredRows;
+    if (interval === "geral") return rows;
+    if (!timelinePeriods.length) return rows;
     const visibleLabels = new Set(
       timelinePeriods.slice(sliderStartIdx, sliderEndIdx + 1).map((p) => p.label),
     );
-    return culturaFilteredRows.filter((item) => visibleLabels.has(buildComponentPeriodKey(item.date, interval)));
-  }, [interval, culturaFilteredRows, timelinePeriods, sliderStartIdx, sliderEndIdx]);
+    return rows.filter((item) => visibleLabels.has(buildComponentPeriodKey(item.date, interval)));
+  }, [interval, rows, timelinePeriods, sliderStartIdx, sliderEndIdx]);
 
   // Single source of truth: visible chart state drives BOTH cards and chart
   const visibleChartState = useMemo(
@@ -4305,7 +4127,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
       const endDate = shiftDateByDays(new Date(todayTime), days);
       endDate.setHours(23, 59, 59, 999);
       const endTime = endDate.getTime();
-      const rowsInRange = culturaFilteredRows.filter((r) => {
+      const rowsInRange = rows.filter((r) => {
         const t = r.date?.getTime?.();
         return Number.isFinite(t) && t >= todayTime && t <= endTime;
       });
@@ -4318,7 +4140,7 @@ function ComponentSalesDashboard({ dashboardFilter }) {
       }));
       return { days, byGroup };
     });
-  }, [culturaFilteredRows]);
+  }, [rows]);
 
   const sliderFmtLabel = useCallback(
     (p) => (interval === "monthly" ? formatCashflowMonthYear(p.start) : formatBrazilianDate(p.start)),
@@ -4330,28 +4152,6 @@ function ComponentSalesDashboard({ dashboardFilter }) {
     <section className="component-sales-shell">
       <DashboardSegFilterBar />
       <div className="cs-top-section">
-        {culturas.length > 0 && (
-          <div className="cs-cultura-filter">
-            <button
-              type="button"
-              className={`cs-cultura-btn${!selectedCultura ? " active" : ""}`}
-              onClick={() => setSelectedCultura(null)}
-            >
-              Todas
-            </button>
-            {culturas.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`cs-cultura-btn${selectedCultura === c ? " active" : ""}`}
-                onClick={() => setSelectedCultura(selectedCultura === c ? null : c)}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        )}
-
         <div className="cs-timeline-cards">
           {timelineCards.map(({ days, byGroup }) => (
             <article key={`cs-timeline-${days}`} className="card stat-card component-summary-card cs-timeline-card">
@@ -7562,7 +7362,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const [actualCosts, setActualCosts] = useState(() => initialDashboardCache?.actualCosts || []);
   const [hedgePolicyUsdBrlRate, setHedgePolicyUsdBrlRate] = useState(() => initialDashboardCache?.hedgePolicyUsdBrlRate || 0);
   const [strategyTriggers, setStrategyTriggers] = useState(() => initialDashboardCache?.strategyTriggers || []);
-  const [triggerQuotes, setTriggerQuotes] = useState(() => initialDashboardCache?.triggerQuotes || []);
   const [triggerExchanges, setTriggerExchanges] = useState(() => initialDashboardCache?.triggerExchanges || []);
   const [summaryData, setSummaryData] = useState(() => initialDashboardCache?.summaryData || DEFAULT_COMMERCIAL_RISK_SUMMARY_DATA);
   const [summaryLoading, setSummaryLoading] = useState(() => !initialDashboardCache?.summaryData);
@@ -7643,7 +7442,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       setActualCosts(cachedDashboard.actualCosts || []);
       setHedgePolicyUsdBrlRate(cachedDashboard.hedgePolicyUsdBrlRate || 0);
       setStrategyTriggers(cachedDashboard.strategyTriggers || []);
-      setTriggerQuotes(cachedDashboard.triggerQuotes || []);
       setTriggerExchanges(cachedDashboard.triggerExchanges || []);
       setAnalyticsReady(true);
     } else if (isBaseChange) {
@@ -7659,7 +7457,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       setActualCosts([]);
       setHedgePolicyUsdBrlRate(0);
       setStrategyTriggers([]);
-      setTriggerQuotes([]);
       setTriggerExchanges([]);
       setAnalyticsReady(false);
     }
@@ -7675,7 +7472,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         resourceService.listAll("budget-costs").catch(() => []),
         resourceService.listAll("actual-costs").catch(() => []),
         resourceService.listAll("strategy-triggers").catch(() => []),
-        resourceService.listTradingviewQuotes().catch(() => []),
         resourceService.listAll("exchanges").catch(() => []),
       ])
         .then(([
@@ -7688,7 +7484,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           budgetCostsResponse,
           actualCostsResponse,
           strategyTriggersResponse,
-          triggerQuotesResponse,
           triggerExchangesResponse,
         ]) => {
           if (!isMounted) return;
@@ -7701,7 +7496,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           setBudgetCosts(budgetCostsResponse || []);
           setActualCosts(actualCostsResponse || []);
           setStrategyTriggers(strategyTriggersResponse || []);
-          setTriggerQuotes(triggerQuotesResponse || []);
           setTriggerExchanges(triggerExchangesResponse || []);
           setCommercialRiskDashboardCache(dashboardCacheKey, {
             physicalSales: salesResponse || [],
@@ -7713,7 +7507,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
             budgetCosts: budgetCostsResponse || [],
             actualCosts: actualCostsResponse || [],
             strategyTriggers: strategyTriggersResponse || [],
-            triggerQuotes: triggerQuotesResponse || [],
             triggerExchanges: triggerExchangesResponse || [],
             analyticsReady: true,
           });
@@ -7772,7 +7565,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       actualCosts,
       hedgePolicyUsdBrlRate,
       strategyTriggers,
-      triggerQuotes,
       triggerExchanges,
       analyticsReady: true,
     });
@@ -7790,7 +7582,6 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     physicalSales,
     strategyTriggers,
     triggerExchanges,
-    triggerQuotes,
   ]);
 
   useEffect(() => {
@@ -7830,7 +7621,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const upcomingMaturityRows = Array.isArray(summaryData?.upcomingMaturityRows) ? summaryData.upcomingMaturityRows : [];
   const formCompletionRows = Array.isArray(summaryData?.formCompletionRows) ? summaryData.formCompletionRows : [];
   const formCompletionSummary = summaryData?.formCompletionSummary || {};
-  const summaryUsdBrlRate = hedgePolicyUsdBrlRate || getUsdBrlQuoteValue(triggerQuotes) || getUsdBrlQuoteValue(marketQuotes);
+  const summaryUsdBrlRate = hedgePolicyUsdBrlRate || getUsdBrlQuoteValue(marketQuotes);
   const upcomingMaturityDisplayRows = useMemo(
     () =>
       upcomingMaturityRows.map((item) => {
@@ -8113,8 +7904,27 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     [hedgeSummaryPointsKey],
   );
 
+  const [summaryHedgeHoverDate, setSummaryHedgeHoverDate] = useState(null);
+  const hedgeSummaryHoverPoint = useMemo(() => {
+    if (!summaryHedgeHoverDate) return null;
+    const target = startOfDashboardDay(summaryHedgeHoverDate)?.getTime();
+    if (target == null) return null;
+    let best = null;
+    let bestDiff = Infinity;
+    for (const point of hedgeSummaryChartState.points) {
+      const pd = startOfDashboardDay(point?.date)?.getTime();
+      if (pd == null) continue;
+      const diff = Math.abs(pd - target);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = point;
+      }
+    }
+    return best;
+  }, [summaryHedgeHoverDate, hedgeSummaryChartState.points]);
+
   const hedgeSummaryActivePoint =
-    hedgeSummaryChartState.points[hedgeSummaryActiveIndex] || hedgeSummaryChartState.points[hedgeSummaryTodayIndex] || hedgeSummaryChartState.points.at(-1) || null;
+    hedgeSummaryHoverPoint || hedgeSummaryChartState.points[hedgeSummaryActiveIndex] || hedgeSummaryChartState.points[hedgeSummaryTodayIndex] || hedgeSummaryChartState.points.at(-1) || null;
   const hedgeSummaryReferenceDate = hedgeSummaryActivePoint?.date || startOfDashboardDay(new Date());
   const hedgeCardCommercializedVolume = hedgeSummaryActivePoint?.total || 0;
   const activePhysicalSales = useMemo(
@@ -8754,7 +8564,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           const strike = resolveTriggerStrikeValue(trigger);
           const direction = resolveTriggerDirectionValue(trigger);
           const priceUnit = resolveTriggerPriceUnitValue(trigger);
-          const quote = normalizeText(tipo) === "derivativo" ? findMatchingDerivativeQuote(trigger, triggerQuotes) : null;
+          const quote = normalizeText(tipo) === "derivativo" ? findMatchingDerivativeQuote(trigger, marketQuotes) : null;
           const currentPrice = quote ? parseLocalizedNumber(quote?.price) : Number.NaN;
           const isHit = normalizeText(tipo) === "derivativo" && quote && Number.isFinite(currentPrice) && strike > 0
             ? (normalizeText(direction).includes("abaixo") ? currentPrice <= strike : currentPrice >= strike)
@@ -8776,7 +8586,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           };
         })
         .filter((item) => Number.isFinite(item.percentDistanceValue) || item.isHit),
-    [filteredSummaryTriggers, triggerQuotes],
+    [filteredSummaryTriggers, marketQuotes],
   );
   const openQuotesPage = () => {
     navigateFromSummary(navigate, "/mercado/cotacoes", "Cotações");
@@ -8876,6 +8686,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       showFloatingCard={false}
       dateMarkers={cropBoardDateMarkers}
       titleControl={hedgePolicyChartSelector}
+      externalHoverDate={summaryHedgeHoverDate}
+      onHoverDateChange={setSummaryHedgeHoverDate}
       insightTitle="Hedge sobre o custo"
       insightMessage={
         <SummaryInsightCopy
@@ -8909,6 +8721,8 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       showFloatingCard={false}
       dateMarkers={cropBoardDateMarkers}
       titleControl={hedgePolicyChartSelector}
+      externalHoverDate={summaryHedgeHoverDate}
+      onHoverDateChange={setSummaryHedgeHoverDate}
       insightTitle="Hedge produção líquida"
       insightMessage={
         <SummaryInsightCopy
@@ -9852,11 +9666,19 @@ function buildHedgePolicyChartState({
     };
   });
 
-  const totalDataset = points.map((item, index) => item.total + (index === points.length - 1 ? simulatedIncrement : 0));
+  const todayIndex = (() => {
+    const idx = points.findIndex((point) => {
+      const pointDate = startOfDashboardDay(point?.date);
+      return pointDate && today <= pointDate;
+    });
+    return idx >= 0 ? idx : Math.max(0, points.length - 1);
+  })();
+  const totalDataset = points.map((item, index) => item.total + (index >= todayIndex ? simulatedIncrement : 0));
 
   return {
     labels: points.map((item) => item.label),
     points,
+    todayIndex,
     minDataset: points.map((item) => item.minValue ?? null),
     maxDataset: points.map((item) => item.maxValue ?? null),
     minPctDataset: points.map((item) => (item.minPct != null ? item.minPct * 100 : null)),
@@ -9977,6 +9799,9 @@ function HedgePolicyChart({
     const extEnd = new Date(lastDate.getTime() + twoYearsMs);
     const extBuckets = buildHedgeBuckets(extStart, extEnd, frequency);
     const pointsByKey = new Map(chartState.points.map((p) => [p.key, p]));
+    const origIndexByKey = new Map(chartState.points.map((p, idx) => [p.key, idx]));
+    const origTotalDataset = chartState.totalDataset || chartState.points.map((p) => p.total);
+    const lastOrigTotal = origTotalDataset.length ? origTotalDataset.at(-1) : 0;
     const lastOrigTime = lastDate.getTime();
     const lastPoint = chartState.points.at(-1);
     const extPoints = extBuckets.map((bucket) => {
@@ -10010,6 +9835,13 @@ function HedgePolicyChart({
         total: 0, totalPct: 0,
       };
     });
+    const totalDataset = extPoints.map((point) => {
+      const origIdx = origIndexByKey.get(point.key);
+      if (origIdx != null) return origTotalDataset[origIdx];
+      const bucketTime = point.date?.getTime();
+      if (bucketTime != null && bucketTime > lastOrigTime) return lastOrigTotal;
+      return 0;
+    });
     return {
       ...chartState,
       points: extPoints,
@@ -10018,7 +9850,7 @@ function HedgePolicyChart({
       derivativeDataset: extPoints.map((p) => p.derivativeVisible),
       physicalDataset: extPoints.map((p) => p.derivativeVisible + p.physicalVisible),
       comparisonDataset: extPoints.map((p) => p.comparisonRaw),
-      totalDataset: extPoints.map((p) => p.total),
+      totalDataset,
       domainStart: extStart,
       domainEnd: extEnd,
     };
@@ -10087,11 +9919,12 @@ function HedgePolicyChart({
 
   const activePoint = hoverSnapshot?.point || crossHoverPoint || chartState.points[activeIndex] || chartState.points.at(-1) || null;
   const detailPoint = detailIndex != null ? chartState.points[detailIndex] || null : null;
+  const simulationStartIndex = chartState.todayIndex ?? Math.max(0, chartState.points.length - 1);
   const activeSimulation = hoverSnapshot?.point
-    ? hoverSnapshot.index === chartState.points.length - 1
+    ? hoverSnapshot.index >= simulationStartIndex
       ? simulatedIncrement
       : 0
-    : activeIndex === chartState.points.length - 1
+    : activeIndex >= simulationStartIndex
       ? simulatedIncrement
       : 0;
   const statusSummary = useMemo(() => {
@@ -11831,7 +11664,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
 
   const focusedSummaryProps = useMemo(() => {
     if (focusedChart === "cost") {
-      const activeTotalValue = (activeCostPoint?.total || 0) + (costActiveIndex === costChartState.points.length - 1 ? simulatedCostValue : 0);
+      const activeTotalValue = (activeCostPoint?.total || 0) + (costActiveIndex >= costTodayIndex ? simulatedCostValue : 0);
       const activePhysicalValue = activeCostPoint?.physicalRaw || 0;
       const activeDerivativeValue = activeCostPoint?.derivativeRaw || 0;
       const activeTotalPercent = costBase > 0 ? (activeTotalValue / costBase) * 100 : 0;
@@ -11856,7 +11689,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     }
     if (focusedChart === "production") {
       const activeTotalValue =
-        (activeProductionPoint?.total || 0) + (productionActiveIndex === productionChartState.points.length - 1 ? parsedSimulationVolume : 0);
+        (activeProductionPoint?.total || 0) + (productionActiveIndex >= productionTodayIndex ? parsedSimulationVolume : 0);
       const activePhysicalValue = activeProductionPoint?.physicalRaw || 0;
       const activeDerivativeValue = activeProductionPoint?.derivativeRaw || 0;
       const activeTotalPercent = productionBase > 0 ? (activeTotalValue / productionBase) * 100 : 0;
@@ -11884,13 +11717,13 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     activeCostPoint,
     activeProductionPoint,
     costActiveIndex,
-    costChartState.points.length,
+    costTodayIndex,
     focusedChart,
     focusedDerivativePriceLines,
     focusedPhysicalPriceLines,
     parsedSimulationVolume,
     productionActiveIndex,
-    productionChartState.points.length,
+    productionTodayIndex,
     productionBase,
     simulatedCostValue,
     costBase,
@@ -11900,13 +11733,13 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     if (!focusedChart) return null;
     const isCost = focusedChart === "cost";
     const activePoint = isCost ? activeCostPoint : activeProductionPoint;
-    const chartPointsLength = isCost ? costChartState.points.length : productionChartState.points.length;
+    const todayIndexForChart = isCost ? costTodayIndex : productionTodayIndex;
     const activeIndex = isCost ? costActiveIndex : productionActiveIndex;
     const extraValue = isCost
-      ? activeIndex === chartPointsLength - 1
+      ? activeIndex >= todayIndexForChart
         ? simulatedCostValue
         : 0
-      : activeIndex === chartPointsLength - 1
+      : activeIndex >= todayIndexForChart
         ? parsedSimulationVolume
         : 0;
     const unit = isCost ? "BRL" : "SC";
@@ -11956,18 +11789,18 @@ function HedgePolicyDashboard({ dashboardFilter }) {
     activeProductionPoint,
     costActiveIndex,
     costBase,
-    costChartState.points.length,
+    costTodayIndex,
     focusedChart,
     parsedSimulationVolume,
     productionActiveIndex,
     productionBase,
-    productionChartState.points.length,
+    productionTodayIndex,
     simulatedCostValue,
     totalArea,
   ]);
 
   const costCardSummaryProps = useMemo(() => {
-    const activeTotalValue = (activeCostPoint?.total || 0) + (costActiveIndex === costChartState.points.length - 1 ? simulatedCostValue : 0);
+    const activeTotalValue = (activeCostPoint?.total || 0) + (costActiveIndex >= costTodayIndex ? simulatedCostValue : 0);
     const activePhysicalValue = activeCostPoint?.physicalRaw || 0;
     const activeDerivativeValue = activeCostPoint?.derivativeRaw || 0;
     const activeTotalPercent = costBase > 0 ? (activeTotalValue / costBase) * 100 : 0;
@@ -11983,10 +11816,10 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       policyMinPercent: activeCostPoint?.minPct != null ? activeCostPoint.minPct * 100 : null,
       policyMaxPercent: activeCostPoint?.maxPct != null ? activeCostPoint.maxPct * 100 : null,
     };
-  }, [activeCostPoint, costActiveIndex, costBase, costChartState.points.length, simulatedCostValue]);
+  }, [activeCostPoint, costActiveIndex, costBase, costTodayIndex, simulatedCostValue]);
 
   const costCardStatusProps = useMemo(() => {
-    const extraValue = costActiveIndex === costChartState.points.length - 1 ? simulatedCostValue : 0;
+    const extraValue = costActiveIndex >= costTodayIndex ? simulatedCostValue : 0;
     const totalValue = (activeCostPoint?.total || 0) + extraValue;
     const policyMinPercent = activeCostPoint?.minPct != null ? activeCostPoint.minPct * 100 : null;
     const policyMaxPercent = activeCostPoint?.maxPct != null ? activeCostPoint.maxPct * 100 : null;
@@ -12014,10 +11847,10 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         },
       ],
     };
-  }, [activeCostPoint, costActiveIndex, costBase, costChartState.points.length, simulatedCostValue, totalArea]);
+  }, [activeCostPoint, costActiveIndex, costBase, costTodayIndex, simulatedCostValue, totalArea]);
 
   const productionCardSummaryProps = useMemo(() => {
-    const activeTotalValue = (activeProductionPoint?.total || 0) + (productionActiveIndex === productionChartState.points.length - 1 ? parsedSimulationVolume : 0);
+    const activeTotalValue = (activeProductionPoint?.total || 0) + (productionActiveIndex >= productionTodayIndex ? parsedSimulationVolume : 0);
     const activePhysicalValue = activeProductionPoint?.physicalRaw || 0;
     const activeDerivativeValue = activeProductionPoint?.derivativeRaw || 0;
     const activeTotalPercent = productionBase > 0 ? (activeTotalValue / productionBase) * 100 : 0;
@@ -12033,10 +11866,10 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       policyMinPercent: activeProductionPoint?.minPct != null ? activeProductionPoint.minPct * 100 : null,
       policyMaxPercent: activeProductionPoint?.maxPct != null ? activeProductionPoint.maxPct * 100 : null,
     };
-  }, [activeProductionPoint, parsedSimulationVolume, productionActiveIndex, productionBase, productionChartState.points.length, totalArea]);
+  }, [activeProductionPoint, parsedSimulationVolume, productionActiveIndex, productionBase, productionTodayIndex, totalArea]);
 
   const productionCardStatusProps = useMemo(() => {
-    const extraValue = productionActiveIndex === productionChartState.points.length - 1 ? parsedSimulationVolume : 0;
+    const extraValue = productionActiveIndex >= productionTodayIndex ? parsedSimulationVolume : 0;
     const totalValue = (activeProductionPoint?.total || 0) + extraValue;
     const policyMinPercent = activeProductionPoint?.minPct != null ? activeProductionPoint.minPct * 100 : null;
     const policyMaxPercent = activeProductionPoint?.maxPct != null ? activeProductionPoint.maxPct * 100 : null;
@@ -12064,7 +11897,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
         },
       ],
     };
-  }, [activeProductionPoint, parsedSimulationVolume, productionActiveIndex, productionBase, productionChartState.points.length, totalArea]);
+  }, [activeProductionPoint, parsedSimulationVolume, productionActiveIndex, productionBase, productionTodayIndex, totalArea]);
 
   const costChartNode = (
     <HedgePolicyChart
@@ -12269,7 +12102,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
             {[{ val: "daily", label: "Diário" }, { val: "weekly", label: "Semanal" }, { val: "monthly", label: "Mensal" }].map(({ val, label }) => (
               <button key={val} type="button"
                 className={`pc-seg-btn${frequency === val ? " is-active" : ""}`}
-                style={{ "--seg-color": "#6366f1" }}
+                style={{ "--seg-color": FILTER_DEFAULT_COLOR }}
                 onClick={() => setFrequency(val)}>
                 {label}
               </button>
@@ -12320,9 +12153,13 @@ function HedgePolicyDashboard({ dashboardFilter }) {
                 placeholder="0"
               />
             </label>
-            <label className="hedge-simulation-field">
+            <label className="hedge-simulation-field hedge-simulation-field--currency">
               <span>Moeda</span>
-              <select className="form-select" value={simulationCurrency} onChange={(event) => setSimulationCurrency(event.target.value)}>
+              <select
+                className="form-control hedge-simulation-currency"
+                value={simulationCurrency}
+                onChange={(event) => setSimulationCurrency(event.target.value)}
+              >
                 <option value="BRL">R$</option>
                 <option value="USD">US$</option>
               </select>
@@ -14219,8 +14056,8 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   const activeCulturas = Array.isArray(filter?.cultura) ? filter.cultura.map(String) : [];
   const activeSafras = Array.isArray(filter?.safra) ? filter.safra.map(String) : [];
 
-  const CULTURA_COLORS = ["#16a34a", "#2563eb", "#d97706", "#9333ea", "#dc2626", "#0891b2", "#c2410c", "#4338ca"];
-  const SAFRA_COLORS   = ["#0f766e", "#1d4ed8", "#b45309", "#7c3aed", "#b91c1c", "#0e7490", "#c2410c", "#3730a3"];
+  const CULTURA_COLORS = [FILTER_DEFAULT_COLOR];
+  const SAFRA_COLORS   = [FILTER_DEFAULT_COLOR];
 
 
   return (
@@ -16882,7 +16719,7 @@ function ClientRankingDashboard({ dashboardFilter }) {
                 key={opt.value}
                 type="button"
                 className={`pc-seg-btn${groupBy === opt.value ? " is-active" : ""}`}
-                style={{ "--seg-color": "#0f766e" }}
+                style={{ "--seg-color": FILTER_DEFAULT_COLOR }}
                 onClick={() => setGroupBy(opt.value)}
               >
                 {opt.label}
@@ -16899,7 +16736,7 @@ function ClientRankingDashboard({ dashboardFilter }) {
                   key={exchange}
                   type="button"
                   className={`pc-seg-btn${selectedExchanges.includes(exchange) ? " is-active" : ""}`}
-                  style={{ "--seg-color": "#2563eb" }}
+                  style={{ "--seg-color": FILTER_DEFAULT_COLOR }}
                   onClick={() =>
                     setSelectedExchanges((prev) =>
                       prev.includes(exchange) ? prev.filter((e) => e !== exchange) : [...prev, exchange],
@@ -18286,6 +18123,19 @@ function MtmDashboard({ dashboardFilter }) {
     { name: "Neutras", value: closedRowsInView.filter((item) => item.direction === "neutral").length, itemStyle: { color: "#94a3b8" } },
   ]).filter((item) => item.value > 0), [closedRowsInView]);
 
+  const openMaturityBucketRows = useMemo(() => {
+    const buckets = [
+      { key: "due7", label: "≤ 7 dias", color: "#dc2626", match: (value) => value != null && value >= 0 && value <= 7 },
+      { key: "due30", label: "8-30 dias", color: "#f97316", match: (value) => value != null && value >= 8 && value <= 30 },
+      { key: "due90", label: "31-90 dias", color: "#eab308", match: (value) => value != null && value >= 31 && value <= 90 },
+      { key: "due90plus", label: "> 90 dias", color: "#16a34a", match: (value) => value != null && value > 90 },
+    ];
+    return buckets.map((bucket) => {
+      const rows = openRowsInView.filter((item) => bucket.match(item.daysToSettlement));
+      return { ...bucket, value: rows.length, rows };
+    });
+  }, [openRowsInView]);
+
   const monthlyContractRows = useMemo(() => {
     const map = new Map();
     normalizedRows.forEach((item) => {
@@ -19035,10 +18885,22 @@ function MtmDashboard({ dashboardFilter }) {
     [mtmTimelineBuckets, openTabModal],
   );
 
+  const statusDonutTotal = (summary.positive || 0) + (summary.negative || 0) + (summary.neutral || 0);
   const statusDonutOption = {
     animationDuration: 220,
     tooltip: { trigger: "item", formatter: ({ name, value }) => `${name}: ${formatNumber0(value)} ops` },
     legend: { bottom: 0, textStyle: { color: "#475569", fontSize: 11 } },
+    title: {
+      text: formatNumber0(statusDonutTotal),
+      subtext: "Total",
+      left: "50%",
+      top: "38%",
+      textAlign: "center",
+      textVerticalAlign: "middle",
+      textStyle: { fontSize: 20, fontWeight: 800, color: "#0f172a" },
+      subtextStyle: { fontSize: 11, fontWeight: 600, color: "#64748b" },
+      itemGap: 2,
+    },
     series: [
       {
         type: "pie",
@@ -19065,10 +18927,22 @@ function MtmDashboard({ dashboardFilter }) {
     ],
   };
 
+  const openClosedDonutTotal = (summary.open || 0) + (summary.closed || 0);
   const openClosedDonutOption = {
     animationDuration: 220,
     tooltip: { trigger: "item", formatter: ({ name, value }) => `${name}: ${formatNumber0(value)} ops` },
     legend: { bottom: 0, textStyle: { color: "#475569", fontSize: 11 } },
+    title: {
+      text: formatNumber0(openClosedDonutTotal),
+      subtext: "Total",
+      left: "50%",
+      top: "38%",
+      textAlign: "center",
+      textVerticalAlign: "middle",
+      textStyle: { fontSize: 20, fontWeight: 800, color: "#0f172a" },
+      subtextStyle: { fontSize: 11, fontWeight: 600, color: "#64748b" },
+      itemGap: 2,
+    },
     series: [
       {
         type: "pie",
@@ -19090,6 +18964,46 @@ function MtmDashboard({ dashboardFilter }) {
           { name: "Em aberto", value: summary.open, itemStyle: { color: "#2563eb" } },
           { name: "Encerradas", value: summary.closed, itemStyle: { color: "#7c3aed" } },
         ].filter((item) => item.value > 0),
+      },
+    ],
+  };
+
+  const openMaturityDonutTotal = openMaturityBucketRows.reduce((acc, bucket) => acc + (bucket.value || 0), 0);
+  const openMaturityDonutOption = {
+    animationDuration: 220,
+    tooltip: { trigger: "item", formatter: ({ name, value }) => `${name}: ${formatNumber0(value)} ops` },
+    legend: { bottom: 0, textStyle: { color: "#475569", fontSize: 11 } },
+    title: {
+      text: formatNumber0(openMaturityDonutTotal),
+      subtext: "Total",
+      left: "50%",
+      top: "38%",
+      textAlign: "center",
+      textVerticalAlign: "middle",
+      textStyle: { fontSize: 20, fontWeight: 800, color: "#0f172a" },
+      subtextStyle: { fontSize: 11, fontWeight: 600, color: "#64748b" },
+      itemGap: 2,
+    },
+    series: [
+      {
+        type: "pie",
+        radius: ["52%", "76%"],
+        center: ["50%", "42%"],
+        avoidLabelOverlap: true,
+        minAngle: 8,
+        labelLine: { show: false },
+        label: {
+          show: true,
+          position: "inside",
+          color: "#0f172a",
+          fontWeight: 800,
+          fontSize: 12,
+          formatter: ({ name, value, percent }) => (Number(percent || 0) >= 14 ? `${name}\n${formatNumber0(value)}` : ""),
+        },
+        itemStyle: { borderColor: "#fff7ed", borderWidth: 4 },
+        data: openMaturityBucketRows
+          .map((bucket) => ({ name: bucket.label, value: bucket.value, itemStyle: { color: bucket.color } }))
+          .filter((item) => item.value > 0),
       },
     ],
   };
@@ -19126,6 +19040,7 @@ function MtmDashboard({ dashboardFilter }) {
     },
     yAxis: {
       type: "category",
+      splitLine: { show: true, lineStyle: { color: "rgba(148, 163, 184, 0.22)", type: "solid" } },
       axisLabel: {
         color: "#0f172a",
         fontWeight: 700,
@@ -19673,11 +19588,6 @@ function MtmDashboard({ dashboardFilter }) {
           className: allBrl >= 0 ? "is-positive" : allBrl < 0 ? "is-negative" : "is-neutral",
           rows: baseRows,
           title: "MTM consolidado · Todas as operações",
-          metaItems: [
-            { key: "positive", label: "Positivas", value: formatNumber0(allSummary.positive) },
-            { key: "negative", label: "Negativas", value: formatNumber0(allSummary.negative) },
-            { key: "neutral", label: "Neutras", value: formatNumber0(allSummary.neutral) },
-          ],
         },
         {
           key: "open",
@@ -19687,11 +19597,6 @@ function MtmDashboard({ dashboardFilter }) {
           className: openBrl >= 0 ? "is-positive" : openBrl < 0 ? "is-negative" : "is-neutral",
           rows: baseRows.filter((item) => item.statusLabel === "Em aberto"),
           title: "MTM · Operações em aberto",
-          metaItems: [
-            { key: "due7", label: "Vencem em 7 dias", value: formatNumber0(openSummary.due7) },
-            { key: "due30", label: "Vencem 8-30 dias", value: formatNumber0(openSummary.due30) },
-            { key: "due90", label: "Vencem 31-90 dias", value: formatNumber0(openSummary.due90) },
-          ],
         },
         {
           key: "closed",
@@ -19701,11 +19606,6 @@ function MtmDashboard({ dashboardFilter }) {
           className: closedBrl >= 0 ? "is-positive" : closedBrl < 0 ? "is-negative" : "is-neutral",
           rows: baseRows.filter((item) => item.statusLabel === "Encerrado"),
           title: "MTM · Operações encerradas",
-          metaItems: [
-            { key: "closed_all", label: "Encerradas", value: formatNumber0(closedSummary.closed) },
-            { key: "positive", label: "Positivas", value: formatNumber0(closedSummary.positive) },
-            { key: "negative", label: "Negativas", value: formatNumber0(closedSummary.negative) },
-          ],
         },
       ];
 
@@ -19873,6 +19773,18 @@ function MtmDashboard({ dashboardFilter }) {
     [normalizedRows, openTabModal],
   );
 
+  const openMaturityDonutEvents = useMemo(
+    () => ({
+      click: (params) => {
+        if (params.componentType !== "series") return;
+        const bucket = openMaturityBucketRows.find((item) => item.label === params.name);
+        if (!bucket) return;
+        openTabModal(`Em aberto · Vencem ${bucket.label}`, bucket.rows);
+      },
+    }),
+    [openMaturityBucketRows, openTabModal],
+  );
+
   const openSettlementBandEvents = useMemo(
     () => ({
       click: (params) => {
@@ -19936,35 +19848,6 @@ function MtmDashboard({ dashboardFilter }) {
     >
       <span>{card.label}</span>
       <strong>{card.value}</strong>
-      {card.metaItems?.length ? (
-        <div className="mtm-hero-metrics">
-          {card.metaItems.map((item) => (
-            <div
-              role="button"
-              tabIndex={0}
-              key={`${card.label}-${item.label}`}
-              className={`mtm-hero-metric${card.isActive && mtmFacet === item.key ? " is-active" : ""}`}
-              aria-pressed={card.isActive && mtmFacet === item.key}
-              onClick={(event) => {
-                event.stopPropagation();
-                setMtmScope(card.key);
-                setMtmFacet(item.key);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setMtmScope(card.key);
-                  setMtmFacet(item.key);
-                }
-              }}
-            >
-              <small>{item.label}</small>
-              <b>{item.value}</b>
-            </div>
-          ))}
-        </div>
-      ) : null}
       <small>{card.help}</small>
     </button>
   );
@@ -20072,43 +19955,42 @@ function MtmDashboard({ dashboardFilter }) {
           <p>{activeScopeMeta.description}</p>
         </div>
         <section className="mtm-top-insight-grid">
-          <article className="card mtm-chart-card mtm-chart-card--donuts">
-            <div className="mtm-dual-donuts">
-              <div>
-                <div className="mtm-chart-head">
-                  <h3>Sinal do MTM</h3>
-                  <p>Positivas, negativas e neutras.</p>
-                </div>
-                <ReactECharts option={statusDonutOption} onEvents={statusDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
-              </div>
-              <div>
-                <div className="mtm-chart-head">
-                  <h3>Abertas x encerradas</h3>
-                  <p>Mix operacional do book.</p>
-                </div>
-                <ReactECharts option={openClosedDonutOption} onEvents={openClosedDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
-              </div>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Sinal do MTM</h3>
+              <p>Positivas, negativas e neutras.</p>
             </div>
+            <ReactECharts option={statusDonutOption} onEvents={statusDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Vencimentos em aberto</h3>
+              <p>Distribuição por janela de liquidação.</p>
+            </div>
+            <ReactECharts option={openMaturityDonutOption} onEvents={openMaturityDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Abertas x encerradas</h3>
+              <p>Mix operacional do book.</p>
+            </div>
+            <ReactECharts option={openClosedDonutOption} onEvents={openClosedDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
           </article>
         </section>
         <section className="mtm-chart-grid">
-          <article className="card mtm-chart-card" style={{ gridColumn: "1 / -1" }}>
-            <div className="mtm-dual-charts">
-              <div>
-                <div className="mtm-chart-head">
-                  <h3>MTM por bolsa</h3>
-                  <p>Bloco positivo versus pressão negativa por bolsa.</p>
-                </div>
-                <ReactECharts option={exchangeMtmOption} onEvents={exchangeMtmEvents} style={{ height: 260, width: "100%" }} opts={{ renderer: "svg" }} />
-              </div>
-              <div>
-                <div className="mtm-chart-head">
-                  <h3>Status por bolsa</h3>
-                  <p>Distribuição de operações em aberto e encerradas.</p>
-                </div>
-                <ReactECharts option={exchangeStatusOption} onEvents={exchangeStatusEvents} style={{ height: 260, width: "100%" }} opts={{ renderer: "svg" }} />
-              </div>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>MTM por bolsa</h3>
+              <p>Bloco positivo versus pressão negativa por bolsa.</p>
             </div>
+            <ReactECharts option={exchangeMtmOption} onEvents={exchangeMtmEvents} style={{ height: 260, width: "100%" }} opts={{ renderer: "svg" }} />
+          </article>
+          <article className="card mtm-chart-card">
+            <div className="mtm-chart-head">
+              <h3>Status por bolsa</h3>
+              <p>Distribuição de operações em aberto e encerradas.</p>
+            </div>
+            <ReactECharts option={exchangeStatusOption} onEvents={exchangeStatusEvents} style={{ height: 260, width: "100%" }} opts={{ renderer: "svg" }} />
           </article>
           <article className="card mtm-chart-card">
             <div className="mtm-chart-head">
