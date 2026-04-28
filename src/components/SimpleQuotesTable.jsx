@@ -41,8 +41,23 @@ const formatSimpleTableValue = (column, value) => {
   return String(value);
 };
 
+const expandFuturesTicker = (rawTicker, rowType) => {
+  const raw = String(rawTicker || "").trim();
+  if (!raw) return raw;
+  const tipo = String(rowType || "").trim().toLowerCase();
+  if (tipo !== "futures") return raw;
+  const match = raw.match(/^([A-Za-z]+)(\d{2})$/);
+  if (!match) return raw;
+  return `${match[1]}20${match[2]}`;
+};
+
+export const resolveTradingviewSymbol = (row) => {
+  const ticker = expandFuturesTicker(row?.ticker, row?.tipo);
+  return String(ticker || row?.symbol || "").trim();
+};
+
 export const buildTradingviewChartUrl = (row) => {
-  const symbolParam = String(row?.ticker || row?.symbol || "").trim();
+  const symbolParam = resolveTradingviewSymbol(row);
   if (!symbolParam) {
     return "";
   }
@@ -135,6 +150,11 @@ export function SimpleQuotesTable({
                             : ""
                         : "";
 
+                    const displayValue =
+                      column.key === "ticker"
+                        ? expandFuturesTicker(row?.ticker, row?.tipo)
+                        : row?.[column.key];
+
                     return (
                       <td key={column.key} className={toneClass}>
                         {column.key === "ticker" && typeof onTickerClick === "function" ? (
@@ -142,12 +162,12 @@ export function SimpleQuotesTable({
                             type="button"
                             className="simple-quotes-ticker-button"
                             onClick={() => onTickerClick(row)}
-                            title={`Abrir grafico de ${row?.symbol || row?.ticker || ""}`}
+                            title={`Abrir grafico de ${row?.symbol || displayValue || ""}`}
                           >
-                            {formatSimpleTableValue(column, row?.[column.key])}
+                            {formatSimpleTableValue(column, displayValue)}
                           </button>
                         ) : (
-                          formatSimpleTableValue(column, row?.[column.key])
+                          formatSimpleTableValue(column, displayValue)
                         )}
                       </td>
                     );
@@ -170,7 +190,10 @@ export function SimpleQuotesTable({
           filteredRows.map((row) => {
             const changeValue = parseLocalizedNumber(row?.change_value);
             const variationClass = changeValue > 0 ? " is-positive" : changeValue < 0 ? " is-negative" : "";
-            const tickerLabel = formatSimpleTableValue({ key: "ticker" }, row?.ticker);
+            const tickerLabel = formatSimpleTableValue(
+              { key: "ticker" },
+              expandFuturesTicker(row?.ticker, row?.tipo),
+            );
             const descriptionLabel = formatSimpleTableValue({ key: "description" }, row?.description);
             const priceLabel = formatBrazilianNumber(row?.price, 2);
             const variationLabel =
@@ -186,7 +209,7 @@ export function SimpleQuotesTable({
                       type="button"
                       className="simple-quotes-mobile-ticker"
                       onClick={() => onTickerClick(row)}
-                      title={`Abrir grafico de ${row?.symbol || row?.ticker || ""}`}
+                      title={`Abrir grafico de ${row?.symbol || tickerLabel || ""}`}
                     >
                       {tickerLabel}
                     </button>

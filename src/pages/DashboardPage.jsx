@@ -447,93 +447,245 @@ function CommercialRiskExecutiveCard({
 }
 
 function CommercialRiskQuotesSummaryCard({ rows, onOpen }) {
-  const carouselRows = useMemo(() => {
+  const marqueeRef = useRef(null);
+  const marqueeTrackRef = useRef(null);
+  const translateRef = useRef(0);
+  const marqueeDragStateRef = useRef({ active: false, moved: false, startX: 0, startTranslate: 0 });
+  const [isMarqueeInteracting, setIsMarqueeInteracting] = useState(false);
+  const [isMarqueeHovered, setIsMarqueeHovered] = useState(false);
+  const [copyCount, setCopyCount] = useState(2);
+
+  const filterCards = useMemo(() => {
     const sectionStats = (Array.isArray(rows) ? rows : []).reduce((acc, row) => {
-      const label = String(row?.section_name || "Sem secao").trim() || "Sem secao";
-      const normalizedLabel = label.toLowerCase();
-      if (!row?.ticker || row?.price === null || row?.price === undefined) {
-        return acc;
+      const key = String(row?.section_name || "Sem secao").trim() || "Sem secao";
+      if (!acc[key]) {
+        acc[key] = { count: 0, firstRow: row };
       }
-      if (!normalizedLabel || ["indices", "índices", "soja b3", "sem secao"].includes(normalizedLabel)) {
-        return acc;
-      }
-      if (!acc[label]) {
-        acc[label] = { label, firstRow: row };
-        return acc;
-      }
-      const currentFirstOrder = Number(acc[label].firstRow?.sort_order || Number.MAX_SAFE_INTEGER);
+      acc[key].count += 1;
+      const currentFirstOrder = Number(acc[key].firstRow?.sort_order || Number.MAX_SAFE_INTEGER);
       const nextOrder = Number(row?.sort_order || Number.MAX_SAFE_INTEGER);
       if (nextOrder < currentFirstOrder) {
-        acc[label].firstRow = row;
+        acc[key].firstRow = row;
       }
       return acc;
     }, {});
 
-    return Object.values(sectionStats).map((item) => ({
-      key: item.label,
-      label: item.label,
-      search: item.label,
-      firstRow: item.firstRow,
-    }));
+    return Object.entries(sectionStats)
+      .filter(([label]) => {
+        const normalizedLabel = String(label || "").trim().toLowerCase();
+        return normalizedLabel && !["indices", "índices", "soja b3", "sem secao"].includes(normalizedLabel);
+      })
+      .map(([label, stats]) => ({
+        key: label,
+        label,
+        search: label,
+        firstRow: stats.firstRow,
+      }));
   }, [rows]);
-  // Two copies are enough for a seamless CSS-driven loop (translateX 0 -> -50%).
-  const marqueeSequences = carouselRows.length > 1 ? [carouselRows, carouselRows] : [carouselRows];
-  const animationDurationSeconds = Math.max(20, carouselRows.length * 4);
 
-  const renderCard = (item, sequenceIndex) => {
-    const changeValue = parseLocaleNumber(item.firstRow?.change_value);
-    const toneClass = changeValue > 0 ? " is-positive" : changeValue < 0 ? " is-negative" : "";
-    return (
-      <button
-        type="button"
-        className="resource-filter-card risk-kpi-quotes-strip-card"
-        key={`${item.key || item.label}-${sequenceIndex}`}
-        onClick={onOpen}
-      >
-        <span className="resource-filter-card-label">{item.label}</span>
-        <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatQuoteNumber(item.firstRow.price, 2) : "—"}</strong>
-        <span className={`resource-filter-card-variation${toneClass}`}>
-          {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
-            ? `${formatSignedQuoteNumber(item.firstRow.change_value, 2)} (${formatSignedQuoteNumber(item.firstRow.change_percent, 2)}%)`
-            : "Sem variacao"}
-        </span>
-      </button>
-    );
+  const getCardWidth = () => {
+    const track = marqueeTrackRef.current;
+    if (!track || track.children.length === 0 || typeof window === "undefined") return 0;
+    const styles = window.getComputedStyle(track);
+    const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
+    return track.children[0].offsetWidth + gap;
   };
 
+  const applyTransform = (x) => {
+    const track = marqueeTrackRef.current;
+    if (track) track.style.transform = `translate3d(${x}px, 0, 0)`;
+  };
+
+  const recycleAndApply = () => {
+    const track = marqueeTrackRef.current;
+    if (!track || track.children.length <= 1) {
+      applyTransform(translateRef.current);
+      return;
+    }
+    const cardWidth = getCardWidth();
+    if (cardWidth > 0) {
+      let x = translateRef.current;
+      while (x <= -cardWidth) {
+        track.appendChild(track.firstElementChild);
+        x += cardWidth;
+      }
+      while (x > 0) {
+        track.insertBefore(track.lastElementChild, track.firstElementChild);
+        x -= cardWidth;
+      }
+      translateRef.current = x;
+    }
+    applyTransform(translateRef.current);
+  };
+
+  const beginMarqueeInteraction = (clientX) => {
+    marqueeDragStateRef.current = {
+      active: true,
+      moved: false,
+      startX: clientX,
+      startTranslate: translateRef.current,
+    };
+  };
+
+  const handleMarqueeMouseDown = (event) => {
+    if (filterCards.length <= 1 || event.button !== 0) return;
+    beginMarqueeInteraction(event.clientX);
+  };
+
+  const handleMarqueeMouseMove = (event) => {
+    const drag = marqueeDragStateRef.current;
+    if (!drag.active) return;
+    const deltaX = event.clientX - drag.startX;
+    if (!drag.moved && Math.abs(deltaX) < 6) return;
+    if (!drag.moved) {
+      marqueeDragStateRef.current = { ...drag, moved: true };
+      setIsMarqueeInteracting(true);
+    }
+    translateRef.current = drag.startTranslate + deltaX;
+    recycleAndApply();
+  };
+
+  const stopMarqueeInteraction = () => {
+    const wasMoved = marqueeDragStateRef.current.moved;
+    marqueeDragStateRef.current = {
+      active: false,
+      moved: wasMoved,
+      startX: 0,
+      startTranslate: translateRef.current,
+    };
+    setIsMarqueeInteracting(false);
+    if (wasMoved) {
+      window.setTimeout(() => {
+        marqueeDragStateRef.current.moved = false;
+      }, 0);
+    }
+  };
+
+  const handleMarqueeMouseLeave = () => {
+    stopMarqueeInteraction();
+    setIsMarqueeHovered(false);
+  };
+
+  const handleMarqueeTouchStart = (event) => {
+    const touch = event.touches?.[0];
+    if (!touch || filterCards.length <= 1) return;
+    beginMarqueeInteraction(touch.clientX);
+  };
+
+  const handleMarqueeTouchMove = (event) => {
+    const touch = event.touches?.[0];
+    const drag = marqueeDragStateRef.current;
+    if (!touch || !drag.active) return;
+    const deltaX = touch.clientX - drag.startX;
+    if (!drag.moved && Math.abs(deltaX) < 6) return;
+    if (!drag.moved) {
+      marqueeDragStateRef.current = { ...drag, moved: true };
+      setIsMarqueeInteracting(true);
+    }
+    translateRef.current = drag.startTranslate + deltaX;
+    recycleAndApply();
+  };
+
+  const handleMarqueeTouchEnd = () => {
+    stopMarqueeInteraction();
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined" || filterCards.length === 0) return undefined;
+    const compute = () => {
+      const container = marqueeRef.current;
+      const track = marqueeTrackRef.current;
+      if (!container || !track || track.children.length === 0) return;
+      const cardWidth = getCardWidth();
+      if (cardWidth <= 0) return;
+      const sequenceWidth = filterCards.length * cardWidth;
+      if (sequenceWidth <= 0) return;
+      const containerWidth = container.offsetWidth || window.innerWidth;
+      const needed = Math.max(2, Math.ceil((containerWidth + cardWidth) / sequenceWidth) + 1);
+      setCopyCount((prev) => (prev === needed ? prev : needed));
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [filterCards]);
+
+  useEffect(() => {
+    translateRef.current = 0;
+    applyTransform(0);
+    if (filterCards.length <= 1 || typeof window === "undefined") return undefined;
+
+    let animationFrameId = 0;
+    let lastTimestamp = 0;
+    const speedPxPerSecond = 28;
+
+    const step = (timestamp) => {
+      if (!lastTimestamp) lastTimestamp = timestamp;
+      const delta = timestamp - lastTimestamp;
+      lastTimestamp = timestamp;
+      if (!marqueeDragStateRef.current.active && !isMarqueeHovered) {
+        translateRef.current -= (delta * speedPxPerSecond) / 1000;
+        recycleAndApply();
+      }
+      animationFrameId = window.requestAnimationFrame(step);
+    };
+
+    animationFrameId = window.requestAnimationFrame(step);
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+    };
+  }, [filterCards, copyCount, isMarqueeHovered]);
+
+  if (!filterCards.length) {
+    return null;
+  }
+
   return (
-    <section className="resource-filter-panel risk-kpi-quotes-strip summary-insight-card">
-      <SummaryInsightButton
-        title="Cotações rápidas"
-        message={
-          <SummaryInsightCopy
-            paragraphs={[
-              "Em cada mini card, o número central representa o preço atual da referência de mercado daquele grupo.",
-              "A linha de baixo mostra a variação do dia ou do período da fonte, primeiro em valor absoluto e depois em percentual entre parênteses. Ao clicar no card, você segue para a página completa de cotações.",
-            ]}
-          />
-        }
-      />
-      {carouselRows.length ? (
-        <div className="resource-filter-marquee risk-kpi-quotes-strip-marquee">
-          <div
-            className={`resource-filter-track${carouselRows.length > 1 ? " is-animated" : ""}`}
-            style={carouselRows.length > 1 ? { animationDuration: `${animationDurationSeconds}s` } : undefined}
-          >
-            {marqueeSequences.map((sequence, sequenceIndex) => (
-              <div
-                key={`risk-kpi-quotes-sequence-${sequenceIndex}`}
-                className="resource-filter-sequence"
-                aria-hidden={sequenceIndex > 0 ? "true" : undefined}
+    <section className="resource-filter-panel">
+      <div
+        ref={marqueeRef}
+        className={`resource-filter-marquee resource-filter-marquee--continuous${isMarqueeInteracting ? " is-interacting" : ""}`}
+        onMouseDown={handleMarqueeMouseDown}
+        onMouseMove={handleMarqueeMouseMove}
+        onMouseUp={stopMarqueeInteraction}
+        onMouseEnter={() => setIsMarqueeHovered(true)}
+        onMouseLeave={handleMarqueeMouseLeave}
+        onTouchStart={handleMarqueeTouchStart}
+        onTouchMove={handleMarqueeTouchMove}
+        onTouchEnd={handleMarqueeTouchEnd}
+        onTouchCancel={handleMarqueeTouchEnd}
+      >
+        <div ref={marqueeTrackRef} className="resource-filter-track">
+          {Array.from({ length: copyCount }).flatMap((_, copyIdx) =>
+            filterCards.map((item) => (
+              <button
+                key={`${item.key}-${copyIdx}`}
+                type="button"
+                className="resource-filter-card"
+                onClick={() => {
+                  if (marqueeDragStateRef.current.moved) return;
+                  if (typeof onOpen === "function") onOpen();
+                }}
               >
-                {sequence.map((item) => renderCard(item, sequenceIndex))}
-              </div>
-            ))}
-          </div>
+                <span className="resource-filter-card-label">{item.label}</span>
+                <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatQuoteNumber(item.firstRow.price, 2) : "—"}</strong>
+                <span
+                  className={`resource-filter-card-variation${
+                    parseLocalizedNumber(item.firstRow?.change_value) > 0
+                      ? " is-positive"
+                      : parseLocalizedNumber(item.firstRow?.change_value) < 0
+                        ? " is-negative"
+                        : ""
+                  }`}
+                >
+                  {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
+                    ? `${formatSignedQuoteNumber(item.firstRow.change_value, 2)} (${formatSignedQuoteNumber(item.firstRow.change_percent, 2)}%)`
+                    : "Sem variacao"}
+                </span>
+              </button>
+            )),
+          )}
         </div>
-      ) : (
-        <div className="risk-kpi-link-card-empty">Nenhuma cotação disponível no momento.</div>
-      )}
+      </div>
     </section>
   );
 }
@@ -8741,12 +8893,12 @@ function CommercialRiskDashboard({ dashboardFilter }) {
       {!summaryLoading ? (
         <CommercialRiskQuotesSummaryCard rows={marketQuotes} onOpen={openQuotesPage} />
       ) : (
-        <section className="resource-filter-panel risk-kpi-quotes-strip summary-insight-card risk-kpi-quotes-strip-skeleton">
-          <div className="resource-filter-marquee risk-kpi-quotes-strip-marquee">
+        <section className="resource-filter-panel">
+          <div className="resource-filter-marquee">
             <div className="resource-filter-track">
               <div className="resource-filter-sequence">
                 {Array.from({ length: 8 }).map((_, index) => (
-                  <div key={`risk-quotes-strip-skeleton-${index}`} className="resource-filter-card risk-kpi-quotes-strip-card risk-kpi-skeleton-card">
+                  <div key={`risk-quotes-strip-skeleton-${index}`} className="resource-filter-card risk-kpi-skeleton-card">
                     <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
                     <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-short" />
                   </div>
@@ -16919,7 +17071,7 @@ function MtmDerivativeMaturityPanel({ rows, onOpenItem, onOpenDateRows }) {
           itemStyle: {
             color: (params) => {
               const v = params.value;
-              return v >= 0 ? "#22c55e" : "#ef4444";
+              return v >= 0 ? "#0f766e" : "#dc2626";
             },
             borderRadius: [4, 4, 0, 0],
           },
@@ -17621,7 +17773,7 @@ function MtmDashboard({ dashboardFilter }) {
         avgStrike: summary.avgStrike,
         avgMtm: summary.averageMtmBrl,
         rows: normalizedRows,
-        color: "#1d4ed8",
+        color: "#0369a1",
       },
     ];
   }, [exchangeRows, normalizedRows, summary]);
@@ -17903,7 +18055,7 @@ function MtmDashboard({ dashboardFilter }) {
   }, []);
 
   const createMiniVerticalBarOption = useCallback(
-    ({ rows, color = "#2563eb", valueFormatter = (value) => formatNumber0(value) }) => ({
+    ({ rows, color = "#0369a1", valueFormatter = (value) => formatNumber0(value) }) => ({
       animationDuration: 180,
       grid: { left: 18, right: 14, top: 18, bottom: 42, containLabel: true },
       tooltip: {
@@ -18118,7 +18270,7 @@ function MtmDashboard({ dashboardFilter }) {
   }, [closedRowsInView]);
 
   const closedDirectionSlices = useMemo(() => ([
-    { name: "Positivas", value: closedRowsInView.filter((item) => item.direction === "positive").length, itemStyle: { color: "#16a34a" } },
+    { name: "Positivas", value: closedRowsInView.filter((item) => item.direction === "positive").length, itemStyle: { color: "#0f766e" } },
     { name: "Negativas", value: closedRowsInView.filter((item) => item.direction === "negative").length, itemStyle: { color: "#dc2626" } },
     { name: "Neutras", value: closedRowsInView.filter((item) => item.direction === "neutral").length, itemStyle: { color: "#94a3b8" } },
   ]).filter((item) => item.value > 0), [closedRowsInView]);
@@ -18126,9 +18278,9 @@ function MtmDashboard({ dashboardFilter }) {
   const openMaturityBucketRows = useMemo(() => {
     const buckets = [
       { key: "due7", label: "≤ 7 dias", color: "#dc2626", match: (value) => value != null && value >= 0 && value <= 7 },
-      { key: "due30", label: "8-30 dias", color: "#f97316", match: (value) => value != null && value >= 8 && value <= 30 },
+      { key: "due30", label: "8-30 dias", color: "#ea580c", match: (value) => value != null && value >= 8 && value <= 30 },
       { key: "due90", label: "31-90 dias", color: "#eab308", match: (value) => value != null && value >= 31 && value <= 90 },
-      { key: "due90plus", label: "> 90 dias", color: "#16a34a", match: (value) => value != null && value > 90 },
+      { key: "due90plus", label: "> 90 dias", color: "#0f766e", match: (value) => value != null && value > 90 },
     ];
     return buckets.map((bucket) => {
       const rows = openRowsInView.filter((item) => bucket.match(item.daysToSettlement));
@@ -18379,7 +18531,7 @@ function MtmDashboard({ dashboardFilter }) {
                 color: {
                   type: "linear", x: 0, y: 0, x2: 0, y2: 1,
                   colorStops: [
-                    { offset: 0, color: "#1d6fa8" },
+                    { offset: 0, color: "#0c5a91" },
                     { offset: 1, color: "#0369a1" },
                   ],
                 },
@@ -18443,13 +18595,13 @@ function MtmDashboard({ dashboardFilter }) {
               markLine: {
                 silent: true,
                 symbol: ["none", "none"],
-                lineStyle: { color: "#7c3aed", type: "dashed", width: 1.5, opacity: 0.8 },
+                lineStyle: { color: "#16345f", type: "dashed", width: 1.5, opacity: 0.8 },
                 label: {
                   show: true,
                   position: "insideEndTop",
                   fontSize: 11,
                   fontWeight: 700,
-                  color: "#7c3aed",
+                  color: "#16345f",
                   backgroundColor: "rgba(255,255,255,0.85)",
                   borderRadius: 4,
                   padding: [2, 6],
@@ -18466,8 +18618,8 @@ function MtmDashboard({ dashboardFilter }) {
               connectNulls: false,
               symbol: "circle",
               symbolSize: 9,
-              lineStyle: { color: "#f97316", width: 2.5 },
-              itemStyle: { color: "#f97316", borderColor: "#fff", borderWidth: 2 },
+              lineStyle: { color: "#ea580c", width: 2.5 },
+              itemStyle: { color: "#ea580c", borderColor: "#fff", borderWidth: 2 },
               label: {
                 show: true,
                 position: "bottom",
@@ -18855,11 +19007,11 @@ function MtmDashboard({ dashboardFilter }) {
               markLine: {
                 silent: true,
                 symbol: "none",
-                lineStyle: { color: "#1d4ed8", type: "dashed", width: 2 },
+                lineStyle: { color: "#0369a1", type: "dashed", width: 2 },
                 label: {
                   show: true,
                   formatter: "Hoje",
-                  color: "#1d4ed8",
+                  color: "#0369a1",
                   fontWeight: 800,
                   position: "insideStartTop",
                 },
@@ -18919,7 +19071,7 @@ function MtmDashboard({ dashboardFilter }) {
         },
         itemStyle: { borderColor: "#fff7ed", borderWidth: 4 },
         data: [
-          { name: "Positivas", value: summary.positive, itemStyle: { color: "#16a34a" } },
+          { name: "Positivas", value: summary.positive, itemStyle: { color: "#0f766e" } },
           { name: "Negativas", value: summary.negative, itemStyle: { color: "#dc2626" } },
           { name: "Neutras", value: summary.neutral, itemStyle: { color: "#94a3b8" } },
         ].filter((item) => item.value > 0),
@@ -18961,8 +19113,8 @@ function MtmDashboard({ dashboardFilter }) {
         },
         itemStyle: { borderColor: "#fff7ed", borderWidth: 4 },
         data: [
-          { name: "Em aberto", value: summary.open, itemStyle: { color: "#2563eb" } },
-          { name: "Encerradas", value: summary.closed, itemStyle: { color: "#7c3aed" } },
+          { name: "Em aberto", value: summary.open, itemStyle: { color: "#0369a1" } },
+          { name: "Encerradas", value: summary.closed, itemStyle: { color: "#16345f" } },
         ].filter((item) => item.value > 0),
       },
     ],
@@ -19065,7 +19217,7 @@ function MtmDashboard({ dashboardFilter }) {
             lineHeight: 20,
           },
           saldoPositive: {
-            color: "#16a34a",
+            color: "#0f766e",
             fontWeight: 800,
             fontSize: 14,
             lineHeight: 22,
@@ -19092,7 +19244,7 @@ function MtmDashboard({ dashboardFilter }) {
         type: "bar",
         stack: "mtm",
         barMaxWidth: 30,
-        itemStyle: { color: "#16a34a", borderRadius: [0, CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0] },
+        itemStyle: { color: "#0f766e", borderRadius: [0, CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0] },
         label: { show: false },
         data: exchangeRowsWithTotal.map((item) => item.positiveBrl),
       },
@@ -19135,7 +19287,7 @@ function MtmDashboard({ dashboardFilter }) {
           formatter: (value) => (value === "TOTAL CARTEIRA" ? "{total|TOTAL CARTEIRA}" : value),
           rich: {
             total: {
-              color: "#1d4ed8",
+              color: "#0369a1",
               fontWeight: 900,
             },
           },
@@ -19147,13 +19299,13 @@ function MtmDashboard({ dashboardFilter }) {
           type: "bar",
           barMaxWidth: 28,
           itemStyle: {
-            color: (params) => (Number(params.value || 0) >= 0 ? "#2563eb" : "#1e3a8a"),
+            color: (params) => (Number(params.value || 0) >= 0 ? "#0369a1" : "#0a1730"),
             borderRadius: CHART_BAR_RADIUS,
           },
           label: {
             show: true,
             position: ({ value }) => (Number(value || 0) >= 0 ? "insideRight" : "insideLeft"),
-            color: "#eff6ff",
+            color: "#e6eef7",
             fontWeight: 800,
             formatter: ({ value }) => formatMtmCompactLabel(value),
           },
@@ -19194,11 +19346,11 @@ function MtmDashboard({ dashboardFilter }) {
           name: "Positivo",
           type: "bar",
           barMaxWidth: 24,
-          itemStyle: { color: "#16a34a", borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0] },
+          itemStyle: { color: "#0f766e", borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0] },
           label: {
             show: true,
             position: "insideTop",
-            color: "#ecfdf5",
+            color: "#e6f4f1",
             fontWeight: 800,
             formatter: ({ value }) => (Number(value || 0) >= 70000 ? formatMtmCompactLabel(value) : ""),
           },
@@ -19223,13 +19375,13 @@ function MtmDashboard({ dashboardFilter }) {
           type: "bar",
           barMaxWidth: 24,
           itemStyle: {
-            color: (params) => (Number(params.value || 0) >= 0 ? "#2563eb" : "#1e3a8a"),
+            color: (params) => (Number(params.value || 0) >= 0 ? "#0369a1" : "#0a1730"),
             borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0],
           },
           label: {
             show: true,
             position: ({ value }) => (Number(value || 0) >= 0 ? "insideTop" : "insideBottom"),
-            color: "#eff6ff",
+            color: "#e6eef7",
             fontWeight: 800,
             formatter: ({ value }) => formatMtmCompactLabel(value),
           },
@@ -19305,11 +19457,11 @@ function MtmDashboard({ dashboardFilter }) {
           markLine: {
             silent: true,
             symbol: "none",
-            lineStyle: { color: "#1d4ed8", type: "dashed", width: 2 },
+            lineStyle: { color: "#0369a1", type: "dashed", width: 2 },
             label: {
               show: true,
               formatter: `Total ${formatMtmCompactLabel(summary.netBrl)}`,
-              color: "#1d4ed8",
+              color: "#0369a1",
               fontWeight: 800,
             },
             data: [{ yAxis: summary.netBrl }],
@@ -19342,11 +19494,11 @@ function MtmDashboard({ dashboardFilter }) {
         name: "Em aberto",
         type: "bar",
         stack: "status",
-        itemStyle: { color: "#2563eb", borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0] },
+        itemStyle: { color: "#0369a1", borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0] },
         label: {
           show: true,
           position: "insideTop",
-          color: "#eff6ff",
+          color: "#e6eef7",
           fontWeight: 800,
           formatter: ({ value }) => (Number(value || 0) >= 2 ? formatNumber0(value) : ""),
         },
@@ -19356,11 +19508,11 @@ function MtmDashboard({ dashboardFilter }) {
         name: "Encerradas",
         type: "bar",
         stack: "status",
-        itemStyle: { color: "#7c3aed", borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0] },
+        itemStyle: { color: "#16345f", borderRadius: [CHART_BAR_RADIUS, CHART_BAR_RADIUS, 0, 0] },
         label: {
           show: true,
           position: "insideTop",
-          color: "#f5f3ff",
+          color: "#e6eaf2",
           fontWeight: 800,
           formatter: ({ value }) => (Number(value || 0) >= 2 ? formatNumber0(value) : ""),
         },
@@ -19421,11 +19573,11 @@ function MtmDashboard({ dashboardFilter }) {
     series: [
       {
         type: "bar",
-        itemStyle: { color: "#16a34a", borderRadius: CHART_BAR_RADIUS },
+        itemStyle: { color: "#0f766e", borderRadius: CHART_BAR_RADIUS },
         label: {
           show: true,
           position: "insideRight",
-          color: "#ecfdf5",
+          color: "#e6f4f1",
           fontWeight: 800,
           formatter: ({ value }) => (Math.abs(Number(value || 0)) >= 120000 ? formatMtmCompactLabel(value) : ""),
         },
@@ -19495,7 +19647,7 @@ function MtmDashboard({ dashboardFilter }) {
         type: "scatter",
         data: heatmapSource.data.filter((d) => d[2] > 0),
         symbolSize: (val) => Math.max(14, Math.sqrt(val[2] / _heatmapMaxCount) * 72),
-        itemStyle: { color: "#f97316" },
+        itemStyle: { color: "#ea580c" },
         label: {
           show: true,
           position: "inside",
@@ -19539,7 +19691,7 @@ function MtmDashboard({ dashboardFilter }) {
         name: "positive",
         data: heatmapMtmSource.data.filter((d) => d[2] > 0),
         symbolSize: (val) => Math.max(14, Math.sqrt(Math.abs(val[2]) / heatmapMtmSource.maxAbs) * 72),
-        itemStyle: { color: "#15803d" },
+        itemStyle: { color: "#0f766e" },
         label: {
           show: true,
           position: "inside",
@@ -20104,8 +20256,8 @@ function MtmDashboard({ dashboardFilter }) {
                           onClick={() => card.onBolsaClick(b)}
                           style={{
                             padding: "3px 10px", borderRadius: 20, border: "1.5px solid",
-                            borderColor: card.activeBolsa === b ? "#2563eb" : "#cbd5e1",
-                            background: card.activeBolsa === b ? "#2563eb" : "#fff",
+                            borderColor: card.activeBolsa === b ? "#0369a1" : "#cbd5e1",
+                            background: card.activeBolsa === b ? "#0369a1" : "#fff",
                             color: card.activeBolsa === b ? "#fff" : "#475569",
                             fontSize: 12, fontWeight: 600, cursor: "pointer",
                           }}
@@ -20124,8 +20276,8 @@ function MtmDashboard({ dashboardFilter }) {
                           onClick={() => card.onCultureClick(c)}
                           style={{
                             padding: "3px 10px", borderRadius: 20, border: "1.5px solid",
-                            borderColor: card.activeCulture === c ? "#16a34a" : "#cbd5e1",
-                            background: card.activeCulture === c ? "#16a34a" : "#fff",
+                            borderColor: card.activeCulture === c ? "#0f766e" : "#cbd5e1",
+                            background: card.activeCulture === c ? "#0f766e" : "#fff",
                             color: card.activeCulture === c ? "#fff" : "#475569",
                             fontSize: 12, fontWeight: 600, cursor: "pointer",
                           }}

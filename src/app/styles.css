@@ -9257,10 +9257,30 @@ tfoot td {
 }
 
 .resource-filter-marquee {
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   width: 100%;
   max-width: 100%;
-  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  cursor: grab;
+  touch-action: pan-x;
+}
+
+.resource-filter-marquee::-webkit-scrollbar {
+  display: none;
+}
+
+.resource-filter-marquee.is-interacting {
+  cursor: grabbing;
+}
+
+.resource-filter-marquee--continuous {
+  overflow: hidden;
+}
+
+.resource-filter-marquee--continuous .resource-filter-track {
+  will-change: transform;
 }
 
 .resource-filter-track {
@@ -9270,30 +9290,6 @@ tfoot td {
   flex-wrap: nowrap;
   white-space: nowrap;
   width: max-content;
-}
-
-@keyframes resource-filter-marquee-scroll {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(-50%, 0, 0); }
-}
-
-.resource-filter-track.is-animated {
-  animation-name: resource-filter-marquee-scroll;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-  animation-fill-mode: both;
-  will-change: transform;
-}
-
-.resource-filter-marquee:hover .resource-filter-track.is-animated,
-.resource-filter-marquee:focus-within .resource-filter-track.is-animated {
-  animation-play-state: paused;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .resource-filter-track.is-animated {
-    animation: none;
-  }
 }
 
 .resource-filter-sequence {

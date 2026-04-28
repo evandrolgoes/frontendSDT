@@ -374,6 +374,10 @@ export function ResourceForm({
           return;
         }
 
+        if (lookupOptions[field.resource] === undefined) {
+          return;
+        }
+
         if (field.type === "relation") {
           const currentValue = currentValues[field.name];
           if (currentValue !== "" && currentValue !== undefined && currentValue !== null) {

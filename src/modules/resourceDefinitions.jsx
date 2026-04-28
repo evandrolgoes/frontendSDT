@@ -1166,6 +1166,7 @@ const baseResourceDefinitions = {
     ],
     fields: [
       { name: "tenant", label: "Tenant", type: "relation", resource: "tenants", labelKey: "name", optional: true, section: "Usuario" },
+      { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
       {
         name: "master_user",
         label: "Carteira",
@@ -1220,7 +1221,6 @@ const baseResourceDefinitions = {
         optional: true,
         section: "Acesso",
       },
-      { name: "access_status", label: "Status", type: "select", options: accessStatusOptions, section: "Usuario" },
       { name: "max_admin_invitations", label: "Numero de convites", type: "number", optional: true, section: "Usuario" },
       { name: "max_owned_groups", label: "Maximo de grupos", type: "number", optional: true, section: "Usuario" },
       { name: "max_owned_subgroups", label: "Maximo de subgrupos", type: "number", optional: true, section: "Usuario" },

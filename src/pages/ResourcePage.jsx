@@ -343,10 +343,11 @@ export function ResourcePage({ definition }) {
   const [pendingAccessRequests, setPendingAccessRequests] = useState([]);
   const marqueeRef = useRef(null);
   const marqueeTrackRef = useRef(null);
-  const marqueeSequenceRef = useRef(null);
-  const marqueeDragStateRef = useRef({ active: false, moved: false, startX: 0, startScrollLeft: 0 });
+  const translateRef = useRef(0);
+  const marqueeDragStateRef = useRef({ active: false, moved: false, startX: 0, startTranslate: 0 });
   const [isMarqueeInteracting, setIsMarqueeInteracting] = useState(false);
   const [isMarqueeHovered, setIsMarqueeHovered] = useState(false);
+  const [copyCount, setCopyCount] = useState(2);
   const [isPendingAccessOpen, setIsPendingAccessOpen] = useState(false);
   const [bulkEditItems, setBulkEditItems] = useState(null);
   const [lookupOptions, setLookupOptions] = useState({});
@@ -464,78 +465,70 @@ export function ResourcePage({ definition }) {
     return `Ultima atualizacao: ${timeLabel} de ${dateLabel}`;
   }, [definition.resource, rows]);
 
-  const getMarqueeLoopWidth = () => {
+  const getCardWidth = () => {
     const track = marqueeTrackRef.current;
-    const sequence = marqueeSequenceRef.current;
-    if (!track || !sequence || typeof window === "undefined") {
-      return 0;
-    }
-
+    if (!track || track.children.length === 0 || typeof window === "undefined") return 0;
     const styles = window.getComputedStyle(track);
     const gap = Number.parseFloat(styles.columnGap || styles.gap || "0") || 0;
-    return sequence.offsetWidth + gap;
+    return track.children[0].offsetWidth + gap;
   };
 
-  const normalizeMarqueeScroll = () => {
-    const container = marqueeRef.current;
-    const loopWidth = getMarqueeLoopWidth();
-    if (!container || !loopWidth) {
+  const applyTransform = (x) => {
+    const track = marqueeTrackRef.current;
+    if (track) track.style.transform = `translate3d(${x}px, 0, 0)`;
+  };
+
+  const recycleAndApply = () => {
+    const track = marqueeTrackRef.current;
+    if (!track || track.children.length <= 1) {
+      applyTransform(translateRef.current);
       return;
     }
-
-    while (container.scrollLeft >= loopWidth) {
-      container.scrollLeft -= loopWidth;
+    const cardWidth = getCardWidth();
+    if (cardWidth > 0) {
+      let x = translateRef.current;
+      while (x <= -cardWidth) {
+        track.appendChild(track.firstElementChild);
+        x += cardWidth;
+      }
+      while (x > 0) {
+        track.insertBefore(track.lastElementChild, track.firstElementChild);
+        x -= cardWidth;
+      }
+      translateRef.current = x;
     }
-
-    while (container.scrollLeft < 0) {
-      container.scrollLeft += loopWidth;
-    }
+    applyTransform(translateRef.current);
   };
 
   const applyFilterCardSearch = (search) => {
     setFilters((currentFilters) => ({ ...currentFilters, search, page: 1 }));
   };
 
-  const beginMarqueeInteraction = (clientX, scrollLeft) => {
+  const beginMarqueeInteraction = (clientX) => {
     marqueeDragStateRef.current = {
       active: true,
       moved: false,
       startX: clientX,
-      startScrollLeft: scrollLeft,
+      startTranslate: translateRef.current,
     };
   };
 
   const handleMarqueeMouseDown = (event) => {
-    const container = marqueeRef.current;
-    if (!container || filterCards.length <= 1) {
-      return;
-    }
-    if (event.button !== 0) {
-      return;
-    }
-
-    beginMarqueeInteraction(event.clientX, container.scrollLeft);
+    if (filterCards.length <= 1 || event.button !== 0) return;
+    beginMarqueeInteraction(event.clientX);
   };
 
   const handleMarqueeMouseMove = (event) => {
-    const container = marqueeRef.current;
     const drag = marqueeDragStateRef.current;
-    if (!container || !drag.active) {
-      return;
-    }
+    if (!drag.active) return;
     const deltaX = event.clientX - drag.startX;
-    if (!drag.moved && Math.abs(deltaX) < 6) {
-      return;
-    }
+    if (!drag.moved && Math.abs(deltaX) < 6) return;
     if (!drag.moved) {
-      marqueeDragStateRef.current = {
-        ...drag,
-        moved: true,
-      };
+      marqueeDragStateRef.current = { ...drag, moved: true };
       setIsMarqueeInteracting(true);
     }
-    container.scrollLeft = drag.startScrollLeft - deltaX;
-    normalizeMarqueeScroll();
+    translateRef.current = drag.startTranslate + deltaX;
+    recycleAndApply();
   };
 
   const stopMarqueeInteraction = () => {
@@ -543,7 +536,7 @@ export function ResourcePage({ definition }) {
       active: false,
       moved: false,
       startX: 0,
-      startScrollLeft: marqueeRef.current?.scrollLeft || 0,
+      startTranslate: translateRef.current,
     };
     setIsMarqueeInteracting(false);
   };
@@ -554,38 +547,23 @@ export function ResourcePage({ definition }) {
   };
 
   const handleMarqueeTouchStart = (event) => {
-    const container = marqueeRef.current;
     const touch = event.touches?.[0];
-    if (!container || !touch || filterCards.length <= 1) {
-      return;
-    }
-
-    beginMarqueeInteraction(touch.clientX, container.scrollLeft);
+    if (!touch || filterCards.length <= 1) return;
+    beginMarqueeInteraction(touch.clientX);
   };
 
   const handleMarqueeTouchMove = (event) => {
-    const container = marqueeRef.current;
     const touch = event.touches?.[0];
     const drag = marqueeDragStateRef.current;
-    if (!container || !touch || !drag.active) {
-      return;
-    }
-
+    if (!touch || !drag.active) return;
     const deltaX = touch.clientX - drag.startX;
-    if (!drag.moved && Math.abs(deltaX) < 6) {
-      return;
-    }
-
+    if (!drag.moved && Math.abs(deltaX) < 6) return;
     if (!drag.moved) {
-      marqueeDragStateRef.current = {
-        ...drag,
-        moved: true,
-      };
+      marqueeDragStateRef.current = { ...drag, moved: true };
       setIsMarqueeInteracting(true);
     }
-
-    container.scrollLeft = drag.startScrollLeft - deltaX;
-    normalizeMarqueeScroll();
+    translateRef.current = drag.startTranslate + deltaX;
+    recycleAndApply();
   };
 
   const handleMarqueeTouchEnd = () => {
@@ -712,56 +690,53 @@ export function ResourcePage({ definition }) {
   }, [definition.autoRefreshIntervalMs, load]);
 
   useEffect(() => {
-    if (definition.resource !== "tradingview-watchlist-quotes" || filterCards.length <= 1) {
+    if (typeof window === "undefined" || filterCards.length === 0) return undefined;
+    if (definition.resource !== "tradingview-watchlist-quotes") return undefined;
+    const compute = () => {
       const container = marqueeRef.current;
-      if (container) {
-        container.scrollLeft = 0;
-      }
-      return undefined;
-    }
+      const track = marqueeTrackRef.current;
+      if (!container || !track || track.children.length === 0) return;
+      const cardWidth = getCardWidth();
+      if (cardWidth <= 0) return;
+      const sequenceWidth = filterCards.length * cardWidth;
+      if (sequenceWidth <= 0) return;
+      const containerWidth = container.offsetWidth || window.innerWidth;
+      const needed = Math.max(2, Math.ceil((containerWidth + cardWidth) / sequenceWidth) + 1);
+      setCopyCount((prev) => (prev === needed ? prev : needed));
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [definition.resource, filterCards]);
 
-    const container = marqueeRef.current;
-    if (!container || typeof window === "undefined") {
+  useEffect(() => {
+    translateRef.current = 0;
+    applyTransform(0);
+    if (definition.resource !== "tradingview-watchlist-quotes" || filterCards.length <= 1) {
       return undefined;
     }
+    if (typeof window === "undefined") return undefined;
 
     let animationFrameId = 0;
     let lastTimestamp = 0;
     const speedPxPerSecond = 28;
 
     const step = (timestamp) => {
-      if (!container) {
-        return;
-      }
-
-      if (!lastTimestamp) {
-        lastTimestamp = timestamp;
-      }
-
+      if (!lastTimestamp) lastTimestamp = timestamp;
       const delta = timestamp - lastTimestamp;
       lastTimestamp = timestamp;
-
       if (!marqueeDragStateRef.current.active && !isMarqueeHovered) {
-        container.scrollLeft += (delta * speedPxPerSecond) / 1000;
-        normalizeMarqueeScroll();
+        translateRef.current -= (delta * speedPxPerSecond) / 1000;
+        recycleAndApply();
       }
-
       animationFrameId = window.requestAnimationFrame(step);
     };
 
-    const handleResize = () => {
-      normalizeMarqueeScroll();
-    };
-
-    normalizeMarqueeScroll();
     animationFrameId = window.requestAnimationFrame(step);
-    window.addEventListener("resize", handleResize);
-
     return () => {
       window.cancelAnimationFrame(animationFrameId);
-      window.removeEventListener("resize", handleResize);
     };
-  }, [definition.resource, filterCards, isMarqueeHovered]);
+  }, [definition.resource, filterCards, copyCount, isMarqueeHovered]);
 
   const clearOpenQuery = () => {
     if (!requestedOpenId) {
@@ -1184,7 +1159,7 @@ export function ResourcePage({ definition }) {
         <section className="resource-filter-panel">
           <div
             ref={marqueeRef}
-            className={`resource-filter-marquee${isMarqueeInteracting ? " is-interacting" : ""}`}
+            className={`resource-filter-marquee resource-filter-marquee--continuous${isMarqueeInteracting ? " is-interacting" : ""}`}
             onMouseDown={handleMarqueeMouseDown}
             onMouseMove={handleMarqueeMouseMove}
             onMouseUp={stopMarqueeInteraction}
@@ -1194,47 +1169,39 @@ export function ResourcePage({ definition }) {
             onTouchMove={handleMarqueeTouchMove}
             onTouchEnd={handleMarqueeTouchEnd}
             onTouchCancel={handleMarqueeTouchEnd}
-            onScroll={normalizeMarqueeScroll}
           >
             <div ref={marqueeTrackRef} className="resource-filter-track">
-              {[filterCards, ...(filterCards.length > 1 ? [filterCards] : [])].map((sequence, sequenceIndex) => (
-                <div
-                  key={`resource-filter-sequence-${sequenceIndex}`}
-                  ref={sequenceIndex === 0 ? marqueeSequenceRef : undefined}
-                  className="resource-filter-sequence"
-                  aria-hidden={sequenceIndex > 0 ? "true" : undefined}
-                >
-                  {sequence.map((item) => (
-                    <button
-                      key={`${item.key}-${sequenceIndex}`}
-                      type="button"
-                      className={`resource-filter-card${activeFilterCardKey === item.key ? " is-active" : ""}`}
-                      onClick={() => applyFilterCardSearch(item.search)}
-                      onMouseUp={() => {
-                        if (!marqueeDragStateRef.current.moved) {
-                          applyFilterCardSearch(item.search);
-                        }
-                      }}
+              {Array.from({ length: copyCount }).flatMap((_, copyIdx) =>
+                filterCards.map((item) => (
+                  <button
+                    key={`${item.key}-${copyIdx}`}
+                    type="button"
+                    className={`resource-filter-card${activeFilterCardKey === item.key ? " is-active" : ""}`}
+                    onClick={() => applyFilterCardSearch(item.search)}
+                    onMouseUp={() => {
+                      if (!marqueeDragStateRef.current.moved) {
+                        applyFilterCardSearch(item.search);
+                      }
+                    }}
+                  >
+                    <span className="resource-filter-card-label">{item.label}</span>
+                    <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatBrazilianNumber(item.firstRow.price, 2) : "—"}</strong>
+                    <span
+                      className={`resource-filter-card-variation${
+                        parseLocalizedNumber(item.firstRow?.change_value) > 0
+                          ? " is-positive"
+                          : parseLocalizedNumber(item.firstRow?.change_value) < 0
+                            ? " is-negative"
+                            : ""
+                      }`}
                     >
-                      <span className="resource-filter-card-label">{item.label}</span>
-                      <strong>{item.firstRow?.price !== null && item.firstRow?.price !== undefined ? formatBrazilianNumber(item.firstRow.price, 2) : "—"}</strong>
-                      <span
-                        className={`resource-filter-card-variation${
-                          parseLocalizedNumber(item.firstRow?.change_value) > 0
-                            ? " is-positive"
-                            : parseLocalizedNumber(item.firstRow?.change_value) < 0
-                              ? " is-negative"
-                              : ""
-                        }`}
-                      >
-                        {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
-                          ? `${formatSignedBrazilianNumber(item.firstRow.change_value, 2)} (${formatSignedBrazilianNumber(item.firstRow.change_percent, 2)}%)`
-                          : "Sem variacao"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ))}
+                      {item.firstRow?.change_value !== null && item.firstRow?.change_value !== undefined
+                        ? `${formatSignedBrazilianNumber(item.firstRow.change_value, 2)} (${formatSignedBrazilianNumber(item.firstRow.change_percent, 2)}%)`
+                        : "Sem variacao"}
+                    </span>
+                  </button>
+                )),
+              )}
             </div>
           </div>
         </section>
