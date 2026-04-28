@@ -3232,9 +3232,19 @@ const calculatePriceCompositionDerivativeMtm = (item, strikeMtm, openUsdBrlQuote
   const status = normalizeText(item?.status_operacao);
   if (status !== "em aberto") {
     const usd = parseLocalizedNumber(item?.ajustes_totais_usd);
+    if (isMoedaOperation) {
+      // Câmbio encerrado: ajustes_totais_usd guarda o ajuste em R$.
+      // Converte para USD dividindo pelo strike de liquidação (R$/USD).
+      const brl = usd;
+      const strikeLiquid = parseLocalizedNumber(item?.strike_liquidacao);
+      return {
+        usd: strikeLiquid > 0 ? brl / strikeLiquid : 0,
+        brl,
+      };
+    }
     return {
       usd,
-      brl: isMoedaOperation ? usd : parseLocalizedNumber(item?.ajustes_totais_brl),
+      brl: parseLocalizedNumber(item?.ajustes_totais_brl),
     };
   }
 
@@ -3258,7 +3268,13 @@ const calculatePriceCompositionDerivativeMtm = (item, strikeMtm, openUsdBrlQuote
   else if (operationName.includes("venda put")) usd = strikeMercado < strikeMontagem ? (strikeMercado - strikeMontagem) * volume : 0;
 
   if (isMoedaOperation) {
-    return { usd, brl: usd };
+    // Em câmbio o cálculo (strike R$/USD) * (volume USD) já entrega R$.
+    // Para o modo U$ divide pelo strike MTM (R$/USD) para obter o ajuste em USD.
+    const brl = usd;
+    return {
+      usd: strikeMercado > 0 ? brl / strikeMercado : 0,
+      brl,
+    };
   }
 
   const isUsdOperation = String(item?.volume_financeiro_moeda || "").trim() === "U$";
@@ -13700,7 +13716,6 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
   const [physicalQuotes, setPhysicalQuotes] = useState([]);
   const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
   const [currencyMode, setCurrencyMode] = useState("AMBOS_R$");
-  const [adjustmentMode, setAdjustmentMode] = useState("ALL");
   const [soldVolumeInput, setSoldVolumeInput] = useState("");
   const [hasManualVolume, setHasManualVolume] = useState(false);
   const [resourceTableModal, setResourceTableModal] = useState(null);
@@ -13943,9 +13958,6 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         const isMoedaItem = normalizeText(item.moeda_ou_cmdtye) === "moeda";
         const originalValueBrl = Number((isMoedaItem ? item.ajustes_totais_usd : item.ajustes_totais_brl) || 0);
         const fallbackUsd = usdRate > 0 ? originalValueBrl / usdRate : 0;
-        const originalValueUsd =
-          Number(item.ajustes_totais_moeda_original || item.ajustes_totais_usd || item.volume_financeiro_valor_moeda_original || 0) ||
-          fallbackUsd;
         const derivativeCurrency = isUsdCurrency(item.volume_financeiro_moeda || item.moeda_unidade || item.moeda_contrato) ? "U$" : "R$";
         const liquidationDate = startOfDashboardDay(item.data_liquidacao);
         const usesSpotQuote = liquidationDate && today ? liquidationDate.getTime() >= today.getTime() : false;
@@ -13953,28 +13965,28 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
         const strikeMtm = derivativeQuotesByTicker[item.contrato_derivativo] ?? 0;
         const mtm = calculatePriceCompositionDerivativeMtm(item, strikeMtm, usdBrlQuote);
 
+        // Em câmbio o ajuste original vem em R$, então convertemos para U$
+        // dividindo pelo strike liquid (MTM): strike_liquidacao se encerrado,
+        // strikeMtm se em aberto. Não usar strike_montagem / ptax do vencimento.
+        const cambioStrikeLiquid = isMoedaItem
+          ? (getPriceCompositionDerivativeStatus(item) === "Encerrado"
+              ? parseLocalizedNumber(item?.strike_liquidacao)
+              : parseLocalizedNumber(strikeMtm))
+          : 0;
+        const originalValueUsd = isMoedaItem
+          ? (cambioStrikeLiquid > 0 ? originalValueBrl / cambioStrikeLiquid : 0)
+          : (Number(item.ajustes_totais_moeda_original || item.ajustes_totais_usd || item.volume_financeiro_valor_moeda_original || 0) ||
+             fallbackUsd);
+
         let amount = 0;
         if (currencyMode === "AMBOS_R$") {
-          amount = adjustmentMode === "ALL" ? mtm.brl : originalValueBrl;
+          amount = mtm.brl;
         } else if (currencyMode === "AMBOS_U$") {
-          // All derivatives converted to USD: R$ adjustments divided by rate, U$ adjustments as-is
-          if (adjustmentMode === "ALL") {
-            amount = mtm.usd;
-          } else if (derivativeCurrency === "U$") {
-            amount = originalValueUsd;
-          } else {
-            amount = brlToUsdRate > 0 ? originalValueBrl / brlToUsdRate : 0;
-          }
+          amount = mtm.usd;
         } else if (currencyMode === "R$") {
-          if (adjustmentMode === "ALL") {
-            amount = originalValueBrl;
-          } else {
-            amount = derivativeCurrency === "R$" ? originalValueBrl : 0;
-          }
+          amount = originalValueBrl;
         } else if (currencyMode === "U$") {
-          if (adjustmentMode === "MATCH") {
-            amount = derivativeCurrency === "U$" ? originalValueUsd : 0;
-          } else if (derivativeCurrency === "U$") {
+          if (derivativeCurrency === "U$") {
             amount = originalValueUsd;
           } else {
             amount = brlToUsdRate > 0 ? originalValueBrl / brlToUsdRate : 0;
@@ -13995,12 +14007,8 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
           institution: item.instituicao || item.bolsa_ref || "—",
           operation: item.nome_da_operacao || item.tipo_derivativo || "Derivativo",
         };
-      })
-      .filter((item) => {
-        if (currencyMode === "AMBOS_R$" || currencyMode === "AMBOS_U$") return true;
-        return adjustmentMode === "ALL" || item.currency === currencyMode;
       });
-  }, [adjustmentMode, currencyMode, derivativeQuotesByTicker, filteredDerivatives, usdBrlQuote, usdRate]);
+  }, [currencyMode, derivativeQuotesByTicker, filteredDerivatives, usdBrlQuote, usdRate]);
 
   const derivativeSourceIdsForChart = useMemo(
     () => new Set(normalizedDerivatives.map((item) => item.id)),
@@ -14349,13 +14357,6 @@ export function PriceCompositionDashboard({ dashboardFilter, chartEngine = "cust
                 setSoldVolumeInput(event.target.value);
               }}
             />
-          </label>
-          <label className="price-comp-field">
-            <span>Ajustes considerados</span>
-            <select value={adjustmentMode} onChange={(event) => setAdjustmentMode(event.target.value)}>
-              <option value="ALL">Considere todos os ajustes</option>
-              <option value="MATCH">Considerar ajustes dessa moeda</option>
-            </select>
           </label>
           <button type="button" className="btn btn-secondary" onClick={() => {
             setHasManualVolume(false);
@@ -20116,7 +20117,7 @@ function MtmDashboard({ dashboardFilter }) {
           </article>
           <article className="card mtm-chart-card">
             <div className="mtm-chart-head">
-              <h3>Vencimentos em aberto</h3>
+              <h3>Derivativos ativos (em aberto)</h3>
               <p>Distribuição por janela de liquidação.</p>
             </div>
             <ReactECharts option={openMaturityDonutOption} onEvents={openMaturityDonutEvents} style={{ height: 240, width: "100%" }} opts={{ renderer: "svg" }} />
