@@ -5194,6 +5194,22 @@ function CashflowCurrencyChart({
     const temporalGridBottom = 18;
     const temporalGridTop = 14;
     const temporalAxisLabelMargin = 8;
+    const plotAreaWidth = Math.max(effectiveChartWidth - 80, 200);
+    const computeAxisRotate = (count, avgLabelPx) => {
+      const slot = plotAreaWidth / Math.max(count, 1);
+      if (slot >= avgLabelPx + 8) return 0;
+      if (slot >= avgLabelPx * 0.55) return 30;
+      return 45;
+    };
+    const temporalAvgLabelPx = interval === "monthly" ? 38 : 70;
+    const temporalAxisRotate = computeAxisRotate(timelinePeriods.length, temporalAvgLabelPx);
+    const geralAvgLabelPx = (() => {
+      const labels = chartState.labels;
+      if (!labels.length) return 50;
+      const maxChars = labels.reduce((max, label) => Math.max(max, String(label ?? "").length), 0);
+      return Math.max(24, maxChars * 7);
+    })();
+    const geralAxisRotate = computeAxisRotate(chartState.labels.length, geralAvgLabelPx);
 
     if (interval === "geral") {
       return {
@@ -5214,7 +5230,13 @@ function CashflowCurrencyChart({
           type: "category",
           data: chartState.labels,
           axisTick: { show: false },
-          axisLabel: { color: "#475569", fontWeight: 700, fontSize: 12 },
+          axisLabel: {
+            color: "#475569",
+            fontWeight: 700,
+            fontSize: 12,
+            interval: 0,
+            rotate: geralAxisRotate,
+          },
           axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
         },
         yAxis: {
@@ -5313,7 +5335,8 @@ function CashflowCurrencyChart({
           color: "#475569",
           fontWeight: 700,
           fontSize: 12,
-          hideOverlap: true,
+          interval: 0,
+          rotate: temporalAxisRotate,
           margin: temporalAxisLabelMargin,
         },
         axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },

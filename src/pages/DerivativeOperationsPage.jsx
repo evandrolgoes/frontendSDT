@@ -208,29 +208,13 @@ export function DerivativeOperationsPage() {
     const value = new URLSearchParams(location.search).get("open");
     return value ? String(value) : "";
   }, [location.search]);
-  const siblingRowsByCode = useMemo(() => {
-    const groupedRows = new Map();
-    rows.forEach((row) => {
-      const code = row.cod_operacao_mae ?? "";
-      if (!groupedRows.has(code)) {
-        groupedRows.set(code, []);
-      }
-      groupedRows.get(code).push(row);
-    });
-    groupedRows.forEach((items) => {
-      items.sort((left, right) => (left.ordem || 0) - (right.ordem || 0) || left.id - right.id);
-    });
-    return groupedRows;
-  }, [rows]);
-
   const resolveTableRow = (item) => {
     if (!item) {
       return item;
     }
-    const siblingRows = siblingRowsByCode.get(item.cod_operacao_mae ?? "") || [item];
     return {
       ...item,
-      siblingRows,
+      siblingRows: [item],
     };
   };
 
@@ -287,7 +271,7 @@ export function DerivativeOperationsPage() {
     setCurrent(resolveTableRow(match));
     setError("");
     setIsModalOpen(true);
-  }, [current?.id, isModalOpen, loading, requestedOpenId, rows, setError, siblingRowsByCode]);
+  }, [current?.id, isModalOpen, loading, requestedOpenId, rows, setError]);
 
   useEffect(() => {
     if (loading || typeof window === "undefined") {
