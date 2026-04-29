@@ -1435,7 +1435,7 @@ function BlogComposer({
   );
 }
 
-function BlogNewsListItem({ post, active, canManagePosts, onOpen, onEdit, onDelete }) {
+function BlogNewsListItem({ post, active, canManagePosts, onOpen, onEdit, onDuplicate, onDelete }) {
   const dateParts = getDateParts(resolvePostDate(post));
   const authorName = post.published_by_name || post.created_by_name || "Equipe";
   const updatedLabel = formatPostUpdatedAt(post.updated_at || post.created_at || resolvePostDate(post));
@@ -1466,6 +1466,13 @@ function BlogNewsListItem({ post, active, canManagePosts, onOpen, onEdit, onDele
             onClick={() => onEdit(post)}
           >
             Editar
+          </button>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => onDuplicate(post)}
+          >
+            Duplicar
           </button>
           <button
             className="btn btn-secondary"
@@ -1738,6 +1745,34 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
     }
   };
 
+  const handleDuplicatePost = async (postOverride = selectedPost) => {
+    if (!postOverride?.id || !canManagePosts) {
+      return;
+    }
+    setError("");
+    try {
+      const original = await resourceService.getOne("market-news-posts", postOverride.id, { force: true });
+      const source = original || postOverride;
+      const baseTitle = String(source.titulo || "").trim() || "Sem titulo";
+      const payload = {
+        titulo: `${baseTitle} (cópia)`,
+        categorias: normalizeCategories(source.categorias || []),
+        status_artigo: "draft",
+        data_publicacao: new Date().toISOString(),
+        conteudo_html: String(source.conteudo_html || ""),
+        inline_attachment_ids: [],
+      };
+      const created = await resourceService.create("market-news-posts", payload);
+      resourceService.invalidateCache("market-news-posts");
+      await loadPosts({ force: true });
+      if (created?.id) {
+        navigate(`${basePath}/${created.id}${currentSearch ? `?${currentSearch}` : ""}`);
+      }
+    } catch {
+      setError("Não foi possível duplicar o post.");
+    }
+  };
+
   const handleDeletePost = async (postOverride = selectedPost) => {
     if (!postOverride?.id || !canManagePosts) {
       return;
@@ -1933,6 +1968,7 @@ export function BlogStudioPage({ basePath = "/mercado/blog" }) {
                     canManagePosts={canManagePosts}
                     onOpen={handleOpenPost}
                     onEdit={handleEditPost}
+                    onDuplicate={handleDuplicatePost}
                     onDelete={handleDeletePost}
                   />
                 ))}

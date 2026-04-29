@@ -8790,6 +8790,16 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const openMarketNewsPreview = useCallback((post) => {
     if (!post) return;
     setSelectedMarketNewsPost(post);
+    if (!post.conteudo_html) {
+      resourceService
+        .getOne("market-news-posts", post.id)
+        .then((fullPost) => {
+          setSelectedMarketNewsPost((current) =>
+            current && String(current.id) === String(fullPost.id) ? { ...current, ...fullPost } : current,
+          );
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const closeMarketNewsPreview = useCallback(() => {
