@@ -7633,21 +7633,40 @@ function CommercialRiskDashboard({ dashboardFilter, hideHedgeByCultureAndMaturit
       setStrategyTriggers(cachedDashboard.strategyTriggers || []);
       setTriggerExchanges(cachedDashboard.triggerExchanges || []);
       setAnalyticsReady(true);
-    } else if (isBaseChange) {
-      // Only reset raw data when grupo/subgrupo actually change — cultura/safra
-      // don't affect the listAll fetches and must not clear existing data.
-      setPhysicalSales([]);
-      setDerivatives([]);
-      setCropBoards([]);
-      setHedgePolicies([]);
-      setPhysicalPayments([]);
-      setCashPayments([]);
-      setBudgetCosts([]);
-      setActualCosts([]);
-      setHedgePolicyUsdBrlRate(0);
-      setStrategyTriggers([]);
-      setTriggerExchanges([]);
-      setAnalyticsReady(false);
+    } else {
+      // Stale-while-revalidate: hydrate from sessionStorage so the dashboard
+      // can render immediately on a hard refresh while the network refetch
+      // happens in background.
+      const sales = resourceService.listAllCached("physical-sales");
+      const derivativesData = resourceService.listAllCached("derivative-operations");
+      if (sales || derivativesData) {
+        setPhysicalSales(sales || []);
+        setDerivatives(derivativesData || []);
+        setCropBoards(resourceService.listAllCached("crop-boards") || []);
+        setHedgePolicies(resourceService.listAllCached("hedge-policies") || []);
+        setPhysicalPayments(resourceService.listAllCached("physical-payments") || []);
+        setCashPayments(resourceService.listAllCached("cash-payments") || []);
+        setBudgetCosts(resourceService.listAllCached("budget-costs") || []);
+        setActualCosts(resourceService.listAllCached("actual-costs") || []);
+        setStrategyTriggers(resourceService.listAllCached("strategy-triggers") || []);
+        setTriggerExchanges(resourceService.listAllCached("exchanges") || []);
+        setAnalyticsReady(true);
+      } else if (isBaseChange) {
+        // Only reset raw data when grupo/subgrupo actually change — cultura/safra
+        // don't affect the listAll fetches and must not clear existing data.
+        setPhysicalSales([]);
+        setDerivatives([]);
+        setCropBoards([]);
+        setHedgePolicies([]);
+        setPhysicalPayments([]);
+        setCashPayments([]);
+        setBudgetCosts([]);
+        setActualCosts([]);
+        setHedgePolicyUsdBrlRate(0);
+        setStrategyTriggers([]);
+        setTriggerExchanges([]);
+        setAnalyticsReady(false);
+      }
     }
 
     const loadAnalytics = () => {
@@ -7712,6 +7731,13 @@ function CommercialRiskDashboard({ dashboardFilter, hideHedgeByCultureAndMaturit
 
   useEffect(() => {
     let isMounted = true;
+    const cachedQuotes = resourceService.listTradingviewQuotesCached();
+    if (cachedQuotes) {
+      const cachedRate = getUsdBrlQuoteValue(cachedQuotes);
+      if (cachedRate > 0) {
+        setHedgePolicyUsdBrlRate(cachedRate);
+      }
+    }
     resourceService
       .listTradingviewQuotes()
       .then((quotes) => {

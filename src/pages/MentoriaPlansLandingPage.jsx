@@ -399,12 +399,19 @@ export function MentoriaPlansLandingPage() {
           <h2 className="mentoria-plans-section-title mentoria-plans-reveal mentoria-plans-reveal-delay-1">
             Para quem quer <span>estar no controle</span>
           </h2>
+          <p className="mentoria-plans-body mentoria-plans-reveal mentoria-plans-reveal-delay-2">
+            Para quem quer ser o profissional mais valorizado do Agro dos próximos 10 anos.
+          </p>
         </div>
         <div className="mentoria-plans-persona-grid">
           {MENTORIA_PLANS_PERSONAS.map((persona) => (
             <article key={persona.role} className="mentoria-plans-persona-card mentoria-plans-reveal mentoria-plans-reveal-delay-1">
               <h3>{persona.role}</h3>
-              <p>{persona.context}</p>
+              <ul className="mentoria-plans-persona-bullets">
+                {persona.bullets.map((bullet) => (
+                  <li key={bullet}>{bullet}</li>
+                ))}
+              </ul>
             </article>
           ))}
         </div>
@@ -459,16 +466,6 @@ export function MentoriaPlansLandingPage() {
 
               {/* Promessa */}
               <p className="mentoria-plans-combined-promise">{plan.promise}</p>
-
-              {/* Para quem serve */}
-              <div className="mentoria-plans-combined-block">
-                <span className="mentoria-plans-combined-label">Para quem é este nível</span>
-                <ul className="mentoria-plans-combined-for-who-list">
-                  {plan.forWho.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </div>
 
               {/* Conteúdos + Acesso — bloco unificado */}
               <div className="mentoria-plans-combined-block">

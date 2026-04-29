@@ -4,6 +4,11 @@ import { api } from "./api";
 const responseCache = new Map();
 const SESSION_CACHE_PREFIX = "sdt:resource-cache:";
 const DASHBOARD_SESSION_CACHE_TTL_MS = 5 * 60 * 1000;
+// Stale-while-revalidate cache for listAll/listTradingviewQuotes: survives full
+// page refresh via sessionStorage, allowing the dashboard to render instantly
+// from the previous session's data while the network refetch happens in
+// background. A longer TTL is fine because we always revalidate.
+const LIST_ALL_SWR_TTL_MS = 30 * 60 * 1000;
 
 const getSessionStorage = () => {
   if (typeof window === "undefined") return null;
@@ -183,21 +188,57 @@ export const resourceService = {
       responseCache.delete(cacheKey);
     }
     return remember(cacheKey, async () => {
-      let nextPage = 1;
-      let aggregated = [];
+      const pageSize = 1000;
+      const firstResponse = await api.get(`/${resource}/`, {
+        params: { page: 1, page_size: pageSize, ...normalizedParams },
+      });
+      const firstData = firstResponse.data;
 
-      while (nextPage) {
-        const response = await api.get(`/${resource}/`, { params: { page: nextPage, page_size: 100, ...normalizedParams } });
-        const data = response.data;
-        aggregated = aggregated.concat(data.results || data);
-        nextPage = data.next ? nextPage + 1 : null;
-        if (!Array.isArray(data.results) && !data.next) {
-          nextPage = null;
+      if (!firstData || !Array.isArray(firstData.results)) {
+        const aggregated = Array.isArray(firstData) ? firstData : [];
+        writeSessionCache(cacheKey, aggregated);
+        return aggregated;
+      }
+
+      let aggregated = firstData.results;
+      const total = typeof firstData.count === "number" ? firstData.count : null;
+
+      if (total !== null && total > aggregated.length) {
+        const totalPages = Math.ceil(total / pageSize);
+        const remaining = [];
+        for (let page = 2; page <= totalPages; page += 1) {
+          remaining.push(
+            api
+              .get(`/${resource}/`, { params: { page, page_size: pageSize, ...normalizedParams } })
+              .then((response) => response.data?.results || []),
+          );
+        }
+        const pages = await Promise.all(remaining);
+        pages.forEach((rows) => {
+          aggregated = aggregated.concat(rows);
+        });
+      } else if (total === null && firstData.next) {
+        let nextPage = 2;
+        let hasMore = true;
+        while (hasMore) {
+          const response = await api.get(`/${resource}/`, {
+            params: { page: nextPage, page_size: pageSize, ...normalizedParams },
+          });
+          const data = response.data;
+          aggregated = aggregated.concat(data.results || []);
+          hasMore = Boolean(data.next);
+          nextPage += 1;
         }
       }
 
+      writeSessionCache(cacheKey, aggregated);
       return aggregated;
     });
+  },
+  listAllCached: (resource, params = {}, maxAgeMs = LIST_ALL_SWR_TTL_MS) => {
+    const normalizedParams = normalizeRequestParams(params) || {};
+    const cacheKey = buildCacheKey("listAll", resource, normalizedParams);
+    return readSessionCache(cacheKey, maxAgeMs);
   },
   create: (resource, payload) => {
     const body = containsBinaryValue(payload) ? toFormData(payload) : payload;
@@ -280,8 +321,16 @@ export const resourceService = {
       api
         .get("tradingview-watchlist-quotes/", { params: { format: "json", page_size: 1000 } })
         .then((response) => response.data)
-        .then((data) => data.results || data),
+        .then((data) => {
+          const items = data.results || data;
+          writeSessionCache(cacheKey, items);
+          return items;
+        }),
     );
+  },
+  listTradingviewQuotesCached: (maxAgeMs = LIST_ALL_SWR_TTL_MS) => {
+    const cacheKey = buildCacheKey("lookup", "tradingview-watchlist-quotes", {});
+    return readSessionCache(cacheKey, maxAgeMs);
   },
   fetchHistoricalExchangePrice: (bolsaRef, date) =>
     api

@@ -21,23 +21,36 @@ export const MENTORIA_PLANS_IMAGES = {
 export const MENTORIA_PLANS_PERSONAS = [
   {
     role: "Produtores Rurais",
-    context:
-      "Que já produzem bem mas sabem que a margem se perde na comercialização — e querem um estrategista ao seu lado ou querem ser esse estrategista.",
+    bullets: [
+      "Já produzem bem mas sabem que a margem se perde na comercialização",
+      "Querem um estrategista ao seu lado ou querem ser esse estrategista",
+      "Precisam melhorar a margem financeira decidindo com estratégia, não com achismo",
+    ],
   },
   {
     role: "Consultores & Agrônomos",
-    context:
-      "Que entregam suporte técnico de alto nível mas ainda não dominam derivativos e gestão de risco — e querem se tornar a referência financeira dos seus clientes.",
+    bullets: [
+      "Entregam suporte técnico de alto nível mas ainda não dominam derivativos e gestão de risco",
+      "Querem se tornar a referência financeira dos seus clientes",
+      "Querem empreender como Consultor com Liberdade Financeira e de Tempo",
+      "Desejam faturar pelo menos R$15 Mil mensais",
+    ],
   },
   {
     role: "Profissionais de Tradings",
-    context:
-      "Que operam o físico e querem dominar a fundo a estruturação de operações com derivativos para criar vantagem real na originação.",
+    bullets: [
+      "Operam o físico e querem dominar a estruturação de operações com derivativos",
+      "Buscam vantagem real na originação",
+      "Querem fazer uma transição de carreira calculada em até 6 meses",
+      "Querem montar políticas de hedge, comitê de risco e operações estruturadas",
+    ],
   },
   {
     role: "Investidores do Setor",
-    context:
-      "Que querem entender os fundamentos reais que movem o preço — e usar esse conhecimento para tomar decisões com inteligência, não com especulação.",
+    bullets: [
+      "Querem entender os fundamentos reais que movem o preço",
+      "Usam esse conhecimento para tomar decisões com inteligência, não com especulação",
+    ],
   },
 ];
 

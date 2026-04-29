@@ -15691,6 +15691,32 @@ tfoot td {
   line-height: 1.7;
 }
 
+.mentoria-plans-persona-bullets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mentoria-plans-persona-bullets li {
+  position: relative;
+  padding-left: 22px;
+  color: rgba(220, 227, 225, 0.86);
+  font-size: calc((0.9rem * 0.8) * 1.1);
+  line-height: 1.55;
+}
+
+.mentoria-plans-persona-bullets li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #f97316;
+  font-weight: 700;
+}
+
 /* ---------- Mentor ---------- */
 .mentoria-plans-mentor-grid {
   display: grid;
