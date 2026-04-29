@@ -7525,7 +7525,7 @@ function CommercialRiskAnalyticsSkeleton() {
   );
 }
 
-function CommercialRiskDashboard({ dashboardFilter }) {
+function CommercialRiskDashboard({ dashboardFilter, hideHedgeByCultureAndMaturities = false }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { options, updateFilter } = useDashboardFilter();
@@ -7814,8 +7814,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
   const formCompletionSummary = summaryData?.formCompletionSummary || {};
   const summaryUsdBrlRate = hedgePolicyUsdBrlRate || getUsdBrlQuoteValue(marketQuotes);
   const upcomingMaturityDisplayRows = useMemo(
-    () =>
-      upcomingMaturityRows.map((item) => {
+    () => {
+      if (hideHedgeByCultureAndMaturities) return [];
+      return upcomingMaturityRows.map((item) => {
         if (item?.resourceKey !== "derivative-operations") return item;
         const derivativeRow = derivatives.find((row) => String(row.id) === String(item.recordId));
         const title = derivativeRow ? buildDerivativePositionTypeLabel(derivativeRow) : item.title;
@@ -7824,8 +7825,9 @@ function CommercialRiskDashboard({ dashboardFilter }) {
           title,
           summaryLabel: buildDerivativeMaturitySummaryLabel(item, derivativeRow),
         };
-      }),
-    [derivatives, upcomingMaturityRows],
+      });
+    },
+    [derivatives, upcomingMaturityRows, hideHedgeByCultureAndMaturities],
   );
 
   const filteredSales = useMemo(
@@ -8541,6 +8543,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     physicalSales,
   ]);
   const hedgeByCultureRows = useMemo(() => {
+    if (hideHedgeByCultureAndMaturities) return [];
     const selectedCultureIds = new Set((dashboardFilter?.cultura || []).map(String));
     const selectedSeasonIds = new Set((dashboardFilter?.safra || []).map(String));
     const nodeMap = new Map();
@@ -8662,6 +8665,7 @@ function CommercialRiskDashboard({ dashboardFilter }) {
     derivatives,
     groupSubgroupFilter,
     hedgeByCultureReferenceDate,
+    hideHedgeByCultureAndMaturities,
     physicalPayments,
     physicalSales,
     resolveCultureLabel,
@@ -8964,18 +8968,20 @@ function CommercialRiskDashboard({ dashboardFilter }) {
         <section className="stats-grid risk-kpi-grid risk-kpi-grid-three">
           {!summaryLoading ? (
             <>
-              <HedgeByCultureChart
-                rows={hedgeByCultureRows}
-                insightTitle="Hedge por cultura"
-                insightMessage={
-                  <SummaryInsightCopy
-                    paragraphs={[
-                      "Este bloco mostra as culturas existentes para o grupo e subgrupo filtrados, usando a mesma metodologia do Hedge Realizado.",
-                      "O percentual considera vendas físicas e derivativos ativos sobre a produção líquida, descontando Pgtos Físico da base.",
-                    ]}
-                  />
-                }
-              />
+              {!hideHedgeByCultureAndMaturities && (
+                <HedgeByCultureChart
+                  rows={hedgeByCultureRows}
+                  insightTitle="Hedge por cultura"
+                  insightMessage={
+                    <SummaryInsightCopy
+                      paragraphs={[
+                        "Este bloco mostra as culturas existentes para o grupo e subgrupo filtrados, usando a mesma metodologia do Hedge Realizado.",
+                        "O percentual considera vendas físicas e derivativos ativos sobre a produção líquida, descontando Pgtos Físico da base.",
+                      ]}
+                    />
+                  }
+                />
+              )}
               <article className="card stat-card summary-insight-card">
                 <SummaryInsightButton
                   title="Produção líquida"
@@ -8997,10 +9003,12 @@ function CommercialRiskDashboard({ dashboardFilter }) {
                   {formatNumber0(displayedProductionTotal)} sc ({formatNumber0(displayedTotalArea)} ha | {formatNumber0(displayedTotalArea > 0 ? displayedProductionTotal / displayedTotalArea : 0)} sc/ha)
                 </strong>
               </article>
-              <UpcomingMaturitiesCard rows={upcomingMaturityDisplayRows} onOpenItem={openMaturityForm} usdBrlRate={getUsdBrlQuoteValue(marketQuotes)} />
+              {!hideHedgeByCultureAndMaturities && (
+                <UpcomingMaturitiesCard rows={upcomingMaturityDisplayRows} onOpenItem={openMaturityForm} usdBrlRate={getUsdBrlQuoteValue(marketQuotes)} />
+              )}
             </>
           ) : (
-            Array.from({ length: 3 }).map((_, index) => (
+            Array.from({ length: hideHedgeByCultureAndMaturities ? 1 : 3 }).map((_, index) => (
               <article key={`risk-summary-card-skeleton-${index}`} className="card stat-card risk-kpi-skeleton-card risk-kpi-skeleton-card-medium">
                 <div className="risk-kpi-skeleton-line risk-kpi-skeleton-line-title" />
                 <div className="risk-kpi-skeleton-line" />
@@ -20702,7 +20710,7 @@ const getDashboardSelectedLabel = (items = [], selectedValues = [], labelGetter 
   return selectedItems.length > 1 ? `${firstLabel} +${selectedItems.length - 1}` : firstLabel;
 };
 
-export function DashboardPage({ kind = "cashflow", chartEngine }) {
+export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultureAndMaturities = false }) {
   const content = dashboardContent[kind] || dashboardContent.cashflow;
   const { filter, options } = useDashboardFilter();
   const cashflowFilter = useMemo(
@@ -20786,7 +20794,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine }) {
     return (
       <div className="resource-page dashboard-page">
         <PageHeader title={content.title} hint={commercialRiskHint} description={content.description} />
-        <CommercialRiskDashboard dashboardFilter={filter} />
+        <CommercialRiskDashboard dashboardFilter={filter} hideHedgeByCultureAndMaturities={hideHedgeByCultureAndMaturities} />
       </div>
     );
   }

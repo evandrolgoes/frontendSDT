@@ -92,6 +92,7 @@ const baseNavigationSections = [
     label: "Dashboard",
     items: [
       { path: "/resumo", label: "Resumo", module: "dashboard_summary" },
+      { path: "/resumo-2", label: "Resumo 2", module: "dashboard_summary" },
       { path: "/dashboard/politica-hedge", label: "Politica de Hedge", module: "dashboard_hedge_policy" },
       { path: "/dashboard/mtm", label: "MTM Derivativos", module: "dashboard_mtm" },
       { path: "/dashboard/estrategias-gatilhos", label: "Estratégias e Gatilhos", module: "dashboard_strategies_triggers" },
@@ -234,6 +235,10 @@ export const appRoutes = [
     title: "Resumo",
   },
   dashboardRoute("/resumo", "commercialRisk", "dashboard_summary"),
+  dashboardRoute("/resumo-2", "commercialRisk", "dashboard_summary", {
+    title: "Resumo 2",
+    pageProps: { hideHedgeByCultureAndMaturities: true },
+  }),
   dashboardRoute("/dashboard/ranking-clientes", "clientRanking", "dashboard_summary"),
   dashboardRoute("/dashboard/fluxo-caixa", "cashflow", "dashboard_cashflow"),
   dashboardRoute("/dashboard/fluxo-caixa-diario", "cashflowDaily", "dashboard_cashflow"),
