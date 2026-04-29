@@ -2781,8 +2781,6 @@ const toIsoDate = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-const SHEETY_QUOTES_URL = "https://api.sheety.co/90083751cf0794f44c9730c96a94cedf/apiCotacoesSpotGetBubble/planilha1";
-
 const normalizeText = (value) =>
   String(value || "")
     .normalize("NFD")
@@ -7715,12 +7713,11 @@ function CommercialRiskDashboard({ dashboardFilter, hideHedgeByCultureAndMaturit
   useEffect(() => {
     let isMounted = true;
     resourceService
-      .fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL)
-      .then((sheetyResponse) => {
+      .listTradingviewQuotes()
+      .then((quotes) => {
         if (!isMounted) return;
-        const usdBrlRow = (sheetyResponse?.planilha1 || []).find((item) => normalizeText(item.ctrbolsa) === "usdbrl");
-        const nextUsdBrlRate = Number(usdBrlRow?.cotacao);
-        if (Number.isFinite(nextUsdBrlRate) && nextUsdBrlRate > 0) {
+        const nextUsdBrlRate = getUsdBrlQuoteValue(quotes);
+        if (nextUsdBrlRate > 0) {
           setHedgePolicyUsdBrlRate(nextUsdBrlRate);
         }
       })
@@ -11546,7 +11543,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       resourceService.listAll("budget-costs"),
       resourceService.listAll("actual-costs"),
       resourceService.listAll("crop-boards"),
-      resourceService.fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL).catch(() => ({ planilha1: [] })),
+      resourceService.listTradingviewQuotes().catch(() => []),
     ]).then(([
       policiesResponse,
       physicalResponse,
@@ -11555,7 +11552,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       budgetResponse,
       actualCostsResponse,
       cropBoardResponse,
-      sheetyResponse,
+      tradingviewQuotesResponse,
     ]) => {
       if (!isMounted) return;
       setPolicies(policiesResponse || []);
@@ -11565,9 +11562,7 @@ function HedgePolicyDashboard({ dashboardFilter }) {
       setBudgetCosts(budgetResponse || []);
       setActualCosts(actualCostsResponse || []);
       setCropBoards(cropBoardResponse || []);
-      const usdBrlRow = (sheetyResponse?.planilha1 || []).find((item) => normalizeText(item.ctrbolsa) === "usdbrl");
-      const nextUsdBrlRate = Number(usdBrlRow?.cotacao);
-      setUsdBrlRate(Number.isFinite(nextUsdBrlRate) && nextUsdBrlRate > 0 ? nextUsdBrlRate : 0);
+      setUsdBrlRate(getUsdBrlQuoteValue(tradingviewQuotesResponse));
     });
     return () => {
       isMounted = false;
@@ -20905,8 +20900,8 @@ export function HedgePolicyEditorPage() {
       resourceService.listAll("budget-costs"),
       resourceService.listAll("actual-costs"),
       resourceService.listAll("crop-boards"),
-      resourceService.fetchJsonCached("sheety-cotacoes-spot", SHEETY_QUOTES_URL).catch(() => ({ planilha1: [] })),
-    ]).then(([policiesRes, physicalRes, physPaymentsRes, derivRes, budgetRes, actualCostsRes, cropBoardRes, sheetyRes]) => {
+      resourceService.listTradingviewQuotes().catch(() => []),
+    ]).then(([policiesRes, physicalRes, physPaymentsRes, derivRes, budgetRes, actualCostsRes, cropBoardRes, tradingviewQuotesRes]) => {
       if (!isMounted) return;
       setPolicies(policiesRes || []);
       setPhysicalSales(physicalRes || []);
@@ -20915,9 +20910,7 @@ export function HedgePolicyEditorPage() {
       setBudgetCosts(budgetRes || []);
       setActualCosts(actualCostsRes || []);
       setCropBoards(cropBoardRes || []);
-      const usdBrlRow = (sheetyRes?.planilha1 || []).find((item) => normalizeText(item.ctrbolsa) === "usdbrl");
-      const rate = Number(usdBrlRow?.cotacao);
-      setUsdBrlRate(Number.isFinite(rate) && rate > 0 ? rate : 0);
+      setUsdBrlRate(getUsdBrlQuoteValue(tradingviewQuotesRes));
       setLoaded(true);
     });
     return () => { isMounted = false; };

@@ -308,7 +308,7 @@ export function MentoriaPlansLandingPage() {
             <a href="#planos" className="mentoria-plans-primary-btn">
               Quero ser Estrategista de Hedge
             </a>
-            <span className="mentoria-plans-hero-tag">6 meses de acesso · Programa completo Estrategista de Hedge</span>
+            <span className="mentoria-plans-hero-tag">6 meses de acesso · Trader Agro ou Estrategista de Hedge</span>
           </div>
         </div>
       </header>
@@ -337,8 +337,8 @@ export function MentoriaPlansLandingPage() {
                 <span className="mentoria-plans-conceito-emphasis">Quem se preparar agora chegará na frente.</span>
               </p>
               <p className="mentoria-plans-section-highlight mentoria-plans-conceito-text">
-                Da base sólida ao jogo de verdade — em uma única jornada. O programa completo Estrategista de Hedge
-                leva você do zero ao nível mais avançado do mercado.
+                Você pode entrar pelo Trader Agro para dominar a base — ou ir direto para onde o jogo de verdade acontece:
+                o nível Estrategista de Hedge.
               </p>
             </div>
           </div>
@@ -418,24 +418,26 @@ export function MentoriaPlansLandingPage() {
         </p>
       </div>
 
-      {/* ── PLANO E PREÇO ── */}
+      {/* ── PLANOS E PREÇOS ── */}
       <PlansSection id="planos" className="mentoria-plans-surface-gradient">
         <div className="mentoria-plans-section-head">
-          <PlansEyebrow className="mentoria-plans-eyebrow-large mentoria-plans-reveal">Programa completo</PlansEyebrow>
+          <PlansEyebrow className="mentoria-plans-eyebrow-large mentoria-plans-reveal">Escolha seu nível de entrada</PlansEyebrow>
           <h2 className="mentoria-plans-section-title mentoria-plans-reveal mentoria-plans-reveal-delay-1">
-            O caminho para se tornar um{" "}
+            Os dois caminhos para se tornar um{" "}
             <span>Estrategista de Hedge</span>
           </h2>
           <p className="mentoria-plans-body mentoria-plans-reveal mentoria-plans-reveal-delay-2">
-            Uma única jornada que vai da base sólida ao nível mais avançado — com as ferramentas, as estratégias
-            e a visão de quem realmente joga o jogo do mercado.
+            Você pode começar pela base e construir a sua jornada — ou ir direto ao nível mais completo, onde estão
+            as ferramentas, as estratégias e a visão de quem realmente joga o jogo do mercado.
             <br />
             6 meses de acesso · parcelamento em até 12x no cartão.
           </p>
         </div>
 
-        {/* Card único — conteúdo + preço + CTA */}
-        <div className="mentoria-plans-combined-grid mentoria-plans-combined-grid--single">
+        <p className="mentoria-plans-choose-label mentoria-plans-reveal">Escolha o seu nível de acesso</p>
+
+        {/* Card único por plano — conteúdo + preço + CTA */}
+        <div className="mentoria-plans-combined-grid">
           {MENTORIA_PLANS.map((plan) => (
             <article
               key={plan.id}

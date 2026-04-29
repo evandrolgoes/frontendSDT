@@ -15936,6 +15936,11 @@ tfoot td {
   gap: 20px;
 }
 
+.mentoria-plans-combined-grid--single {
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+}
+
 .mentoria-plans-combined-card {
   position: relative;
   display: flex;

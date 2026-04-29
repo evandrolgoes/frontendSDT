@@ -263,10 +263,6 @@ export const resourceService = {
       api.get(`/${resource}/${id}/`, { params: normalizedParams }).then((response) => response.data),
     );
   },
-  listDerivativeContracts: (secao) =>
-    remember(buildCacheKey("lookup", "derivative-contracts", { secao }), () =>
-      api.get("derivative-contracts/", { params: { secao } }).then((response) => response.data),
-    ),
   listIbgeStates: () =>
     remember(buildCacheKey("lookup", "localidades/estados", {}), () =>
       api.get("localidades/estados/").then((response) => response.data),
