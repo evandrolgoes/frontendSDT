@@ -2807,25 +2807,30 @@ textarea {
   top: 10px;
   right: 10px;
   z-index: 3;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #0f766e;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+  color: #64748b;
+  opacity: 0.45;
   cursor: pointer;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+  transition: opacity 0.16s ease, color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
 }
 
-.summary-insight-button:hover {
-  transform: translateY(-1px);
+.card-image-copy-host:hover .summary-insight-button,
+.summary-insight-card:hover .summary-insight-button,
+.hedge-chart-card:hover .summary-insight-button,
+.summary-insight-button:hover,
+.summary-insight-button:focus-visible {
+  opacity: 1;
+  color: #0f766e;
   background: #fff;
-  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.12);
+  border-color: rgba(15, 118, 110, 0.32);
 }
 
 .summary-insight-button:focus-visible {
@@ -2834,14 +2839,76 @@ textarea {
 }
 
 .summary-insight-button svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .summary-insight-button-inline {
   position: static;
   top: auto;
   right: auto;
+}
+
+.hedge-chart-card {
+  position: relative;
+}
+
+.card-image-copy-button {
+  position: absolute;
+  top: 10px;
+  right: 44px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #64748b;
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.16s ease, color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.card-image-copy-host:hover > .card-image-copy-button,
+.card-image-copy-button:focus-visible,
+.card-image-copy-button:hover {
+  opacity: 1;
+  color: #0f766e;
+  background: #fff;
+  border-color: rgba(15, 118, 110, 0.32);
+}
+
+.card-image-copy-button:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.32);
+  outline-offset: 2px;
+}
+
+.card-image-copy-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.card-image-copy-button--copied {
+  opacity: 1;
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.45);
+  background: #ecfdf5;
+}
+
+.card-image-copy-button--copying {
+  opacity: 0.85;
+  cursor: progress;
+}
+
+.card-image-copy-button--error {
+  opacity: 1;
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.4);
+  background: #fef2f2;
 }
 
 .summary-insight-copy {
@@ -5595,28 +5662,36 @@ textarea {
   position: absolute;
   top: 10px;
   right: 36px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: #fff;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.7);
   color: #64748b;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  padding: 5px;
-  transition: color 0.15s, border-color 0.15s;
+  padding: 0;
+  opacity: 0.45;
+  transition: opacity 0.16s ease, color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
 }
 
-.hedge-culture-expand-btn:hover {
+.card-image-copy-host:hover > .hedge-culture-expand-btn,
+.summary-insight-card:hover > .hedge-culture-expand-btn,
+.hedge-chart-card:hover > .hedge-culture-expand-btn,
+.hedge-culture-expand-btn:hover,
+.hedge-culture-expand-btn:focus-visible {
+  opacity: 1;
   color: #0f766e;
-  border-color: #0f766e;
+  background: #fff;
+  border-color: rgba(15, 118, 110, 0.32);
 }
 
 .hedge-culture-expand-btn svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .hedge-culture-modal-backdrop {
@@ -7316,14 +7391,32 @@ textarea {
 }
 
 .hedge-chart-icon-btn {
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  padding: 5px 9px;
-  background: #fff;
-  color: #0f172a;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #64748b;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.45;
   cursor: pointer;
+  transition: opacity 0.16s ease, color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.card-image-copy-host:hover .hedge-chart-icon-btn,
+.hedge-chart-card:hover .hedge-chart-icon-btn,
+.hedge-chart-icon-btn:hover,
+.hedge-chart-icon-btn:focus-visible {
+  opacity: 1;
+  color: #0f766e;
+  background: #fff;
+  border-color: rgba(15, 118, 110, 0.32);
 }
 
 .hedge-chart-select {

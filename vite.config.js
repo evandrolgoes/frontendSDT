@@ -23,6 +23,10 @@ export default defineConfig({
             return "vendor-react";
           }
 
+          if (id.includes("html-to-image")) {
+            return "vendor-html-to-image";
+          }
+
           return "vendor";
         },
       },

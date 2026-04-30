@@ -15,6 +15,7 @@
     "chartjs-plugin-zoom": "^2.2.0",
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.6",
+    "html-to-image": "^1.11.13",
     "lightweight-charts": "^5.1.0",
     "quill": "^2.0.3",
     "react": "^19.1.0",

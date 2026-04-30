@@ -295,6 +295,283 @@ function SummaryInsightCopy({ paragraphs = [] }) {
   );
 }
 
+const CARD_IMAGE_COPY_SELECTOR = ".summary-insight-card, .hedge-chart-card, .chart-card, article.card, article.currency-hedge-col, article.market-news-detail, article.price-comp-pane";
+const CARD_IMAGE_COPY_BUTTON_CLASS = "card-image-copy-button";
+const CARD_IMAGE_COPY_ICON_HTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+const CARD_IMAGE_COPY_CHECK_HTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12.5l4 4 10-10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+const setCopyButtonState = (button, state) => {
+  button.classList.remove(
+    `${CARD_IMAGE_COPY_BUTTON_CLASS}--idle`,
+    `${CARD_IMAGE_COPY_BUTTON_CLASS}--copying`,
+    `${CARD_IMAGE_COPY_BUTTON_CLASS}--copied`,
+    `${CARD_IMAGE_COPY_BUTTON_CLASS}--error`,
+  );
+  button.classList.add(`${CARD_IMAGE_COPY_BUTTON_CLASS}--${state}`);
+  if (state === "copied") {
+    button.innerHTML = CARD_IMAGE_COPY_CHECK_HTML;
+    button.title = "Imagem copiada";
+    button.setAttribute("aria-label", "Imagem copiada");
+  } else if (state === "copying") {
+    button.innerHTML = CARD_IMAGE_COPY_ICON_HTML;
+    button.title = "Copiando...";
+    button.setAttribute("aria-label", "Copiando...");
+    button.disabled = true;
+  } else if (state === "error") {
+    button.innerHTML = CARD_IMAGE_COPY_ICON_HTML;
+    button.title = "Falha ao copiar";
+    button.setAttribute("aria-label", "Falha ao copiar");
+  } else {
+    button.innerHTML = CARD_IMAGE_COPY_ICON_HTML;
+    button.title = "Copiar como imagem";
+    button.setAttribute("aria-label", "Copiar como imagem");
+    button.disabled = false;
+  }
+};
+
+const SVG_PRESENTATION_PROPS = [
+  "fill",
+  "fill-opacity",
+  "fill-rule",
+  "stroke",
+  "stroke-width",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-miterlimit",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "stroke-opacity",
+  "opacity",
+  "vector-effect",
+  "paint-order",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "dominant-baseline",
+  "letter-spacing",
+];
+
+const inlineSvgComputedStyles = (originalSvg, cloneSvg) => {
+  const apply = (origNode, cloneNode) => {
+    if (!origNode || !cloneNode || origNode.nodeType !== 1 || cloneNode.nodeType !== 1) return;
+    const computed = window.getComputedStyle(origNode);
+    for (const prop of SVG_PRESENTATION_PROPS) {
+      const value = computed.getPropertyValue(prop);
+      if (value && value !== "" && value !== "normal") {
+        cloneNode.style.setProperty(prop, value);
+      }
+    }
+  };
+  apply(originalSvg, cloneSvg);
+  const origDescendants = originalSvg.querySelectorAll("*");
+  const cloneDescendants = cloneSvg.querySelectorAll("*");
+  const limit = Math.min(origDescendants.length, cloneDescendants.length);
+  for (let i = 0; i < limit; i += 1) {
+    apply(origDescendants[i], cloneDescendants[i]);
+  }
+};
+
+async function prepareCardForCapture(card, capturePixelRatio) {
+  const origCanvases = Array.from(card.querySelectorAll("canvas"));
+  const origSvgs = Array.from(card.querySelectorAll("svg"));
+  if (origCanvases.length === 0 && origSvgs.length === 0) {
+    return { node: card, cleanup: () => {} };
+  }
+
+  let canvasReplacements = [];
+  if (origCanvases.length > 0) {
+    let echartsModule = null;
+    try {
+      echartsModule = await import("echarts");
+    } catch (error) {
+      echartsModule = null;
+    }
+    const echarts = echartsModule?.default || echartsModule;
+    if (echarts?.getInstanceByDom) {
+      const findInstance = (canvas) => {
+        let node = canvas;
+        while (node && node !== document.body) {
+          const inst = echarts.getInstanceByDom(node);
+          if (inst) return inst;
+          node = node.parentElement;
+        }
+        return null;
+      };
+      canvasReplacements = origCanvases.map((canvas) => {
+        const instance = findInstance(canvas);
+        if (!instance) return null;
+        const rect = canvas.getBoundingClientRect();
+        try {
+          const dataUrl = instance.getDataURL({
+            type: "png",
+            pixelRatio: capturePixelRatio,
+            backgroundColor: "#ffffff",
+          });
+          return { dataUrl, width: rect.width, height: rect.height };
+        } catch (error) {
+          return null;
+        }
+      });
+    }
+  }
+
+  const cardRect = card.getBoundingClientRect();
+  const cardParent = card.parentNode || document.body;
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = "position: absolute; top: 0; left: 0; width: 0; height: 0; overflow: hidden; pointer-events: none;";
+  wrapper.setAttribute("aria-hidden", "true");
+  const clone = card.cloneNode(true);
+  clone.style.width = `${cardRect.width}px`;
+  clone.style.maxWidth = "none";
+  clone.style.flex = "none";
+  wrapper.appendChild(clone);
+
+  const cloneCanvases = Array.from(clone.querySelectorAll("canvas"));
+  const pendingImages = [];
+  cloneCanvases.forEach((cloneCanvas, idx) => {
+    const entry = canvasReplacements[idx];
+    if (!entry) return;
+    const img = document.createElement("img");
+    img.style.width = `${entry.width}px`;
+    img.style.height = `${entry.height}px`;
+    img.style.display = "block";
+    img.style.objectFit = "contain";
+    img.decoding = "sync";
+    pendingImages.push(new Promise((resolve) => {
+      img.onload = () => resolve();
+      img.onerror = () => resolve();
+    }));
+    img.src = entry.dataUrl;
+    cloneCanvas.parentNode.replaceChild(img, cloneCanvas);
+  });
+
+  const cloneSvgs = Array.from(clone.querySelectorAll("svg"));
+  origSvgs.forEach((origSvg, idx) => {
+    const cloneSvg = cloneSvgs[idx];
+    if (!cloneSvg) return;
+    const rect = origSvg.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      cloneSvg.setAttribute("width", String(rect.width));
+      cloneSvg.setAttribute("height", String(rect.height));
+    }
+    inlineSvgComputedStyles(origSvg, cloneSvg);
+  });
+
+  cardParent.appendChild(wrapper);
+  if (pendingImages.length) await Promise.all(pendingImages);
+
+  return {
+    node: clone,
+    cleanup: () => {
+      if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+    },
+  };
+}
+
+const handleCardImageCopyClick = async (event) => {
+  event.stopPropagation();
+  const button = event.currentTarget;
+  const card = button.closest(CARD_IMAGE_COPY_SELECTOR);
+  if (!card) return;
+  setCopyButtonState(button, "copying");
+  let cleanup = () => {};
+  try {
+    const { toBlob } = await import("html-to-image");
+    const devicePixelRatio = typeof window !== "undefined" ? Math.max(window.devicePixelRatio || 1, 1) : 1;
+    const pixelRatio = Math.min(Math.max(devicePixelRatio * 2, 3), 4);
+    const prepared = await prepareCardForCapture(card, pixelRatio);
+    cleanup = prepared.cleanup;
+    const blob = await toBlob(prepared.node, {
+      cacheBust: true,
+      pixelRatio,
+      backgroundColor: "#ffffff",
+      skipAutoScale: true,
+      filter: (node) => !node?.classList?.contains?.(CARD_IMAGE_COPY_BUTTON_CLASS),
+    });
+    if (!blob) throw new Error("blob null");
+    if (typeof window === "undefined" || !window.ClipboardItem || !navigator?.clipboard?.write) {
+      throw new Error("clipboard image unsupported");
+    }
+    await navigator.clipboard.write([new window.ClipboardItem({ "image/png": blob })]);
+    setCopyButtonState(button, "copied");
+    setTimeout(() => setCopyButtonState(button, "idle"), 1500);
+  } catch (error) {
+    console.error("CopyCardAsImageButton failed", error);
+    setCopyButtonState(button, "error");
+    setTimeout(() => setCopyButtonState(button, "idle"), 1800);
+  } finally {
+    cleanup();
+  }
+};
+
+const computeCardCopyButtonRightOffset = (card) => {
+  const cardRect = card.getBoundingClientRect();
+  if (!cardRect.width) return 10;
+  const candidates = card.querySelectorAll(
+    `button:not(.${CARD_IMAGE_COPY_BUTTON_CLASS}), select, .hedge-chart-actions`,
+  );
+  let leftMostEdge = cardRect.right - 10;
+  candidates.forEach((el) => {
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    if (rect.top - cardRect.top > 44) return;
+    if (cardRect.right - rect.right > 80) return;
+    if (rect.left < leftMostEdge) leftMostEdge = rect.left;
+  });
+  const offset = Math.round(cardRect.right - leftMostEdge + 8);
+  return Math.max(offset, 10);
+};
+
+const positionCardCopyButton = (card, button) => {
+  button.style.right = `${computeCardCopyButtonRightOffset(card)}px`;
+};
+
+const ensureCardCopyButton = (card) => {
+  let button = card.querySelector(`:scope > .${CARD_IMAGE_COPY_BUTTON_CLASS}`);
+  if (button) {
+    positionCardCopyButton(card, button);
+    return;
+  }
+  card.classList.add("card-image-copy-host");
+  if (typeof window !== "undefined" && window.getComputedStyle(card).position === "static") {
+    card.style.position = "relative";
+  }
+  button = document.createElement("button");
+  button.type = "button";
+  button.className = `${CARD_IMAGE_COPY_BUTTON_CLASS} ${CARD_IMAGE_COPY_BUTTON_CLASS}--idle`;
+  button.innerHTML = CARD_IMAGE_COPY_ICON_HTML;
+  button.title = "Copiar como imagem";
+  button.setAttribute("aria-label", "Copiar como imagem");
+  button.addEventListener("click", handleCardImageCopyClick);
+  positionCardCopyButton(card, button);
+  card.appendChild(button);
+};
+
+function useInjectCardCopyButtons(rootRef, enabled) {
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const root = rootRef.current;
+    if (!root) return undefined;
+
+    const inject = () => {
+      const cards = root.querySelectorAll(CARD_IMAGE_COPY_SELECTOR);
+      cards.forEach(ensureCardCopyButton);
+    };
+
+    inject();
+
+    const observer = new MutationObserver(() => inject());
+    observer.observe(root, { childList: true, subtree: true });
+
+    return () => {
+      observer.disconnect();
+      root.querySelectorAll(`.${CARD_IMAGE_COPY_BUTTON_CLASS}`).forEach((node) => node.remove());
+    };
+  }, [rootRef, enabled]);
+}
+
 const HEDGE_CULTURE_SERIES_COLORS = ["#0f766e", "#2563eb", "#ea580c", "#9333ea", "#0891b2", "#d97706"];
 
 const parseSeason = (badge) => {
@@ -6804,7 +7081,7 @@ function CashflowDailyDashboard({ dashboardFilter }) {
     grid: {
       top: 34,
       right: 24,
-      bottom: 56,
+      bottom: groupedChartRows.length > 8 ? 84 : 56,
       left: 56,
     },
     tooltip: {
@@ -6832,7 +7109,9 @@ function CashflowDailyDashboard({ dashboardFilter }) {
       axisLabel: {
         color: "#64748b",
         fontSize: 11,
-        interval: groupedChartRows.length > 24 ? Math.ceil(groupedChartRows.length / 12) - 1 : 0,
+        rotate: groupedChartRows.length > 8 ? 35 : 0,
+        hideOverlap: true,
+        interval: 0,
       },
       axisLine: {
         lineStyle: {
@@ -9335,6 +9614,8 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
   const [policies, setPolicies] = useState([]);
   const [budgetCosts, setBudgetCosts] = useState([]);
   const [derivatives, setDerivatives] = useState([]);
+  const [cropBoards, setCropBoards] = useState([]);
+  const [physicalPayments, setPhysicalPayments] = useState([]);
   const [tradingviewQuotes, setTradingviewQuotes] = useState([]);
   const [selectedSojaTicker, setSelectedSojaTicker] = useState("");
   const [selectedDollarTicker, setSelectedDollarTicker] = useState("");
@@ -9355,14 +9636,18 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
         resourceService.listAll("hedge-policies"),
         resourceService.listAll("budget-costs"),
         resourceService.listAll("derivative-operations"),
+        resourceService.listAll("crop-boards").catch(() => []),
+        resourceService.listAll("physical-payments").catch(() => []),
         resourceService.listTradingviewQuotes({ force: true }).catch(() => []),
-      ]).then(([quotesResponse, salesResponse, policiesResponse, budgetResponse, derivativesResponse, tradingviewResponse]) => {
+      ]).then(([quotesResponse, salesResponse, policiesResponse, budgetResponse, derivativesResponse, cropBoardsResponse, physicalPaymentsResponse, tradingviewResponse]) => {
         if (!isMounted) return;
         setQuotes(quotesResponse || []);
         setSales(salesResponse || []);
         setPolicies(policiesResponse || []);
         setBudgetCosts(budgetResponse || []);
         setDerivatives(derivativesResponse || []);
+        setCropBoards(cropBoardsResponse || []);
+        setPhysicalPayments(physicalPaymentsResponse || []);
         const marketRows = Array.isArray(tradingviewResponse) ? tradingviewResponse : [];
         setTradingviewQuotes(marketRows);
 
@@ -9434,6 +9719,35 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
     () => derivatives.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
     [dashboardFilter, derivatives],
   );
+  const filteredCropBoards = useMemo(
+    () => cropBoards.filter((item) => matchesDashboardFilter(item, dashboardFilter)),
+    [cropBoards, dashboardFilter],
+  );
+  const filteredPhysicalPayments = useMemo(
+    () =>
+      physicalPayments.filter((item) =>
+        matchesDashboardFilter(item, dashboardFilter, { cultureKeys: ["fazer_frente_com"] }),
+      ),
+    [dashboardFilter, physicalPayments],
+  );
+
+  const usdBrlRate = useMemo(() => getUsdBrlQuoteValue(tradingviewQuotes), [tradingviewQuotes]);
+
+  const custoOrcamentoTotalBrl = useMemo(
+    () => filteredBudgetCosts.reduce((sum, item) => sum + convertValueToBrl(item.valor, item.moeda, usdBrlRate), 0),
+    [filteredBudgetCosts, usdBrlRate],
+  );
+
+  const producaoLiquidaTotal = useMemo(
+    () =>
+      getNetProductionValue(
+        filteredCropBoards,
+        filteredPhysicalPayments,
+        (item) => item.producao_total,
+        (item) => item.volume,
+      ),
+    [filteredCropBoards, filteredPhysicalPayments],
+  );
 
   useEffect(() => {
     const sojaAvg =
@@ -9450,10 +9764,10 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
       averageOf(filteredSales.map((item) => item.dolar_de_venda)) ??
       5.5;
 
-    const breakEvenAvg =
-      averageOf(filteredBudgetCosts.map((item) => item.valor)) ??
-      averageOf(filteredSales.map((item) => item.preco)) ??
-      120;
+    const breakEvenCalc =
+      producaoLiquidaTotal > 0 && Number.isFinite(custoOrcamentoTotalBrl)
+        ? custoOrcamentoTotalBrl / producaoLiquidaTotal
+        : null;
 
     const basisAvg = averageOf(filteredSales.map((item) => item.basis_valor)) ?? 0;
     const latestPolicy = [...filteredPolicies].sort((left, right) => String(right.mes_ano || "").localeCompare(String(left.mes_ano || "")))[0];
@@ -9461,10 +9775,10 @@ function SimulationsMatrixDashboard({ dashboardFilter, filterOptions }) {
 
     setSojaValue((current) => (selectedSojaTicker ? current : formatNumber2(sojaAvg)));
     setCambioValue((current) => (selectedDollarTicker ? current : formatNumber2(cambioAvg)));
-    setBreakevenValue(formatNumber2(breakEvenAvg));
+    setBreakevenValue(formatNumber2(breakEvenCalc ?? 0));
     setBasisValue(formatNumber2(basisAvg));
     setTargetPercentValue(formatPercent1(Number.isFinite(targetPct) ? targetPct : 0.18));
-  }, [filteredBudgetCosts, filteredDerivatives, filteredPolicies, filteredQuotes, filteredSales, selectedDollarTicker, selectedSojaTicker]);
+  }, [custoOrcamentoTotalBrl, filteredDerivatives, filteredPolicies, filteredQuotes, filteredSales, producaoLiquidaTotal, selectedDollarTicker, selectedSojaTicker]);
 
   const sojaTickerOptions = useMemo(() => {
     const unique = new Map();
@@ -13427,21 +13741,20 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar, va
   const clearTooltip = () => setTooltipState(null);
 
   return (
-    <article className="price-comp-pane">
-      <div className="price-comp-vertical-chart" ref={chartRef}>
-        {tooltipState ? (
-          <div className="price-comp-tooltip" style={{ left: `${tooltipState.x}px` }} role="status" aria-live="polite">
-            <div className="price-comp-tooltip-title">{tooltipState.label}</div>
-            <div className="price-comp-tooltip-total">{tooltipState.total}</div>
-            {tooltipState.segments.map((segment) => (
-              <div key={`${tooltipState.label}-${segment.label}`} className="price-comp-tooltip-row">
-                <span className="price-comp-tooltip-dot" style={{ background: segment.color }} />
-                <span className="price-comp-tooltip-text">{segment.label}</span>
-                <span className="price-comp-tooltip-value">{segment.value}</span>
-              </div>
-            ))}
-          </div>
-        ) : null}
+    <div className="price-comp-vertical-chart" ref={chartRef}>
+      {tooltipState ? (
+        <div className="price-comp-tooltip" style={{ left: `${tooltipState.x}px` }} role="status" aria-live="polite">
+          <div className="price-comp-tooltip-title">{tooltipState.label}</div>
+          <div className="price-comp-tooltip-total">{tooltipState.total}</div>
+          {tooltipState.segments.map((segment) => (
+            <div key={`${tooltipState.label}-${segment.label}`} className="price-comp-tooltip-row">
+              <span className="price-comp-tooltip-dot" style={{ background: segment.color }} />
+              <span className="price-comp-tooltip-text">{segment.label}</span>
+              <span className="price-comp-tooltip-value">{segment.value}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
         <div className="price-comp-vertical-body">
           <div className="price-comp-top-spacer" />
           <div className="price-comp-column-totals" style={{ gridTemplateColumns: `repeat(${bars.length}, minmax(0, 1fr))` }}>
@@ -13522,8 +13835,7 @@ function PriceCompositionVerticalChart({ title, bars, unitLabel, onSelectBar, va
             </div>
           </div>
         </div>
-      </div>
-    </article>
+    </div>
   );
 }
 
@@ -13686,11 +13998,9 @@ function PriceCompositionVerticalEChart({ bars, unitLabel, onSelectBar, valueFor
   );
 
   return (
-    <article className="price-comp-pane">
-      <div className="price-comp-vertical-chart">
-        <ReactECharts option={option} onEvents={chartEvents} style={{ height: isMobileViewport ? 280 : 320, width: "100%" }} opts={{ renderer: "svg" }} />
-      </div>
-    </article>
+    <div className="price-comp-vertical-chart">
+      <ReactECharts option={option} onEvents={chartEvents} style={{ height: isMobileViewport ? 280 : 320, width: "100%" }} opts={{ renderer: "svg" }} />
+    </div>
   );
 }
 
@@ -20731,9 +21041,11 @@ const getDashboardSelectedLabel = (items = [], selectedValues = [], labelGetter 
   return selectedItems.length > 1 ? `${firstLabel} +${selectedItems.length - 1}` : firstLabel;
 };
 
-export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultureAndMaturities = false }) {
+export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultureAndMaturities = false, enableCardImageCopy = true }) {
   const content = dashboardContent[kind] || dashboardContent.cashflow;
   const { filter, options } = useDashboardFilter();
+  const dashboardRootRef = useRef(null);
+  useInjectCardCopyButtons(dashboardRootRef, enableCardImageCopy);
   const cashflowFilter = useMemo(
     () => ({
       ...filter,
@@ -20786,7 +21098,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "cashflow") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <CashflowDashboard dashboardFilter={cashflowFilter} compact />
       </div>
@@ -20795,7 +21107,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "cashflowDaily") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <CashflowDailyDashboard dashboardFilter={cashflowFilter} />
       </div>
@@ -20804,7 +21116,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "componentSales") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <ComponentSalesDashboard dashboardFilter={filter} />
       </div>
@@ -20813,7 +21125,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "commercialRisk") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} hint={commercialRiskHint} description={content.description} />
         <CommercialRiskDashboard dashboardFilter={filter} hideHedgeByCultureAndMaturities={hideHedgeByCultureAndMaturities} />
       </div>
@@ -20822,7 +21134,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "clientRanking") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <ClientRankingDashboard dashboardFilter={filter} />
       </div>
@@ -20831,7 +21143,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "strategiesTriggers") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <StrategiesTriggersDashboard dashboardFilter={filter} />
       </div>
@@ -20840,7 +21152,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "simulations") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <SimulationsMatrixDashboard dashboardFilter={filter} filterOptions={options} />
       </div>
@@ -20849,7 +21161,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "hedgePolicy") {
     return (
-      <div className="resource-page dashboard-page hedge-policy-fullscreen-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page hedge-policy-fullscreen-page">
         <PageHeader title="Política de Hedge" description="Acompanhamento do hedge realizado sobre custo e produção líquida versus a política definida." />
         <HedgePolicyDashboard dashboardFilter={filter} />
       </div>
@@ -20858,7 +21170,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "currencyExposure") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <CurrencyExposureDashboard dashboardFilter={filter} filterOptions={options} />
       </div>
@@ -20867,7 +21179,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "priceComposition") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <PriceCompositionDashboard dashboardFilter={filter} chartEngine={chartEngine} />
       </div>
@@ -20876,7 +21188,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
 
   if (kind === "mtm") {
     return (
-      <div className="resource-page dashboard-page">
+      <div ref={dashboardRootRef} className="resource-page dashboard-page">
         <PageHeader title={content.title} description={content.description} />
         <MtmDashboard dashboardFilter={filter} />
       </div>
@@ -20884,7 +21196,7 @@ export function DashboardPage({ kind = "cashflow", chartEngine, hideHedgeByCultu
   }
 
   return (
-    <div className="resource-page dashboard-page">
+    <div ref={dashboardRootRef} className="resource-page dashboard-page">
       <PageHeader title={content.title} description={content.description} />
       <section className="stats-grid">
         {content.stats.map((stat) => (
