@@ -139,7 +139,7 @@ export const MENTORIA_PLANS = [
       "6 meses de acesso completo",
     ],
     originalPrice: "R$ 10.000",
-    priceInstallment: "12x de R$ 297",
+    priceInstallment: "12x de R$ 307",
     priceTotal: "ou R$ 2.970 à vista",
     ctaLabel: "QUERO SER ESTRATEGISTA",
     ctaHref: "https://chk.eduzz.com/39YN7V73WO",

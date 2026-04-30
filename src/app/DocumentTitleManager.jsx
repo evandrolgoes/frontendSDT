@@ -5,6 +5,7 @@ import { getSystemDocumentTitle } from "../routes/routes";
 
 const PUBLIC_PAGE_TITLES = {
   "/landing/landing-page-mentoria": "Traders do Agro - turma 02",
+  "/landing/landing-page-mentoria-estrategista": "Estrategista de Hedge - Formação Completa",
   "/blog": "Hedge Position - Blog",
   "/login": "Hedge Position - Login",
   "/reset-password": "Hedge Position - Redefinir senha",

@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { ProtectedRoute } from "../routes/ProtectedRoute";
 import { appRoutes, publicAppRoutes } from "../routes/routes";
 import { MentoriaLandingPage } from "../pages/MentoriaLandingPage";
+import { MentoriaLandingPageEstrategista } from "../pages/MentoriaLandingPageEstrategista";
 import { MentoriaPlansLandingPage } from "../pages/MentoriaPlansLandingPage";
 import { InvitationSignupPage } from "../pages/InvitationSignupPage";
 import { LoginPage } from "../pages/LoginPage";
@@ -44,6 +45,7 @@ export default function App() {
       <Suspense fallback={<div className="resource-page" />}>
         <Routes>
           <Route path="/landing/landing-page-mentoria" element={<MentoriaLandingPage />} />
+          <Route path="/landing/landing-page-mentoria-estrategista" element={<MentoriaLandingPageEstrategista />} />
           <Route path="/landing/mentoria-planos" element={<MentoriaPlansLandingPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
