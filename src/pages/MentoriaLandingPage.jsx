@@ -324,7 +324,7 @@ export function MentoriaLandingPage() {
             <button type="button" className="mentoria-landing-primary-btn" onClick={() => setIsModalOpen(true)}>
               Quero uma vaga
             </button>
-            <span className="mentoria-landing-hero-tag">Apenas 20 vagas</span>
+            <span className="mentoria-landing-hero-tag">6 meses de acesso · Programa completo Estrategista de Hedge</span>
           </div>
         </div>
       </header>

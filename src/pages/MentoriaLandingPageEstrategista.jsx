@@ -12,12 +12,12 @@ const NAV_ITEMS = [
   { label: "Conceito", href: "#conceito" },
   { label: "Método", href: "#metodo" },
   { label: "Hedge Position", href: "#software" },
-  { label: "Mentor", href: "#mentor" },
   { label: "Formação", href: "#formacao" },
+  { label: "Mentor", href: "#mentor" },
 ];
 
 const LANDING_PAGE_TITLE = "Estrategista de Hedge - Formação Completa";
-const WHATSAPP_CONTACT_NUMBER = "5542988113456";
+const CHECKOUT_URL = "https://chk.eduzz.com/39YN7V73WO";
 
 const FORMACAO_CONTEUDOS = [
   "Por que você será o Profissional + Valorizado do Agro pelos próximos 10 anos",
@@ -64,28 +64,8 @@ const INITIAL_FORM = {
   mensagem: "",
 };
 
-const buildWhatsAppUrl = ({ nome, whatsapp, email, perfil, objetivo_mentoria, mensagem }) => {
-  const message = [
-    `Olá! Acabei de preencher o formulário da ${LANDING_PAGE_TITLE} e tenho interesse em uma vaga.`,
-    "",
-    `Nome: ${nome.trim()}`,
-    `WhatsApp: ${whatsapp.trim()}`,
-    `E-mail: ${email.trim()}`,
-    `Perfil: ${perfil}`,
-    `Objetivo: ${objetivo_mentoria}`,
-    mensagem.trim() ? `Mensagem: ${mensagem.trim()}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return `https://wa.me/${WHATSAPP_CONTACT_NUMBER}?text=${encodeURIComponent(message)}`;
-};
-
-const openWhatsAppConversation = (url) => {
-  const popup = window.open(url, "_blank", "noopener,noreferrer");
-  if (!popup) {
-    window.location.assign(url);
-  }
+const redirectToCheckout = () => {
+  window.location.assign(CHECKOUT_URL);
 };
 
 function MentoriaSection({ children, className = "", id }) {
@@ -106,7 +86,6 @@ export function MentoriaLandingPageEstrategista() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [slideIndex, setSlideIndex] = useState(0);
   const [formState, setFormState] = useState(INITIAL_FORM);
-  const [whatsAppUrl, setWhatsAppUrl] = useState("");
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -144,7 +123,6 @@ export function MentoriaLandingPageEstrategista() {
       setFormState(INITIAL_FORM);
       setIsSubmitted(false);
       setIsSubmitting(false);
-      setWhatsAppUrl("");
     }
   }, [isModalOpen]);
 
@@ -180,10 +158,8 @@ export function MentoriaLandingPageEstrategista() {
         console.warn("Lead salvo, mas o envio de e-mail falhou.");
       }
 
-      const nextWhatsAppUrl = buildWhatsAppUrl(formState);
-      setWhatsAppUrl(nextWhatsAppUrl);
       setIsSubmitted(true);
-      openWhatsAppConversation(nextWhatsAppUrl);
+      redirectToCheckout();
     } catch (error) {
       console.error("Erro ao enviar formulário da mentoria", error);
     } finally {
@@ -303,13 +279,13 @@ export function MentoriaLandingPageEstrategista() {
               <div className="mentoria-landing-modal-success">
                 <div className="mentoria-landing-modal-success-icon">✓</div>
                 <h2>Enviado!</h2>
-                <p>Seu WhatsApp foi aberto para você falar conosco. Se não abrir automaticamente, use o botão abaixo.</p>
+                <p>Estamos te direcionando para a página de pagamento. Se não abrir automaticamente, use o botão abaixo.</p>
                 <button
                   type="button"
                   className="mentoria-landing-primary-btn"
-                  onClick={() => openWhatsAppConversation(whatsAppUrl)}
+                  onClick={redirectToCheckout}
                 >
-                  Abrir WhatsApp
+                  Ir para o Checkout
                 </button>
               </div>
             )}
@@ -359,7 +335,7 @@ export function MentoriaLandingPageEstrategista() {
             <button type="button" className="mentoria-landing-primary-btn" onClick={() => setIsModalOpen(true)}>
               Quero uma vaga
             </button>
-            <span className="mentoria-landing-hero-tag">Apenas 20 vagas</span>
+            <span className="mentoria-landing-hero-tag">6 meses de acesso · Programa completo Estrategista de Hedge</span>
           </div>
         </div>
       </header>
@@ -486,52 +462,7 @@ export function MentoriaLandingPageEstrategista() {
         </div>
       </MentoriaSection>
 
-      <MentoriaSection id="mentor" className="mentoria-landing-surface-gradient">
-        <div className="mentoria-landing-mentor-grid">
-          <div className="mentoria-landing-mentor-photo mentoria-reveal mentoria-reveal-left">
-            <img src={MENTORIA_LANDING_IMAGES.mentorPortrait} alt="Evandro Góes" />
-          </div>
-          <div className="mentoria-landing-copy-panel">
-            <MentoriaEyebrow className="mentoria-reveal">A liderança</MentoriaEyebrow>
-            <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">Evandro Góes</h2>
-            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
-              Uma das maiores autoridades em hedge agrícola no Brasil.
-            </p>
-            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
-              + de 12 anos de experiência em Hedge aplicado ao Produtor rural.
-              <br />
-              Atuou por 5 anos no Itaú BBA e por outros 5 anos na Louis Dreyfus Company como Trader de Commodities
-              Agrícolas.
-            </p>
-            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
-              Construiu sua carreira unindo a precisão de mercados internacionais (como Chicago) à realidade
-              operacional da fazenda brasileira.
-            </p>
-            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
-              Mais do que teoria, atua na execução real de mercado, lado a lado com produtores, estruturando decisões
-              que protegem caixa, reduzem risco e aumentam resultado financeiro.
-            </p>
-            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
-              Criador de um método próprio e exclusivo, validado na prática, que gera em média 5% de ganho adicional
-              de margem financeira para as fazendas atendidas.
-            </p>
-            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
-              Evandro não forma analistas de mercado. Forma Trader estrategistas do produtor rural: profissionais
-              preparados para tomar decisões financeiras em um dos mercados mais complexos do mundo.
-            </p>
-            <div className="mentoria-landing-metric-grid mentoria-reveal mentoria-reveal-delay-3">
-              {MENTORIA_LANDING_METRICS.map((metric) => (
-                <div key={metric.label} className="mentoria-landing-metric-card">
-                  <strong>{metric.value}</strong>
-                  <span>{metric.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </MentoriaSection>
-
-      <MentoriaSection id="formacao" className="mentoria-landing-surface-dark mentoria-landing-formacao">
+      <MentoriaSection id="formacao" className="mentoria-landing-surface-gradient mentoria-landing-formacao">
         <div className="mentoria-landing-section-head mentoria-landing-formacao-head">
           <MentoriaEyebrow className="mentoria-landing-eyebrow-large mentoria-reveal">Formação Completa</MentoriaEyebrow>
           <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">
@@ -596,6 +527,51 @@ export function MentoriaLandingPageEstrategista() {
             </button>
             <p className="mentoria-landing-pricing-note">Vagas limitadas para a turma de lançamento.</p>
           </aside>
+        </div>
+      </MentoriaSection>
+
+      <MentoriaSection id="mentor" className="mentoria-landing-surface-dark">
+        <div className="mentoria-landing-mentor-grid">
+          <div className="mentoria-landing-mentor-photo mentoria-reveal mentoria-reveal-left">
+            <img src={MENTORIA_LANDING_IMAGES.mentorPortrait} alt="Evandro Góes" />
+          </div>
+          <div className="mentoria-landing-copy-panel">
+            <MentoriaEyebrow className="mentoria-reveal">A liderança</MentoriaEyebrow>
+            <h2 className="mentoria-landing-section-title mentoria-reveal mentoria-reveal-delay-1">Evandro Góes</h2>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
+              Uma das maiores autoridades em hedge agrícola no Brasil.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-2">
+              + de 12 anos de experiência em Hedge aplicado ao Produtor rural.
+              <br />
+              Atuou por 5 anos no Itaú BBA e por outros 5 anos na Louis Dreyfus Company como Trader de Commodities
+              Agrícolas.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Construiu sua carreira unindo a precisão de mercados internacionais (como Chicago) à realidade
+              operacional da fazenda brasileira.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Mais do que teoria, atua na execução real de mercado, lado a lado com produtores, estruturando decisões
+              que protegem caixa, reduzem risco e aumentam resultado financeiro.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Criador de um método próprio e exclusivo, validado na prática, que gera em média 5% de ganho adicional
+              de margem financeira para as fazendas atendidas.
+            </p>
+            <p className="mentoria-landing-body mentoria-reveal mentoria-reveal-delay-3">
+              Evandro não forma analistas de mercado. Forma Trader estrategistas do produtor rural: profissionais
+              preparados para tomar decisões financeiras em um dos mercados mais complexos do mundo.
+            </p>
+            <div className="mentoria-landing-metric-grid mentoria-reveal mentoria-reveal-delay-3">
+              {MENTORIA_LANDING_METRICS.map((metric) => (
+                <div key={metric.label} className="mentoria-landing-metric-card">
+                  <strong>{metric.value}</strong>
+                  <span>{metric.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </MentoriaSection>
 
